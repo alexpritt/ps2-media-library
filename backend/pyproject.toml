@@ -1,0 +1,14 @@
+[project]
+name = "ps2_media_library_backend"
+version = "0.1.0"
+description = "Backend API for the PS2-style media library webapp."
+requires-python = ">=3.11"
+
+[project.dependencies]
+fastapi = "^0.113.0"
+uvicorn = "^0.25.0"
+sqlmodel = "^0.0.8"
+python-multipart = "^0.0.6"
+
+[project.scripts]
+start = "uvicorn main:app --host 0.0.0.0 --port 8000"
