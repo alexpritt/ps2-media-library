@@ -5,6 +5,7 @@ export interface MediaItem {
   platform: string | null;
   genre: string;
   year_released: number | null;
+  release_date: string | null;
   players: number | null;
   artist: string | null;
   publisher: string | null;
