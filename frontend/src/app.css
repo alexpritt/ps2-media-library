@@ -1048,6 +1048,13 @@ button {
   color: var(--hud-white);
   font-size: clamp(1.15rem, 2.1vw, 2rem);
   max-width: 88%;
+}
+
+.details-line-5 {
+  margin: 10px 0 0;
+  color: rgba(220, 222, 230, 0.72);
+  font-size: clamp(0.95rem, 1.65vw, 1.6rem);
+  max-width: 88%;
   max-height: 28vh;
   overflow-y: auto;
   overscroll-behavior: contain;

@@ -481,24 +481,25 @@
   }
 
   function releaseDate(item: MediaItem) {
+    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     if (item.release_date) {
       const parts = item.release_date.split('-');
       if (parts.length === 3) {
         const [year, month, day] = parts;
-        return `${month}/${day}/${year} 12:00:00 AM`;
+        const monthName = MONTHS[parseInt(month, 10) - 1] ?? month;
+        return `Release Date: ${monthName} ${parseInt(day, 10)}, ${year}`;
       }
-      return item.release_date;
     }
-    if (item.year_released) return `01/01/${item.year_released} 12:00:00 AM`;
-    return 'Unknown release date';
+    if (item.year_released) return `Release Date: ${item.year_released}`;
+    return 'Release Date: Unknown';
   }
 
   function detailText(item: MediaItem) {
     if (item.category === 'Music') {
-      return `${item.genre} | ${item.notes?.trim() || 'No description available.'}`;
+      return item.genre;
     }
     const players = item.players ? `${item.players} player${item.players === 1 ? '' : 's'}` : 'Players unknown';
-    return `${item.genre} | ${players} | ${item.notes?.trim() || 'No description available.'}`;
+    return `${item.genre} | ${players}`;
   }
 
   function buildAdminGenreOptions(formCategory: Category, mediaItems: MediaItem[]) {
@@ -932,6 +933,14 @@
     adminOpen = true;
     detailsEditMode = false;
     resetAdminForm();
+    // Pre-populate form with current library context
+    if (category === 'Music') {
+      adminForm.category = 'Music';
+      adminForm.platform = '';
+    } else {
+      adminForm.category = 'Games';
+      adminForm.platform = selectedConsole ?? 'PlayStation 2';
+    }
   }
 
   function toggleAdminPanel() {
@@ -1554,6 +1563,7 @@
           <p class="details-line-2">{selectedItem.title}</p>
           <p class="details-line-3">{releaseDate(selectedItem)}</p>
           <p class="details-line-4">{detailText(selectedItem)}</p>
+          <p class="details-line-5">{selectedItem.notes?.trim() || 'No description available.'}</p>
         </div>
 
         <div class="details-actions">
