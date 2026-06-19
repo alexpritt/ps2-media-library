@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 96" fill="none">
+  <defs>
+    <filter id="s" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.6)"/>
+    </filter>
+  </defs>
+  <text x="130" y="34" text-anchor="middle"
+    font-family="'Helvetica Neue',Helvetica,Arial,sans-serif"
+    font-size="21" font-weight="300"
+    fill="white" opacity="0.85" letter-spacing="3" filter="url(#s)">Nintendo</text>
+  <text x="130" y="88" text-anchor="middle"
+    font-family="'Helvetica Neue',Helvetica,Arial,sans-serif"
+    font-size="52" font-weight="900"
+    fill="white" letter-spacing="2" filter="url(#s)">GAME BOY</text>
+</svg>

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="cardBody" x1="18" y1="22" x2="232" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#606A7D"/>
+      <stop offset="1" stop-color="#3A4150"/>
+    </linearGradient>
+    <linearGradient id="cardPlate" x1="62" y1="80" x2="194" y2="182" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8FA2C1" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#425471" stop-opacity="0.85"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="20" y="24" width="216" height="208" rx="20" fill="url(#cardBody)" stroke="rgba(255,255,255,0.22)" stroke-width="4"/>
+  <rect x="36" y="40" width="184" height="26" rx="8" fill="rgba(10, 14, 24, 0.45)"/>
+  <rect x="62" y="84" width="132" height="96" rx="12" fill="url(#cardPlate)" stroke="rgba(255,255,255,0.20)"/>
+
+  <rect x="54" y="42" width="26" height="14" rx="3" fill="rgba(255,255,255,0.25)"/>
+  <rect x="86" y="42" width="26" height="14" rx="3" fill="rgba(255,255,255,0.25)"/>
+  <rect x="118" y="42" width="26" height="14" rx="3" fill="rgba(255,255,255,0.25)"/>
+  <rect x="150" y="42" width="26" height="14" rx="3" fill="rgba(255,255,255,0.25)"/>
+  <rect x="182" y="42" width="26" height="14" rx="3" fill="rgba(255,255,255,0.25)"/>
+
+  <path d="M74 124H182" stroke="rgba(255,255,255,0.26)" stroke-width="3"/>
+  <path d="M74 144H182" stroke="rgba(255,255,255,0.26)" stroke-width="3"/>
+  <path d="M74 164H168" stroke="rgba(255,255,255,0.26)" stroke-width="3"/>
+</svg>
