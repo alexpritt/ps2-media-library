@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { fade } from 'svelte/transition';
-  import type { MediaItem } from './types';
+  import type { MediaItem, EditableSystem } from './types';
 
   type Stage = 'boot' | 'console' | 'library' | 'details';
   type Category = 'Games' | 'Music';
+  type GameRating = 'RP' | 'E' | 'E10+' | 'T' | 'M' | 'AO';
 
   type HistoryState = {
     stage: Stage;
@@ -22,6 +23,7 @@
     genre: string;
     release_date: string;
     year_released: string;
+    rating: GameRating;
     players: string;
     artist: string;
     cover_image: string;
@@ -46,9 +48,21 @@
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/87/PlayStation_4_logo_and_wordmark.svg' },
     { name: 'Nintendo DS', shortName: 'NDS', logo: 'NDS',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg' },
+    { name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
+      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg' },
     { name: 'GameBoy', shortName: 'GB', logo: 'GB',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg' },
+    { name: 'GameCube', shortName: 'GC', logo: 'GC',
+      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg' },
+    { name: 'Wii', shortName: 'Wii', logo: 'Wii',
+      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg' },
+    { name: 'Xbox', shortName: 'XBX', logo: 'XBX',
+      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg' },
+    { name: 'Xbox 360', shortName: '360', logo: '360',
+      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg' },
   ];
+
+  const gameRatingOptions: GameRating[] = ['RP', 'E', 'E10+', 'T', 'M', 'AO'];
 
   let stage: Stage = 'boot';
   let category: Category | null = null;
@@ -81,6 +95,8 @@
   let hoveredConsole: string | null = null;
   let hoveredItemId: number | null = null;
   let brokenCoverIds = new Set<number>();
+  let hoveredConsoleFadeVisible = false;
+  let hoveredConsoleFadeTimeout: ReturnType<typeof setTimeout> | null = null;
 
   let page = 0;
   let itemsPerPage = 15;
@@ -89,6 +105,9 @@
 
   let adminToken = '';
   let adminOpen = false;
+    let adminMode: 'hub' | 'systems' | 'library' = 'hub';
+    let libraryAdminTab: 'games' | 'music' = 'games';
+    let adminContextItem: MediaItem | null = null;
   let detailsEditMode = false;
   let adminEditingId: number | null = null;
   let adminPassword = '';
@@ -96,8 +115,12 @@
   let adminError = '';
   let adminMessage = '';
   let adminForm: AdminForm = emptyAdminForm();
-  let customSystems: string[] = [];
+  let editableSystems: EditableSystem[] = [];
+  let editingSystemId: string | null = null;
+  let editingSystemName = '';
+  let editingSystemIcon = '';
   let newSystemName = '';
+  let newSystemIcon = '';
   let systemError = '';
   let adminListPage = 0;
   let adminListItemsPerPage = 10;
@@ -127,11 +150,31 @@
   let confirmItem: MediaItem | null = null;
 
   $: isAdmin = adminToken.length > 0;
-  $: availableConsoles = buildConsoleList();
+  $: availableConsoles = buildConsoleList(allMedia, editableSystems);
   $: activeConsole = availableConsoles[0] ?? fallbackConsoles[0];
-  $: consoleTitle = hoveredConsole ?? selectedConsole ?? 'Select a Console...';
+  $: consoleHeaderOption = availableConsoles.find((item) => item.name === hoveredConsole) ?? null;
+  $: if (hoveredConsole) {
+    hoveredConsoleFadeVisible = true;
+    if (hoveredConsoleFadeTimeout) clearTimeout(hoveredConsoleFadeTimeout);
+    hoveredConsoleFadeTimeout = setTimeout(() => {
+      hoveredConsole = null;
+    }, 4000);
+  }
+  $: if (!hoveredConsole) {
+    hoveredConsoleFadeVisible = false;
+    if (hoveredConsoleFadeTimeout) {
+      clearTimeout(hoveredConsoleFadeTimeout);
+      hoveredConsoleFadeTimeout = null;
+    }
+  }
   $: totalGameLibraryCount = allMedia.filter((item) => item.category === 'Games').length;
   $: consoleLibraryCountLabel = `${totalGameLibraryCount} ${totalGameLibraryCount === 1 ? 'Game' : 'Games'} in Library`;
+  $: hoveredConsoleGameCount = hoveredConsole
+    ? allMedia.filter((item) => item.category === 'Games' && item.platform === hoveredConsole).length
+    : null;
+  $: consoleSubheaderLabel = hoveredConsole && hoveredConsoleGameCount !== null
+    ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Game' : 'Games'} in ${hoveredConsole} Library`
+    : consoleLibraryCountLabel;
   $: currentItems = pagedItems();
   $: totalPages = Math.ceil(media.length / itemsPerPage);
   $: libraryCountLabel = category === 'Music'
@@ -398,6 +441,7 @@
       genre: '',
       release_date: '',
       year_released: '',
+      rating: 'RP',
       players: '',
       artist: '',
       cover_image: '',
@@ -405,28 +449,150 @@
     };
   }
 
+  function normalizeConsoleKey(platform: string | null | undefined) {
+    const value = (platform ?? '').toLowerCase();
+    if (value === 'playstation 2') return 'ps2';
+    if (value === 'playstation 3') return 'ps3';
+    if (value === 'playstation 4') return 'ps4';
+    if (value === 'nintendo ds') return 'nds';
+    if (value === 'nintendo 3ds') return '3ds';
+    if (value === 'gameboy') return 'gb';
+    if (value === 'gamecube') return 'gamecube';
+    if (value === 'wii') return 'wii';
+    if (value === 'xbox') return 'xbox';
+    if (value === 'xbox 360') return 'xbox360';
+    return '';
+  }
+
+  function normalizeGameRating(rating: string | null | undefined): GameRating {
+    const value = (rating ?? 'RP').toUpperCase().trim();
+    const compact = value.replace(/\s+/g, ' ').trim();
+    if (value === 'E') return 'E';
+    if (value === 'E10' || value === 'E10+' || compact === 'EVERYONE 10+' || compact === 'EVERYONE10+') return 'E10+';
+    if (compact === 'EVERYONE') return 'E';
+    if (value === 'T') return 'T';
+    if (compact === 'TEEN') return 'T';
+    if (value === 'M') return 'M';
+    if (compact === 'MATURE' || compact === 'MATURE 17+' || compact === 'MATURE17+') return 'M';
+    if (value === 'AO') return 'AO';
+    if (compact === 'ADULTS ONLY' || compact === 'ADULTS ONLY 18+' || compact === 'ADULTSONLY' || compact === 'ADULTSONLY18+') return 'AO';
+    if (compact === 'RP' || compact === 'RATING PENDING' || compact === 'RATINGPENDING') return 'RP';
+    return 'RP';
+  }
+
+  function isCartridgePlatform(platform: string | null | undefined) {
+    const key = normalizeConsoleKey(platform);
+    return key === 'nds' || key === '3ds' || key === 'gb';
+  }
+
+  function isSquareLibraryPlatform(platform: string | null | undefined) {
+    const key = normalizeConsoleKey(platform);
+    return key === 'nds' || key === '3ds' || key === 'gb';
+  }
+
+  function caseOverlayUrl(item: MediaItem) {
+    const key = normalizeConsoleKey(item.platform);
+    if (key === 'ps2') return '/suggestions/disc-case-overlays/ps2-case-overlay.svg';
+    if (key === 'ps3') return '/suggestions/disc-case-overlays/ps3-case-overlay.png';
+    if (key === 'ps4') return '/suggestions/disc-case-overlays/ps4-case-overlay.png';
+    if (key === 'nds') return '/suggestions/disc-case-overlays/ds-case-overlay.png';
+    if (key === '3ds') return '/suggestions/disc-case-overlays/3ds-case-overlay.png';
+    if (key === 'gb') return '/suggestions/disc-case-overlays/gameboy-case-overlay.png';
+    if (key === 'gamecube') return '/suggestions/disc-case-overlays/gamecube-case-overlay.svg';
+    if (key === 'wii') return '/suggestions/disc-case-overlays/wii-case-overlay.svg';
+    if (key === 'xbox') return '/suggestions/disc-case-overlays/xbox-case-overlay.svg';
+    if (key === 'xbox360') return '/suggestions/disc-case-overlays/xbox360-case-overlay.svg';
+    return null;
+  }
+
+  function discOverlayUrl(item: MediaItem) {
+    const key = normalizeConsoleKey(item.platform);
+    if (key === 'ps2') return '/suggestions/disc-overlays/ps2-disc-overlay.png';
+    if (key === 'ps3') return '/suggestions/disc-overlays/ps3-disc-overlay.png';
+    if (key === 'ps4') return '/suggestions/disc-overlays/ps4-disc-overlay.png';
+    if (key === 'nds') return '/suggestions/disc-overlays/ds-cartridge-overlay.jpg';
+    if (key === '3ds') return '/suggestions/disc-overlays/3ds-cartridge-overlay.png';
+    if (key === 'gb') return '/suggestions/disc-overlays/gameboy-overlay.png';
+    if (key === 'gamecube') return '/suggestions/disc-overlays/gamecube-disc-overlay.svg';
+    if (key === 'wii') return '/suggestions/disc-overlays/wii-disc-overlay.svg';
+    if (key === 'xbox') return '/suggestions/disc-overlays/xbox-disc-overlay.svg';
+    if (key === 'xbox360') return '/suggestions/disc-overlays/xbox360-disc-overlay.svg';
+    return null;
+  }
+
+  function cartridgeBackUrl(item: MediaItem) {
+    const key = normalizeConsoleKey(item.platform);
+    if (key === 'nds') return '/suggestions/disc-overlays/ds-cartridge-back.svg';
+    if (key === '3ds') return '/suggestions/disc-overlays/3ds-cartridge-back.svg';
+    if (key === 'gb') return '/suggestions/disc-overlays/gameboy-cartridge-back.svg';
+    return '/suggestions/disc-overlays/generic-cartridge-back.svg';
+  }
+
+  function discBackUrl(item: MediaItem) {
+    const key = normalizeConsoleKey(item.platform);
+    if (key === 'ps2') return '/suggestions/disc-overlays/ps2-disc-back.svg';
+    if (key === 'ps3') return '/suggestions/disc-overlays/ps3-disc-back.svg';
+    if (key === 'ps4') return '/suggestions/disc-overlays/ps4-disc-back.svg';
+    if (key === 'gamecube') return '/suggestions/disc-overlays/gamecube-disc-back.svg';
+    if (key === 'wii') return '/suggestions/disc-overlays/wii-disc-back.svg';
+    if (key === 'xbox') return '/suggestions/disc-overlays/xbox-disc-back.svg';
+    if (key === 'xbox360') return '/suggestions/disc-overlays/xbox360-disc-back.svg';
+    return '/suggestions/disc-overlays/realistic-disc-back.svg';
+  }
+
+  function libraryDiscImageUrl(item: MediaItem) {
+    return item.cover_image ?? discOverlayUrl(item);
+  }
+
+  function detailBackImageUrl(item: MediaItem) {
+    return isCartridgePlatform(item.platform) ? cartridgeBackUrl(item) : discBackUrl(item);
+  }
+
+  function discBackingClass(item: MediaItem) {
+    const key = normalizeConsoleKey(item.platform);
+    if (key === 'ps2') return 'disc-shell--ps2';
+    if (key === 'ps3') return 'disc-shell--ps3';
+    if (key === 'ps4') return 'disc-shell--ps4';
+    if (key === 'gamecube') return 'disc-shell--gamecube';
+    if (key === 'wii') return 'disc-shell--wii';
+    if (key === 'xbox') return 'disc-shell--xbox';
+    if (key === 'xbox360') return 'disc-shell--xbox360';
+    if (key === 'nds') return 'disc-shell--nds';
+    if (key === '3ds') return 'disc-shell--3ds';
+    if (key === 'gb') return 'disc-shell--gb';
+    return 'disc-shell--default';
+  }
+
   function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  function buildConsoleList() {
+  function buildConsoleList(mediaItems: MediaItem[], systems: EditableSystem[]) {
     const mediaNames = Array.from(
       new Set(
-        allMedia
+        mediaItems
           .filter((item) => item.category === 'Games' && item.platform)
           .map((item) => item.platform as string),
       ),
     );
-    const fallbackNames = fallbackConsoles.map((item) => item.name);
-    const all = [...customSystems, ...mediaNames, ...fallbackNames];
+    const systemNames = systems.map((system) => system.name);
+    const all = [...systemNames, ...mediaNames];
     const source = Array.from(new Set(all));
     return source.map((name) => {
-      const fallback = fallbackConsoles.find((item) => item.name === name);
+      const system = systems.find((item) => item.name === name);
+      if (system) {
+        return {
+          name: system.name,
+          shortName: system.shortName,
+          logo: system.logo,
+          logoImage: system.logoImage,
+        };
+      }
       return {
         name,
-        shortName: fallback?.shortName ?? name.slice(0, 3).toUpperCase(),
-        logo: fallback?.logo ?? name.slice(0, 3).toUpperCase(),
-        logoImage: fallback?.logoImage,
+        shortName: name.slice(0, 3).toUpperCase(),
+        logo: name.slice(0, 3).toUpperCase(),
+        logoImage: null,
       };
     });
   }
@@ -499,7 +665,8 @@
       return item.genre;
     }
     const players = item.players ? `${item.players} player${item.players === 1 ? '' : 's'}` : 'Players unknown';
-    return `${item.genre} | ${players}`;
+    const rating = normalizeGameRating(item.rating);
+    return `${item.genre} | ${players} | Rated ${rating}`;
   }
 
   function buildAdminGenreOptions(formCategory: Category, mediaItems: MediaItem[]) {
@@ -900,38 +1067,136 @@
     adminForm = emptyAdminForm();
   }
 
-  function persistCustomSystems() {
-    localStorage.setItem('ps2-owned-systems', JSON.stringify(customSystems));
+  function loadSystemsFromStorage() {
+    const stored = localStorage.getItem('ps2-editable-systems');
+    if (stored) {
+      try {
+        editableSystems = JSON.parse(stored) as EditableSystem[];
+      } catch {
+        editableSystems = initializeDefaultSystems();
+      }
+    } else {
+      editableSystems = initializeDefaultSystems();
+    }
   }
 
-  function addCustomSystem() {
+  function initializeDefaultSystems(): EditableSystem[] {
+    return [
+      { id: 'ps2', name: 'PlayStation 2', shortName: 'PS2', logo: 'PS2',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/7/76/PlayStation_2_logo.svg' },
+      { id: 'ps3', name: 'PlayStation 3', shortName: 'PS3', logo: 'PS3',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/d/dc/PlayStation_3_logo.svg' },
+      { id: 'ps4', name: 'PlayStation 4', shortName: 'PS4', logo: 'PS4',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/87/PlayStation_4_logo_and_wordmark.svg' },
+      { id: 'nds', name: 'Nintendo DS', shortName: 'NDS', logo: 'NDS',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg' },
+      { id: '3ds', name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg' },
+      { id: 'gb', name: 'GameBoy', shortName: 'GB', logo: 'GB',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg' },
+      { id: 'gc', name: 'GameCube', shortName: 'GC', logo: 'GC',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg' },
+      { id: 'wii', name: 'Wii', shortName: 'Wii', logo: 'Wii',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg' },
+      { id: 'xbox', name: 'Xbox', shortName: 'XBX', logo: 'XBX',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg' },
+      { id: 'xbox360', name: 'Xbox 360', shortName: '360', logo: '360',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg' },
+    ];
+  }
+
+  function persistSystems() {
+    localStorage.setItem('ps2-editable-systems', JSON.stringify(editableSystems));
+  }
+
+  function addSystem() {
     systemError = '';
     const name = newSystemName.trim();
     if (!name) {
       systemError = 'System name is required.';
       return;
     }
-    const exists = customSystems.some((item) => item.toLowerCase() === name.toLowerCase());
+    const exists = editableSystems.some((item) => item.name.toLowerCase() === name.toLowerCase());
     if (exists) {
       systemError = 'System already exists.';
       return;
     }
-    customSystems = [...customSystems, name];
-    persistCustomSystems();
+    const id = name.toLowerCase().replace(/\s+/g, '-');
+    const newSystem: EditableSystem = {
+      id,
+      name,
+      shortName: name.slice(0, 3).toUpperCase(),
+      logo: name.slice(0, 3).toUpperCase(),
+      logoImage: newSystemIcon.trim() || null,
+    };
+    editableSystems = [...editableSystems, newSystem];
+    persistSystems();
     newSystemName = '';
+    newSystemIcon = '';
   }
 
-  function removeCustomSystem(systemName: string) {
-    customSystems = customSystems.filter((item) => item !== systemName);
-    persistCustomSystems();
-    if (selectedConsole === systemName) {
+  function removeSystem(systemId: string) {
+    editableSystems = editableSystems.filter((item) => item.id !== systemId);
+    persistSystems();
+    const removedSystem = editableSystems.find((s) => s.id === systemId);
+    if (removedSystem && selectedConsole === removedSystem.name) {
       selectedConsole = null;
     }
   }
 
+  function updateSystem(systemId: string, updates: Partial<EditableSystem>) {
+    editableSystems = editableSystems.map((system) =>
+      system.id === systemId ? { ...system, ...updates } : system,
+    );
+    persistSystems();
+  }
+
+  function startEditSystem(systemId: string) {
+    const system = editableSystems.find((s) => s.id === systemId);
+    if (system) {
+      editingSystemId = systemId;
+      editingSystemName = system.name;
+      editingSystemIcon = system.logoImage || '';
+    }
+  }
+
+  function cancelEditSystem() {
+    editingSystemId = null;
+    editingSystemName = '';
+    editingSystemIcon = '';
+  }
+
+  function saveEditSystem() {
+    if (!editingSystemId) return;
+    const name = editingSystemName.trim();
+    if (!name) {
+      systemError = 'System name is required.';
+      return;
+    }
+    const isDuplicate = editableSystems.some(
+      (s) => s.id !== editingSystemId && s.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (isDuplicate) {
+      systemError = 'System name already in use.';
+      return;
+    }
+    updateSystem(editingSystemId, {
+      name,
+      logoImage: editingSystemIcon.trim() || null,
+    });
+    cancelEditSystem();
+    systemError = '';
+  }
+
   function startAddItem() {
     adminOpen = true;
+    adminMode = 'library';
     detailsEditMode = false;
+    adminContextItem = null;
+    libraryAdminTab = category === 'Music' ? 'music' : 'games';
+    adminSearchCategory = category === 'Music' ? 'Music' : 'Games';
+    adminSearchPlatform = category === 'Games' ? (selectedConsole ?? 'All') : 'All';
+    adminListPage = 0;
     resetAdminForm();
     // Pre-populate form with current library context
     if (category === 'Music') {
@@ -941,6 +1206,8 @@
       adminForm.category = 'Games';
       adminForm.platform = selectedConsole ?? 'PlayStation 2';
     }
+    // Open directly in create mode so adding can start immediately.
+    adminEditingId = -1;
   }
 
   function toggleAdminPanel() {
@@ -949,11 +1216,39 @@
       adminSearchPlatform = (category === 'Games' && selectedConsole) ? selectedConsole : 'All';
       adminListPage = 0;
     }
+      adminMode = 'hub';
+      adminContextItem = null;
     adminOpen = !adminOpen;
   }
 
+  function openAdminMode(mode: 'systems' | 'library', tab?: 'games' | 'music', contextItem?: MediaItem) {
+    adminOpen = true;
+    adminMode = mode;
+    if (tab) libraryAdminTab = tab;
+
+    if (mode === 'library' && contextItem) {
+      startEditItem(contextItem);
+      return;
+    }
+
+    adminContextItem = null;
+    resetAdminForm();
+  }
+
+    function backToAdminHub() {
+      adminMode = 'hub';
+      adminContextItem = null;
+      adminEditingId = null;
+    }
+
   function startEditItem(item: MediaItem) {
     adminOpen = true;
+    adminMode = 'library';
+    libraryAdminTab = item.category === 'Music' ? 'music' : 'games';
+    adminContextItem = item;
+    adminSearchCategory = item.category === 'Music' ? 'Music' : 'Games';
+    adminSearchPlatform = item.category === 'Games' ? (item.platform ?? 'All') : 'All';
+    adminListPage = 0;
     adminEditingId = item.id;
     adminForm = {
       id: item.id,
@@ -963,9 +1258,13 @@
       genre: item.genre,
       release_date: item.release_date ?? (item.year_released ? `${item.year_released}-01-01` : ''),
       year_released: item.year_released ? String(item.year_released) : '',
+      rating: normalizeGameRating(item.rating),
       players: item.players ? String(item.players) : '',
       artist: item.artist ?? '',
+      format: item.format ?? '',
+      region: item.region ?? '',
       cover_image: item.cover_image ?? '',
+      tags: item.tags ?? '',
       notes: item.notes ?? '',
     };
   }
@@ -1036,6 +1335,7 @@
       genre: adminForm.genre.trim(),
       release_date: releaseDate || null,
       year_released: releaseYear,
+      rating: adminForm.category === 'Games' ? normalizeGameRating(adminForm.rating) : null,
       players: adminForm.category === 'Games' && adminForm.players ? Number(adminForm.players) : null,
       artist: adminForm.category === 'Music' ? adminForm.artist.trim() || null : null,
       publisher: null,
@@ -1136,17 +1436,7 @@
     if (savedToken) {
       adminToken = savedToken;
     }
-    const savedSystems = localStorage.getItem('ps2-owned-systems');
-    if (savedSystems) {
-      try {
-        const parsed = JSON.parse(savedSystems);
-        if (Array.isArray(parsed)) {
-          customSystems = parsed.filter((item) => typeof item === 'string' && item.trim());
-        }
-      } catch {
-        customSystems = [];
-      }
-    }
+    loadSystemsFromStorage();
 
     await loadAllMedia();
     history.replaceState(currentHistoryState(), '');
@@ -1288,8 +1578,21 @@
 
     {#if stage === 'console'}
       <section class="console-screen">
-        <div class="hud-left">{consoleTitle}</div>
-        <div class="hud-subheader">{consoleLibraryCountLabel}</div>
+        <div class="console-hud">
+          <div class="hud-left console-header-shell">
+            {#if consoleHeaderOption?.logoImage && hoveredConsoleFadeVisible}
+              <img
+                src={consoleHeaderOption.logoImage}
+                alt={consoleHeaderOption.name}
+                class="console-header-logo"
+                draggable="false"
+              />
+            {:else}
+              <span class="console-header-copy">Console Library</span>
+            {/if}
+          </div>
+          <div class="hud-right console-header-count">{hoveredConsole ? consoleSubheaderLabel : consoleLibraryCountLabel}</div>
+        </div>
         <div class="console-grid">
           {#each availableConsoles as console, index}
             <button
@@ -1468,7 +1771,7 @@
                       </span>
                     </span>
                   {:else}
-                    <span class="disc-case" aria-hidden="true">
+                    <span class={`disc-case${isSquareLibraryPlatform(item.platform) ? ' disc-case--square' : ''}`} aria-hidden="true">
                       <span class="disc-case-spine"></span>
                       <span class="disc-case-front">
                         {#if item.cover_image && !brokenCoverIds.has(item.id)}
@@ -1476,8 +1779,24 @@
                         {:else}
                           <span class="library-fallback">{iconInitials(item.title)}</span>
                         {/if}
+                        {#if caseOverlayUrl(item)}
+                          <img src={caseOverlayUrl(item) ?? ''} alt="" class="game-overlay game-overlay--case" aria-hidden="true" draggable="false" />
+                        {/if}
                       </span>
-                      <span class="disc-case-disc"></span>
+                      <span class={`disc-case-disc ${discBackingClass(item)}${isCartridgePlatform(item.platform) ? ' disc-case-disc--cartridge' : ''}`}>
+                        <span class="disc-shell-backing"></span>
+                        {#if libraryDiscImageUrl(item)}
+                          <img src={libraryDiscImageUrl(item) ?? ''} alt="" class="disc-image" aria-hidden="true" draggable="false" />
+                        {:else}
+                          <span class="disc-shell-fallback">{iconInitials(item.title)}</span>
+                        {/if}
+                        {#if discOverlayUrl(item)}
+                          <img src={discOverlayUrl(item) ?? ''} alt="" class="game-overlay game-overlay--disc" aria-hidden="true" draggable="false" />
+                        {/if}
+                        {#if !isCartridgePlatform(item.platform)}
+                          <span class="disc-hole"></span>
+                        {/if}
+                      </span>
                     </span>
                   {/if}
                   <span class="library-title">{item.title}</span>
@@ -1533,15 +1852,53 @@
               }}
             >
               {#if selectedItem.category === 'Games'}
-                <div class="details-game-disc">
-                  {#if selectedItem.cover_image}
-                    <img src={selectedItem.cover_image} alt={selectedItem.title} class="details-game-disc-art" draggable="false" />
-                  {:else}
-                    <div class="details-game-disc-fallback">{iconInitials(selectedItem.title)}</div>
-                  {/if}
-                  <span class="details-game-disc-hole"></span>
-                  <span class="details-game-disc-shine"></span>
-                </div>
+                {#if isCartridgePlatform(selectedItem.platform)}
+                  <div class="details-cart-flipper">
+                    <div class="details-disc-flip-face details-disc-flip-face--front">
+                      <div class={`details-cartridge ${discBackingClass(selectedItem)}`}>
+                        <span class="disc-shell-backing"></span>
+                        {#if discOverlayUrl(selectedItem)}
+                          <img src={discOverlayUrl(selectedItem) ?? ''} alt="" class="game-overlay game-overlay--cartridge" aria-hidden="true" draggable="false" />
+                        {/if}
+                      </div>
+                    </div>
+                    <div class="details-disc-flip-face details-disc-flip-face--back" aria-hidden="true">
+                      <div class={`details-cartridge ${discBackingClass(selectedItem)}`}>
+                        <span class="disc-shell-backing"></span>
+                        {#if detailBackImageUrl(selectedItem)}
+                          <img src={detailBackImageUrl(selectedItem) ?? ''} alt="" class="details-cartridge-back" draggable="false" />
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {:else}
+                  <div class="details-disc-flipper">
+                    <div class="details-disc-flip-face details-disc-flip-face--front">
+                      <div class={`details-game-disc ${discBackingClass(selectedItem)}`}>
+                        <span class="disc-shell-backing"></span>
+                        {#if selectedItem.cover_image && !brokenCoverIds.has(selectedItem.id)}
+                          <img src={selectedItem.cover_image} alt={selectedItem.title} class="details-game-disc-art" draggable="false" />
+                        {:else}
+                          <div class="details-game-disc-fallback">{iconInitials(selectedItem.title)}</div>
+                        {/if}
+                        {#if discOverlayUrl(selectedItem)}
+                          <img src={discOverlayUrl(selectedItem) ?? ''} alt="" class="game-overlay game-overlay--disc" aria-hidden="true" draggable="false" />
+                        {/if}
+                        <span class="disc-hole"></span>
+                        <span class="details-game-disc-shine"></span>
+                      </div>
+                    </div>
+                    <div class="details-disc-flip-face details-disc-flip-face--back" aria-hidden="true">
+                      <div class={`details-game-disc ${discBackingClass(selectedItem)}`}>
+                        <span class="disc-shell-backing"></span>
+                        {#if detailBackImageUrl(selectedItem)}
+                          <img src={detailBackImageUrl(selectedItem) ?? ''} alt="" class="details-game-disc-back" draggable="false" />
+                        {/if}
+                        <span class="disc-hole"></span>
+                      </div>
+                    </div>
+                  </div>
+                {/if}
               {:else}
                 <span class="vinyl-wrap details-vinyl" aria-hidden="true">
                   <span class="vinyl-record"></span>
@@ -1609,7 +1966,7 @@
     {#if isAdmin}
       <div class="admin-toolbar">
         {#if stage === 'console'}
-          <button type="button" on:click={() => (adminOpen = true)}>Add System</button>
+          <button type="button" on:click={() => openAdminMode('systems')}>Manage Systems</button>
         {/if}
         {#if stage === 'library'}
           <button type="button" on:click={startAddItem}>Add {category === 'Music' ? 'Album' : 'Game'}</button>
@@ -1618,137 +1975,266 @@
     {/if}
 
     {#if adminOpen}
-      <div class="admin-overlay" role="dialog" aria-modal="true">
-        <button type="button" class="admin-backdrop" aria-label="Close admin panel" on:click={() => (adminOpen = false)}></button>
-        <div class="admin-panel">
+  <div class="admin-overlay" role="dialog" aria-modal="true">
+    <button type="button" class="admin-backdrop" aria-label="Close admin panel" on:click={() => (adminOpen = false)}></button>
+    <div class="admin-panel">
+      {#if !isAdmin}
+        <div class="admin-header">
+          <h2>Admin Access</h2>
+          <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+        </div>
+        <div class="admin-login">
+          <label for="admin-password">Password</label>
+          <input id="admin-password" type="password" bind:value={adminPassword} placeholder="Enter password..." />
+          <button type="button" disabled={adminBusy} on:click={adminLogin}>Log In</button>
+        </div>
+      {:else}
+        {#if adminMode === 'hub'}
+          <!-- ADMIN HUB VIEW -->
           <div class="admin-header">
-            <h2>Admin Library Manager</h2>
+            <h2>Admin Hub</h2>
+            <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+          </div>
+          
+          <div class="admin-hub-options">
+            <button type="button" class="admin-hub-card" on:click={() => openAdminMode('systems')}>
+              <h3>System Manager</h3>
+              <p>Manage game consoles and gaming systems</p>
+            </button>
+            <button type="button" class="admin-hub-card" on:click={() => openAdminMode('library', 'games')}>
+              <h3>Library Manager</h3>
+              <p>Manage games and music in your collection</p>
+            </button>
+          </div>
+
+          <div class="admin-actions">
+            <button type="button" class="ghost" on:click={adminLogout}>Log Out</button>
+          </div>
+        {:else if adminMode === 'systems'}
+          <!-- SYSTEMS MANAGER VIEW -->
+          <div class="admin-header">
+            <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>← Hub</button>
+            <h2>System Manager</h2>
             <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
           </div>
 
-          {#if !isAdmin}
-            <div class="admin-login">
-              <label for="admin-password">Password</label>
-              <input id="admin-password" type="password" bind:value={adminPassword} placeholder="Enter password..." />
-              <button type="button" disabled={adminBusy} on:click={adminLogin}>Log In</button>
-            </div>
-          {:else}
-            <div class="admin-actions">
-              <button type="button" on:click={resetAdminForm}>New Item</button>
-              <button type="button" class="ghost" on:click={adminLogout}>Log Out</button>
-            </div>
-
-            {#if stage === 'console'}
-              <div class="systems-manager">
-                <h3>Owned Systems</h3>
+          <div class="admin-layout">
+            <!-- Systems List (Left) -->
+            <div class="admin-list-pane">
+              <div class="systems-add-section">
+                <h4>Add New System</h4>
                 <div class="systems-add-row">
-                  <input type="text" bind:value={newSystemName} placeholder="Add system name" />
-                  <button type="button" on:click={addCustomSystem}>Add System</button>
+                  <input type="text" bind:value={newSystemName} placeholder="System name" />
+                  <input type="text" bind:value={newSystemIcon} placeholder="Logo URL (optional)" />
+                  <button type="button" on:click={addSystem} class="add-button">Add</button>
                 </div>
-                {#if systemError}
-                  <p class="admin-error">{systemError}</p>
-                {/if}
-                <div class="systems-list">
-                  {#each customSystems as systemName}
-                    <div class="systems-row">
-                      <span>{systemName}</span>
-                      <button type="button" class="danger" on:click={() => removeCustomSystem(systemName)}>Remove</button>
+              </div>
+
+              {#if systemError}
+                <p class="admin-error">{systemError}</p>
+              {/if}
+
+              <div class="systems-list">
+                {#each editableSystems as system}
+                  <div class="systems-row">
+                    <div class="systems-row-main">
+                      <div class="systems-logo-container">
+                        {#if system.logoImage}
+                          <img src={system.logoImage} alt={system.name} class="systems-logo" draggable="false" />
+                        {:else}
+                          <span class="systems-fallback">{system.shortName}</span>
+                        {/if}
+                      </div>
+                      <div class="systems-info">
+                        <strong>{system.name}</strong>
+                        <small>{system.shortName}</small>
+                      </div>
                     </div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-
-            <form class="admin-form" on:submit|preventDefault={saveAdminItem}>
-              <input type="text" bind:value={adminForm.title} placeholder="Title" required />
-              <select bind:value={adminForm.category} on:change={() => (adminForm.genre = '')}>
-                <option value="Games">Games</option>
-                <option value="Music">Music</option>
-              </select>
-              {#if adminForm.category !== 'Music'}
-                <select bind:value={adminForm.platform}>
-                  <option value="">No console</option>
-                  {#each adminConsoleOptions as consoleName}
-                    <option value={consoleName}>{consoleName}</option>
-                  {/each}
-                </select>
-              {/if}
-              <select bind:value={adminForm.genre} required>
-                <option value="" disabled>Select genre</option>
-                {#each adminGenreOptions as genreName}
-                  <option value={genreName}>{genreName}</option>
+                    <div class="systems-actions">
+                      <button type="button" class="edit-button" on:click={() => startEditSystem(system.id)}>Edit</button>
+                      <button type="button" class="danger" on:click={() => removeSystem(system.id)}>Remove</button>
+                    </div>
+                  </div>
                 {/each}
-              </select>
-              <input type="date" bind:value={adminForm.release_date} placeholder="Release date" />
-              {#if adminForm.category === 'Games'}
-                <select bind:value={adminForm.players}>
-                  <option value="">Number of players</option>
-                  {#each adminPlayerOptions as playerCount}
-                    <option value={String(playerCount)}>{playerCount}</option>
-                  {/each}
-                </select>
-              {/if}
-              {#if adminForm.category === 'Music'}
-                <input type="text" bind:value={adminForm.artist} placeholder="Artist" />
-              {/if}
-              <input type="text" bind:value={adminForm.cover_image} placeholder="Cover image URL" />
-              <textarea bind:value={adminForm.notes} rows="3" placeholder="Short description"></textarea>
-              <button type="submit" disabled={adminBusy}>{adminEditingId ? 'Save Changes' : 'Create Item'}</button>
-            </form>
-
-            <div class="admin-list-filters">
-              <input type="text" bind:value={adminSearchQuery} placeholder="Search by title..." />
-              <select bind:value={adminSearchCategory} on:change={() => (adminListPage = 0)}>
-                <option value="All">All Categories</option>
-                <option value="Games">Games</option>
-                <option value="Music">Music</option>
-              </select>
-              {#if adminSearchCategory === 'Games'}
-                <select bind:value={adminSearchPlatform} on:change={() => (adminListPage = 0)}>
-                  <option value="All">All Platforms</option>
-                  {#each adminConsoleOptions as platform}
-                    <option value={platform}>{platform}</option>
-                  {/each}
-                </select>
-              {/if}
+              </div>
             </div>
 
-            <div class="admin-list">
-              {#each adminPagedMedia as item}
-                <div class="admin-row">
-                  <div>
-                    <strong>{item.title}</strong>
-                    <small>{item.category} | {item.platform ?? item.format ?? 'Unknown'}</small>
-                  </div>
-                  <div class="admin-row-actions">
-                    <button type="button" on:click={() => openEditConfirm(item)}>Edit</button>
-                    <button type="button" class="danger" on:click={() => openDeleteConfirm(item)}>Delete</button>
+            <!-- System Editor (Right) -->
+            <div class="admin-form-pane">
+              {#if editingSystemId !== null}
+                <div class="systems-edit-mode">
+                  <h3>Edit System</h3>
+                  <input type="text" bind:value={editingSystemName} placeholder="System name" class="edit-name" />
+                  <input type="text" bind:value={editingSystemIcon} placeholder="Logo URL" class="edit-icon" />
+                  <div class="form-actions">
+                    <button type="button" on:click={saveEditSystem} class="save-button">Save</button>
+                    <button type="button" on:click={cancelEditSystem} class="cancel-button">Cancel</button>
                   </div>
                 </div>
-              {/each}
+              {:else}
+                <div class="admin-form-empty">
+                  <p>Select a system to edit, or add a new one on the left.</p>
+                </div>
+              {/if}
+            </div>
+          </div>
+
+        {:else if adminMode === 'library'}
+          <!-- LIBRARY MANAGER VIEW -->
+          <div class="admin-header">
+            <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>← Hub</button>
+            <h2>Library Manager</h2>
+            <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+          </div>
+
+          <div class="admin-tabs">
+            <button 
+              type="button" 
+              class:active={libraryAdminTab === 'games'}
+              on:click={() => { libraryAdminTab = 'games'; adminListPage = 0; }}
+            >
+              Games
+            </button>
+            <button 
+              type="button" 
+              class:active={libraryAdminTab === 'music'}
+              on:click={() => { libraryAdminTab = 'music'; adminListPage = 0; }}
+            >
+              Music
+            </button>
+          </div>
+
+          <div class="admin-layout">
+            <!-- Library List (Left) -->
+            <div class="admin-list-pane">
+              <div class="admin-list-filters">
+                <input type="search" class="search-input-unified" bind:value={adminSearchQuery} placeholder="Search by title..." />
+                {#if libraryAdminTab === 'games'}
+                  <select bind:value={adminSearchPlatform} on:change={() => (adminListPage = 0)}>
+                    <option value="All">All Platforms</option>
+                    {#each adminConsoleOptions as platform}
+                      <option value={platform}>{platform}</option>
+                    {/each}
+                  </select>
+                {/if}
+              </div>
+
+              <div class="admin-list">
+                {#each adminPagedMedia as item}
+                  {#if item.category === (libraryAdminTab === 'games' ? 'Games' : 'Music')}
+                    <div
+                      class="admin-row"
+                      class:active={adminEditingId === item.id}
+                      role="button"
+                      tabindex="0"
+                      on:click={() => openAdminMode('library', libraryAdminTab, item)}
+                      on:keydown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          openAdminMode('library', libraryAdminTab, item);
+                        }
+                      }}
+                    >
+                      <div class="admin-row-content">
+                        <strong>{item.title}</strong>
+                        <small>{item.platform ?? item.format ?? item.artist ?? 'Unknown'}</small>
+                      </div>
+                      <div class="admin-row-actions">
+                        <button type="button" on:click|stopPropagation={() => openAdminMode('library', libraryAdminTab, item)}>Edit</button>
+                        <button type="button" class="danger" on:click|stopPropagation={() => openDeleteConfirm(item)}>Delete</button>
+                      </div>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+
+              {#if adminListTotalPages > 1}
+                <div class="admin-list-pager">
+                  <button type="button" on:click={() => (adminListPage = Math.max(0, adminListPage - 1))} disabled={adminListPage === 0}>Back</button>
+                  <div class="admin-pager-info">Page {adminListPage + 1} / {adminListTotalPages}</div>
+                  <button type="button" on:click={() => (adminListPage = Math.min(adminListTotalPages - 1, adminListPage + 1))} disabled={adminListPage >= adminListTotalPages - 1}>Next</button>
+                </div>
+              {/if}
             </div>
 
-            {#if adminListTotalPages > 1}
-              <div class="admin-list-pager">
-                <button type="button" on:click={() => (adminListPage = Math.max(0, adminListPage - 1))} disabled={adminListPage === 0}>Back</button>
-                <div class="admin-pager-info">Page {adminListPage + 1} / {adminListTotalPages}</div>
-                <button type="button" on:click={() => (adminListPage = Math.min(adminListTotalPages - 1, adminListPage + 1))} disabled={adminListPage >= adminListTotalPages - 1}>Next</button>
-              </div>
-            {/if}
-          {/if}
+            <!-- Library Editor (Right) -->
+            <div class="admin-form-pane">
+              {#if adminEditingId !== null}
+                <form class="admin-form" on:submit|preventDefault={saveAdminItem}>
+                  <h3>{adminContextItem?.title ?? 'Edit Item'}</h3>
+                  <input type="text" bind:value={adminForm.title} placeholder="Title" required />
+                  
+                  {#if libraryAdminTab === 'games'}
+                    <select bind:value={adminForm.platform}>
+                      <option value="">Select console</option>
+                      {#each adminConsoleOptions as consoleName}
+                        <option value={consoleName}>{consoleName}</option>
+                      {/each}
+                    </select>
+                    <select bind:value={adminForm.genre} required>
+                      <option value="" disabled>Select genre</option>
+                      {#each adminGenreOptions as genreName}
+                        <option value={genreName}>{genreName}</option>
+                      {/each}
+                    </select>
+                    <input type="date" bind:value={adminForm.release_date} placeholder="Release date" />
+                    <select bind:value={adminForm.players}>
+                      <option value="">Number of players</option>
+                      {#each adminPlayerOptions as playerCount}
+                        <option value={String(playerCount)}>{playerCount}</option>
+                      {/each}
+                    </select>
+                    <select bind:value={adminForm.rating}>
+                      {#each gameRatingOptions as ratingOption}
+                        <option value={ratingOption}>{ratingOption}</option>
+                      {/each}
+                    </select>
+                  {:else}
+                    <input type="text" bind:value={adminForm.artist} placeholder="Artist" />
+                    <input type="text" bind:value={adminForm.format} placeholder="Format" />
+                  {/if}
 
-          {#if adminError}
-            <p class="admin-error">{adminError}</p>
-          {/if}
-          {#if adminMessage}
-            <p class="admin-status">{adminMessage}</p>
-          {/if}
-        </div>
-      </div>
-    {/if}
+                  {#if libraryAdminTab !== 'games'}
+                    <select bind:value={adminForm.genre} required>
+                      <option value="" disabled>Select genre</option>
+                      {#each adminGenreOptions as genreName}
+                        <option value={genreName}>{genreName}</option>
+                      {/each}
+                    </select>
+                  {/if}
+                  <input type="text" bind:value={adminForm.cover_image} placeholder="Cover image URL" />
+                  <textarea bind:value={adminForm.notes} rows="3" placeholder="Short description"></textarea>
+                  
+                  <div class="form-actions">
+                    <button type="submit" disabled={adminBusy}>{adminEditingId ? 'Save Changes' : 'Create Item'}</button>
+                    <button type="button" on:click={() => { adminEditingId = null; adminContextItem = null; }}>Clear</button>
+                  </div>
+                </form>
+              {:else}
+                <div class="admin-form-empty">
+                  <p>Select an item from the list to edit, or click the button below to create a new one.</p>
+                  <button type="button" on:click={() => { resetAdminForm(); adminEditingId = -1; }}>Create New {libraryAdminTab === 'games' ? 'Game' : 'Album'}</button>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+
+        {#if adminError}
+          <p class="admin-error">{adminError}</p>
+        {/if}
+        {#if adminMessage}
+          <p class="admin-status">{adminMessage}</p>
+        {/if}
+      {/if}
+    </div>
+  </div>
+{/if}
+
 
     <div class="footer">
       <p>&copy; 2026 ALEX PRITT</p>
     </div>
   </div>
 {/if}
+

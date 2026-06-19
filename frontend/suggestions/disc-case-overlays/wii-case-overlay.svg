@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 196 288" role="img" aria-label="Wii case overlay">
+  <!-- Case border (white/silver) -->
+  <rect x="0.5" y="0.5" width="195" height="287" rx="2" fill="none" stroke="rgba(200,215,238,0.32)" stroke-width="1"/>
+  <!-- Top header band (black) -->
+  <rect x="0" y="0" width="196" height="26" rx="2" fill="rgba(0,0,0,0.60)"/>
+  <!-- Wii logo indicator bar -->
+  <rect x="68" y="8" width="60" height="11" rx="2" fill="rgba(220,232,255,0.22)"/>
+  <!-- Subtle inner shadow -->
+  <rect x="0" y="26" width="196" height="3" fill="rgba(0,0,0,0.18)"/>
+  <!-- Bottom edge accent -->
+  <rect x="0" y="277" width="196" height="11" rx="1" fill="rgba(0,0,0,0.32)"/>
+</svg>

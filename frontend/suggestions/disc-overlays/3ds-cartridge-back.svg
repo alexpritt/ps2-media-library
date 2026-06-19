@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Nintendo 3DS cartridge back">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#40464f"/>
+      <stop offset="55%" stop-color="#262b31"/>
+      <stop offset="100%" stop-color="#101317"/>
+    </linearGradient>
+    <linearGradient id="contacts" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f5d16f"/>
+      <stop offset="100%" stop-color="#b78512"/>
+    </linearGradient>
+  </defs>
+  <rect x="48" y="28" width="160" height="200" rx="18" fill="url(#body)"/>
+  <rect x="58" y="42" width="140" height="116" rx="12" fill="#1a1e24" stroke="#5b6470" stroke-width="3"/>
+  <rect x="70" y="172" width="116" height="34" rx="9" fill="#15191e" stroke="#535b65" stroke-width="2"/>
+  <rect x="86" y="184" width="84" height="10" rx="5" fill="url(#contacts)"/>
+  <path d="M82 54h92c4 0 7 3 7 7v3c0 4-3 7-7 7H82c-4 0-7-3-7-7v-3c0-4 3-7 7-7z" fill="#2e343c" opacity="0.75"/>
+  <path d="M82 76h92c4 0 7 3 7 7v3c0 4-3 7-7 7H82c-4 0-7-3-7-7v-3c0-4 3-7 7-7z" fill="#2e343c" opacity="0.48"/>
+  <g fill="#0c1014" opacity="0.55">
+    <circle cx="80" cy="64" r="4.5"/>
+    <circle cx="176" cy="64" r="4.5"/>
+    <circle cx="80" cy="146" r="4.5"/>
+    <circle cx="176" cy="146" r="4.5"/>
+  </g>
+</svg>

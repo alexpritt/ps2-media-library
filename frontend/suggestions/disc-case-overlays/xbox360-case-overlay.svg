@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 196 288" role="img" aria-label="Xbox 360 case overlay">
+  <!-- Case border (lighter green) -->
+  <rect x="0.5" y="0.5" width="195" height="287" rx="2" fill="none" stroke="rgba(110,205,125,0.26)" stroke-width="1"/>
+  <!-- Top header band -->
+  <rect x="0" y="0" width="196" height="26" rx="2" fill="rgba(0,20,8,0.65)"/>
+  <!-- Xbox 360 logo indicator bar -->
+  <rect x="55" y="8" width="86" height="11" rx="2" fill="rgba(115,210,130,0.24)"/>
+  <!-- Subtle inner shadow -->
+  <rect x="0" y="26" width="196" height="3" fill="rgba(0,0,0,0.20)"/>
+  <!-- Bottom edge accent -->
+  <rect x="0" y="277" width="196" height="11" rx="1" fill="rgba(0,20,8,0.38)"/>
+</svg>

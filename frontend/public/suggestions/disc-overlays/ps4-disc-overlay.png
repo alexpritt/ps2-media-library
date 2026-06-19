@@ -1,0 +1,18 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" width="256" height="256">
+  <defs>
+    <linearGradient id="ps4discgrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(0,0,0,0.1);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgba(0,0,0,0.3);stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- PS4 disc overlay -->
+  <circle cx="128" cy="128" r="120" fill="url(#ps4discgrad)"/>
+  <circle cx="128" cy="128" r="116" stroke="rgba(255,255,255,0.3)" stroke-width="2" fill="none"/>
+  <!-- Center hole -->
+  <circle cx="128" cy="128" r="30" fill="rgba(0,0,0,0.15)"/>
+  <circle cx="128" cy="128" r="27" stroke="rgba(200,200,200,0.3)" stroke-width="1" fill="none"/>
+  <!-- Glossy shine -->
+  <ellipse cx="82" cy="82" rx="70" ry="60" fill="rgba(255,255,255,0.15)"/>
+  <!-- Design element -->
+  <line x1="128" y1="40" x2="128" y2="70" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+</svg>

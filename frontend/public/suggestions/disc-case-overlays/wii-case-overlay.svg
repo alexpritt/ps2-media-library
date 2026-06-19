@@ -1,0 +1,15 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" width="256" height="256">
+  <defs>
+    <linearGradient id="wiigrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(255,255,255,0.15);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgba(0,0,0,0.25);stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Wii disc case overlay -->
+  <circle cx="128" cy="128" r="120" fill="url(#wiigrad)"/>
+  <circle cx="128" cy="128" r="116" stroke="rgba(150,150,200,0.25)" stroke-width="2" fill="none"/>
+  <!-- Inner circle -->
+  <circle cx="128" cy="128" r="32" fill="rgba(100,100,150,0.1)"/>
+  <!-- Glossy highlight -->
+  <ellipse cx="90" cy="90" rx="50" ry="40" fill="rgba(255,255,255,0.12)"/>
+</svg>

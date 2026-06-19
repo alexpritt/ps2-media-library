@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PS3 disc back blu-ray">
+  <defs>
+    <radialGradient id="base" cx="34%" cy="27%" r="76%">
+      <stop offset="0%" stop-color="#fcfeff"/>
+      <stop offset="22%" stop-color="#e6edf7"/>
+      <stop offset="48%" stop-color="#bcc8d9"/>
+      <stop offset="72%" stop-color="#738399"/>
+      <stop offset="100%" stop-color="#334355"/>
+    </radialGradient>
+    <radialGradient id="ps3Tint" cx="66%" cy="36%" r="68%">
+      <stop offset="0%" stop-color="#87c3ff" stop-opacity="0.22"/>
+      <stop offset="55%" stop-color="#5a82d8" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <circle cx="256" cy="256" r="255" fill="url(#base)"/>
+  <circle cx="256" cy="256" r="255" fill="url(#ps3Tint)"/>
+
+  <g fill="none" stroke="rgba(235,246,255,0.2)">
+    <circle cx="256" cy="256" r="210" stroke-width="1.1"/>
+    <circle cx="256" cy="256" r="186" stroke-width="1"/>
+    <circle cx="256" cy="256" r="162" stroke-width="0.95"/>
+    <circle cx="256" cy="256" r="138" stroke-width="0.9"/>
+    <circle cx="256" cy="256" r="114" stroke-width="0.85"/>
+  </g>
+
+  <path d="M68 214 A214 214 0 0 1 236 56" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="22" stroke-linecap="round"/>
+  <path d="M306 70 A184 184 0 0 1 452 234" fill="none" stroke="rgba(232,246,255,0.24)" stroke-width="13" stroke-linecap="round"/>
+
+  <circle cx="256" cy="256" r="68" fill="none" stroke="rgba(236,246,255,0.45)" stroke-width="12"/>
+  <circle cx="256" cy="256" r="50" fill="none" stroke="rgba(72,90,113,0.45)" stroke-width="8"/>
+  <circle cx="256" cy="256" r="255" fill="none" stroke="rgba(236,247,255,0.5)" stroke-width="2.5"/>
+  <circle cx="256" cy="256" r="248" fill="none" stroke="rgba(58,72,90,0.42)" stroke-width="1.5"/>
+</svg>

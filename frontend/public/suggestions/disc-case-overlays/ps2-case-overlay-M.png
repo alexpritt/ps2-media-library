@@ -1,0 +1,17 @@
+<svg viewBox="0 0 256 362" xmlns="http://www.w3.org/2000/svg" width="256" height="362">
+  <defs>
+    <linearGradient id="psgrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(200,100,0,0.12);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgba(180,80,0,0.25);stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Case frame overlay -->
+  <rect width="256" height="362" fill="url(#psgrad)" rx="4"/>
+  <path d="M 8 8 L 248 8 L 248 354 L 8 354 Z" stroke="rgba(255,153,153,0.3)" stroke-width="1" fill="none" rx="2"/>
+  <!-- PS2 disc case left edge -->
+  <rect x="0" y="0" width="16" height="362" fill="rgba(180,80,0,0.15)"/>
+  <!-- Glossy highlights -->
+  <ellipse cx="80" cy="60" rx="40" ry="30" fill="rgba(255,255,255,0.1)"/>
+  <!-- M rating label area -->
+  <rect x="200" y="320" width="40" height="30" fill="rgba(255,153,153,0.3)" rx="2"/>
+</svg>
