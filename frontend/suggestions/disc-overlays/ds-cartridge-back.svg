@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Nintendo DS cartridge back">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3a4048"/>
+      <stop offset="55%" stop-color="#23272d"/>
+      <stop offset="100%" stop-color="#11151a"/>
+    </linearGradient>
+    <linearGradient id="contacts" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f4d06b"/>
+      <stop offset="100%" stop-color="#b98b17"/>
+    </linearGradient>
+  </defs>
+  <rect x="44" y="24" width="168" height="208" rx="20" fill="url(#body)"/>
+  <rect x="60" y="42" width="136" height="120" rx="14" fill="#1a1f26" stroke="#56606c" stroke-width="3"/>
+  <rect x="76" y="178" width="104" height="30" rx="8" fill="#14181d" stroke="#4e5661" stroke-width="2"/>
+  <rect x="88" y="188" width="80" height="10" rx="5" fill="url(#contacts)"/>
+  <g fill="#0d1116" opacity="0.55">
+    <circle cx="82" cy="66" r="5"/>
+    <circle cx="174" cy="66" r="5"/>
+    <circle cx="82" cy="148" r="5"/>
+    <circle cx="174" cy="148" r="5"/>
+  </g>
+  <path d="M74 56h108c4 0 8 3 8 8v2c0 4-4 8-8 8H74c-4 0-8-4-8-8v-2c0-5 4-8 8-8z" fill="#2a3037" opacity="0.7"/>
+  <path d="M74 78h108c4 0 8 3 8 8v2c0 4-4 8-8 8H74c-4 0-8-4-8-8v-2c0-5 4-8 8-8z" fill="#2a3037" opacity="0.45"/>
+</svg>

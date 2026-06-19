@@ -38,6 +38,7 @@ class MediaItem(SQLModel, table=True):
     genre: str
     release_date: Optional[str] = None
     year_released: Optional[int] = None
+    rating: Optional[str] = None
     players: Optional[int] = None
     artist: Optional[str] = None
     publisher: Optional[str] = None
@@ -65,6 +66,15 @@ def ensure_release_date_column() -> None:
             connection.execute(text("ALTER TABLE mediaitem ADD COLUMN release_date VARCHAR"))
 
 
+def ensure_rating_column() -> None:
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(mediaitem)")).fetchall()
+        has_rating = any(column[1] == "rating" for column in columns)
+        if not has_rating:
+            connection.execute(text("ALTER TABLE mediaitem ADD COLUMN rating VARCHAR"))
+            connection.execute(text("UPDATE mediaitem SET rating = 'RP' WHERE category = 'Games' AND (rating IS NULL OR rating = '')"))
+
+
 def require_admin(authorization: Optional[str]) -> None:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Admin authorization required")
@@ -76,6 +86,7 @@ def require_admin(authorization: Optional[str]) -> None:
 def on_startup() -> None:
     create_db_and_tables()
     ensure_release_date_column()
+    ensure_rating_column()
 
 @app.get("/api/media", response_model=List[MediaItem])
 def read_media(

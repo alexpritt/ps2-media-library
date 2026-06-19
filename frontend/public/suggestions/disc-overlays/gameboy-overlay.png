@@ -1,0 +1,17 @@
+<svg viewBox="0 0 110 130" xmlns="http://www.w3.org/2000/svg" width="110" height="130">
+  <defs>
+    <linearGradient id="gbcartridge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(0,0,0,0.1);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgba(0,0,0,0.3);stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- GameBoy cartridge overlay -->
+  <rect width="110" height="130" fill="url(#gbcartridge)" rx="4"/>
+  <path d="M 4 4 L 106 4 L 106 126 L 4 126 Z" stroke="rgba(255,255,255,0.2)" stroke-width="1" fill="none" rx="2"/>
+  <!-- Label area -->
+  <rect x="6" y="12" width="98" height="85" fill="rgba(100,100,100,0.08)"/>
+  <!-- Contact strip -->
+  <rect x="8" y="105" width="94" height="12" fill="rgba(200,200,0,0.15)" rx="1"/>
+  <!-- Glossy -->
+  <ellipse cx="32" cy="32" rx="24" ry="20" fill="rgba(255,255,255,0.06)"/>
+</svg>

@@ -1,0 +1,19 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" width="256" height="256">
+  <defs>
+    <linearGradient id="xbox360discgrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(0,120,0,0.1);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgba(0,80,0,0.28);stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Xbox 360 disc overlay -->
+  <circle cx="128" cy="128" r="120" fill="url(#xbox360discgrad)"/>
+  <circle cx="128" cy="128" r="116" stroke="rgba(100,200,100,0.3)" stroke-width="2" fill="none"/>
+  <!-- Center hole -->
+  <circle cx="128" cy="128" r="33" fill="rgba(0,0,0,0.18)"/>
+  <circle cx="128" cy="128" r="30" stroke="rgba(80,120,80,0.3)" stroke-width="1" fill="none"/>
+  <!-- Glossy -->
+  <ellipse cx="85" cy="85" rx="68" ry="58" fill="rgba(255,255,255,0.13)"/>
+  <!-- Design rings -->
+  <circle cx="128" cy="128" r="85" stroke="rgba(100,200,100,0.12)" stroke-width="1" fill="none"/>
+  <circle cx="128" cy="128" r="55" stroke="rgba(100,200,100,0.08)" stroke-width="1" fill="none"/>
+</svg>

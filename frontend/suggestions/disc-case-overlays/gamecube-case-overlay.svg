@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 196 288" role="img" aria-label="GameCube case overlay">
+  <!-- Case border (purple) -->
+  <rect x="0.5" y="0.5" width="195" height="287" rx="3" fill="none" stroke="rgba(160,95,240,0.30)" stroke-width="1"/>
+  <!-- Top header band (dark purple) -->
+  <rect x="0" y="0" width="196" height="26" rx="3" fill="rgba(30,10,60,0.72)"/>
+  <!-- GameCube logo indicator bar (purple) -->
+  <rect x="58" y="8" width="80" height="11" rx="2" fill="rgba(165,100,255,0.26)"/>
+  <!-- Subtle inner shadow -->
+  <rect x="0" y="26" width="196" height="3" fill="rgba(0,0,0,0.22)"/>
+  <!-- Bottom edge accent -->
+  <rect x="0" y="277" width="196" height="11" rx="2" fill="rgba(30,8,60,0.42)"/>
+</svg>

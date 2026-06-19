@@ -6,6 +6,7 @@ export interface MediaItem {
   genre: string;
   year_released: number | null;
   release_date: string | null;
+  rating: string | null;
   players: number | null;
   artist: string | null;
   publisher: string | null;
@@ -14,4 +15,12 @@ export interface MediaItem {
   cover_image: string | null;
   tags: string | null;
   notes: string | null;
+}
+
+export interface EditableSystem {
+  id: string;
+  name: string;
+  shortName: string;
+  logo: string;
+  logoImage: string | null;
 }
