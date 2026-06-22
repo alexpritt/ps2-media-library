@@ -195,6 +195,11 @@
   let bulkText = '';
   let bulkBusy = false;
   let bulkResults: { line: string; status: 'success' | 'error'; message: string }[] = [];
+  let bulkTotalCount = 0;
+  let bulkProcessedCount = 0;
+  let bulkProgressPercent = 0;
+  let bulkStatusText = '';
+  let bulkErrorText = '';
   let adminForm: AdminForm = emptyAdminForm();
   let editableSystems: EditableSystem[] = [];
   let editingSystemId: string | null = null;
@@ -1075,35 +1080,119 @@
   async function bulkUpload() {
     if (bulkBusy) return;
     bulkResults = [];
+    bulkErrorText = '';
     bulkBusy = true;
     adminError = '';
     adminMessage = '';
     const lines = bulkText.split('\n').map((l) => l.trim()).filter(Boolean);
+    bulkTotalCount = lines.length;
+    bulkProcessedCount = 0;
+    bulkProgressPercent = 0;
+    bulkStatusText = lines.length ? `Starting upload for ${lines.length} item${lines.length === 1 ? '' : 's'}...` : '';
     if (!lines.length) { bulkBusy = false; return; }
+    const bulkPlatform = libraryAdminTab === 'games' ? (adminSearchPlatform === 'All' ? '' : adminSearchPlatform.trim()) : '';
+    if (libraryAdminTab === 'games' && !bulkPlatform) {
+      adminError = 'Select a platform filter above before bulk uploading games.';
+      bulkErrorText = adminError;
+      bulkStatusText = 'Upload blocked: select a platform first.';
+      bulkBusy = false;
+      return;
+    }
     const endpoint = libraryAdminTab === 'games' ? '/api/bulk/games' : '/api/bulk/music';
+    const nextResults: { line: string; status: 'success' | 'error'; message: string }[] = [];
+    let successCount = 0;
+    let errorCount = 0;
+
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: mediaHeaders(),
-        body: JSON.stringify({ items: lines }),
-      });
-      if (response.status === 401) {
-        adminToken = '';
-        localStorage.removeItem('ps2-admin-token');
-        adminError = 'Session expired. Log in again.';
-        return;
+      for (const line of lines) {
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: mediaHeaders(),
+            body: JSON.stringify(
+              libraryAdminTab === 'games'
+                ? { items: [line], platform: bulkPlatform }
+                : { items: [line] }
+            ),
+          });
+
+          if (response.status === 401) {
+            adminToken = '';
+            localStorage.removeItem('ps2-admin-token');
+            adminError = 'Session expired. Log in again.';
+            bulkErrorText = adminError;
+            nextResults.push({
+              line,
+              status: 'error',
+              message: 'Error: Session expired. Log in again.',
+            });
+            errorCount += 1;
+            bulkProcessedCount += 1;
+            bulkProgressPercent = Math.round((bulkProcessedCount / bulkTotalCount) * 100);
+            bulkResults = [...nextResults];
+            bulkStatusText = `Stopped at ${bulkProcessedCount}/${bulkTotalCount}. ${successCount} succeeded, ${errorCount} failed.`;
+            break;
+          }
+
+          const data = await response.json().catch(() => null);
+          if (!response.ok) {
+            const detail = typeof data?.detail === 'string' && data.detail.trim()
+              ? data.detail
+              : `Request failed (${response.status})`;
+            nextResults.push({
+              line,
+              status: 'error',
+              message: `Error: ${detail}`,
+            });
+            errorCount += 1;
+          } else {
+            const singleResult = Array.isArray(data?.results) && data.results.length ? data.results[0] : null;
+            const status = singleResult?.status === 'success' ? 'success' : 'error';
+            if (status === 'success') {
+              successCount += 1;
+            } else {
+              errorCount += 1;
+            }
+            nextResults.push({
+              line: singleResult?.line ?? line,
+              status,
+              message: status === 'success'
+                ? `Added: ${singleResult?.title ?? 'Created item'}`
+                : `Error: ${singleResult?.error ?? 'Unknown upload error'}`,
+            });
+          }
+        } catch {
+          nextResults.push({
+            line,
+            status: 'error',
+            message: 'Error: Network failure while uploading this line.',
+          });
+          errorCount += 1;
+        }
+
+        bulkProcessedCount += 1;
+        bulkProgressPercent = Math.round((bulkProcessedCount / bulkTotalCount) * 100);
+        bulkResults = [...nextResults];
+        const remaining = Math.max(0, bulkTotalCount - bulkProcessedCount);
+        bulkStatusText = `Processed ${bulkProcessedCount}/${bulkTotalCount}. ${remaining} remaining. ${successCount} succeeded, ${errorCount} failed.`;
       }
-      const data = await response.json().catch(() => ({ results: [] }));
-      bulkResults = (data.results || []).map((r: any) => ({
-        line: r.line,
-        status: r.status as 'success' | 'error',
-        message: r.status === 'success' ? `Added: ${r.title}` : `Error: ${r.error}`,
-      }));
+
+      if (!bulkStatusText && bulkTotalCount > 0) {
+        bulkStatusText = `Processed ${bulkProcessedCount}/${bulkTotalCount}. ${successCount} succeeded, ${errorCount} failed.`;
+      }
+      if (errorCount > 0) {
+        bulkErrorText = `${errorCount} item${errorCount === 1 ? '' : 's'} failed. See details below.`;
+      }
       await Promise.all([loadAllMedia(), loadMedia()]);
     } catch {
       adminError = 'Bulk upload failed.';
+      bulkErrorText = adminError;
+      bulkStatusText = 'Upload failed before completion.';
     } finally {
       bulkBusy = false;
+      if (!bulkStatusText && bulkTotalCount > 0) {
+        bulkStatusText = `Processed ${bulkProcessedCount}/${bulkTotalCount}.`;
+      }
     }
   }
 
@@ -3187,14 +3276,23 @@
                 <button
                   type="button"
                   class="bulk-upload-toggle"
-                  on:click={() => { bulkOpen = !bulkOpen; bulkResults = []; bulkText = ''; }}
+                  on:click={() => {
+                    bulkOpen = !bulkOpen;
+                    bulkResults = [];
+                    bulkText = '';
+                    bulkTotalCount = 0;
+                    bulkProcessedCount = 0;
+                    bulkProgressPercent = 0;
+                    bulkStatusText = '';
+                    bulkErrorText = '';
+                  }}
                 >
                   {bulkOpen ? '▲ Hide Bulk Upload' : '▼ Bulk Upload'}
                 </button>
                 <div class="bulk-upload-body" class:open={bulkOpen}>
                   <p class="bulk-format-hint">
                     {#if libraryAdminTab === 'games'}
-                      One game per line: <code>Game Title - Platform</code>
+                      One game title per line. Platform comes from the filter above.
                     {:else}
                       One album per line: <code>Album Title - Artist</code>
                     {/if}
@@ -3203,7 +3301,7 @@
                     class="bulk-upload-textarea"
                     bind:value={bulkText}
                     placeholder={libraryAdminTab === 'games'
-                      ? 'Final Fantasy VII - PlayStation 2\nShadow of the Colossus - PlayStation 2'
+                      ? 'Final Fantasy VII\nShadow of the Colossus'
                       : 'Nevermind - Nirvana\nAbbey Road - The Beatles'}
                     rows="6"
                     disabled={bulkBusy}
@@ -3216,6 +3314,19 @@
                   >
                     {bulkBusy ? 'Uploading...' : libraryAdminTab === 'games' ? 'Upload Games' : 'Upload Albums'}
                   </button>
+                  {#if bulkTotalCount > 0 || bulkBusy}
+                    <div class="bulk-progress-panel" role="status" aria-live="polite">
+                      <div class="bulk-progress-track" aria-hidden="true">
+                        <span class="bulk-progress-fill" style={`width: ${bulkProgressPercent}%`}></span>
+                      </div>
+                      <p class="bulk-progress-text">
+                        {bulkStatusText || (bulkBusy ? 'Uploading...' : 'Upload complete.')}
+                      </p>
+                      {#if bulkErrorText}
+                        <p class="bulk-progress-error">{bulkErrorText}</p>
+                      {/if}
+                    </div>
+                  {/if}
                   {#if bulkResults.length}
                     <div class="bulk-result-list">
                       {#each bulkResults as result}

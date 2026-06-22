@@ -2373,6 +2373,44 @@ button {
   cursor: not-allowed !important;
 }
 
+.bulk-progress-panel {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.bulk-progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(20, 28, 44, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.bulk-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, rgba(126, 170, 255, 0.92), rgba(255, 205, 92, 0.92));
+  transition: width 220ms ease;
+}
+
+.bulk-progress-text,
+.bulk-progress-error {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.bulk-progress-text {
+  color: rgba(194, 214, 242, 0.9);
+}
+
+.bulk-progress-error {
+  color: #ff9a9a;
+}
+
 .bulk-result-list {
   display: grid;
   gap: 6px;
