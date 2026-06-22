@@ -1,9 +1,10 @@
-<script lang="ts">
+﻿<script lang="ts">
   import { onMount, tick } from 'svelte';
   import { fade } from 'svelte/transition';
   import type { TransitionConfig } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import type { MediaItem, EditableSystem } from './types';
+  import AdminSelect from './AdminSelect.svelte';
 
   type Stage = 'boot' | 'console' | 'library' | 'details';
   type Category = 'Games' | 'Music';
@@ -70,10 +71,6 @@
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg' },
     { name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg' },
-    { name: 'GameBoy', shortName: 'GB', logo: 'GB',
-      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg' },
-    { name: 'GameCube', shortName: 'GC', logo: 'GC',
-      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg' },
     { name: 'Wii', shortName: 'Wii', logo: 'Wii',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg' },
     { name: 'Xbox', shortName: 'XBX', logo: 'XBX',
@@ -186,11 +183,17 @@
   let adminMessage = '';
   let launchboxFetchBusy = false;
   let launchboxFetchError = '';
+  let deezerAlbumFetchBusy = false;
+  let deezerAlbumFetchError = '';
   let launchboxArtPickerOpen = false;
   let launchboxArtPickerBusy = false;
   let launchboxArtPickerError = '';
   let launchboxArtPickerField: GameArtField | null = null;
   let launchboxArtOptions: string[] = [];
+  let deezerArtPickerOpen = false;
+  let deezerArtPickerBusy = false;
+  let deezerArtPickerError = '';
+  let deezerArtOptions: string[] = [];
   let bulkOpen = false;
   let bulkText = '';
   let bulkBusy = false;
@@ -209,14 +212,17 @@
   let newSystemName = '';
   let newSystemIcon = '';
   let newSystemCaseType: '' | 'disc' | 'cartridge' | 'hybrid' = '';
+  let newSystemFormOpen = false;
   let systemError = '';
   let systemLogoFetchBusy = false;
   let systemLogoFetchError = '';
   let adminListPage = 0;
   let adminListItemsPerPage = 10;
   let adminSearchQuery = '';
+  let adminSystemSearchQuery = '';
   let adminSearchCategory: Category | 'All' = 'All';
   let adminSearchPlatform: string | 'All' = 'All';
+  let selectedAdminItemIds = new Set<number>();
 
   let librarySearch = '';
   let librarySearchOpen = false;
@@ -236,7 +242,7 @@
   let detailsSpinPauseTimeout: ReturnType<typeof setTimeout> | null = null;
 
   let confirmOpen = false;
-  let confirmMode: 'edit' | 'delete' = 'delete';
+  let confirmMode: 'edit' | 'delete' | 'bulk-delete' = 'delete';
   let confirmItem: MediaItem | null = null;
 
   $: isAdmin = adminToken.length > 0;
@@ -278,8 +284,13 @@
   $: adminFilteredMedia = allMedia.filter((item) => {
     if (adminSearchQuery.trim() && !item.title.toLowerCase().includes(adminSearchQuery.toLowerCase().trim())) return false;
     if (adminSearchCategory !== 'All' && item.category !== adminSearchCategory) return false;
-    if (adminSearchPlatform !== 'All' && item.platform !== adminSearchPlatform) return false;
+    if (libraryAdminTab === 'games' && adminSearchPlatform !== 'All' && item.platform !== adminSearchPlatform) return false;
     return true;
+  });
+  $: filteredSystems = editableSystems.filter((system) => {
+    const query = adminSystemSearchQuery.trim().toLowerCase();
+    if (!query) return true;
+    return system.name.toLowerCase().includes(query) || system.shortName.toLowerCase().includes(query);
   });
   $: adminListTotalPages = Math.ceil(Math.max(1, adminFilteredMedia.length) / adminListItemsPerPage);
   $: if (adminListPage >= adminListTotalPages) adminListPage = Math.max(0, adminListTotalPages - 1);
@@ -287,9 +298,29 @@
     adminListPage * adminListItemsPerPage,
     (adminListPage + 1) * adminListItemsPerPage
   );
+  $: adminVisibleMedia = adminPagedMedia.filter((item) => item.category === (libraryAdminTab === 'games' ? 'Games' : 'Music'));
+  $: adminVisibleIds = adminVisibleMedia.map((item) => item.id);
+  $: selectedAdminCount = selectedAdminItemIds.size;
+  $: allVisibleAdminItemsSelected = adminVisibleIds.length > 0 && adminVisibleIds.every((id) => selectedAdminItemIds.has(id));
+  $: {
+    const validIdsForTab = new Set(
+      allMedia
+        .filter((item) => item.category === (libraryAdminTab === 'games' ? 'Games' : 'Music'))
+        .map((item) => item.id)
+    );
+    const nextSelectedIds = [...selectedAdminItemIds].filter((id) => validIdsForTab.has(id));
+    const changed =
+      nextSelectedIds.length !== selectedAdminItemIds.size
+      || nextSelectedIds.some((id) => !selectedAdminItemIds.has(id));
+    if (changed) {
+      selectedAdminItemIds = new Set(nextSelectedIds);
+    }
+  }
   $: detailsConsoleLogo = selectedItem?.category === 'Games'
     ? availableConsoles.find((item) => item.name === (selectedItem.platform ?? ''))?.logoImage ?? null
     : null;
+  $: isLibraryContextStage = stage === 'library' || stage === 'details';
+  $: showPersistentBackButton = stage !== 'boot';
 
   $: selectedLibraryConsole = availableConsoles.find((item) => item.name === (selectedConsole ?? activeConsole.name)) ?? activeConsole;
   $: libraryHeaderLeft = category === 'Music' ? 'Music Library' : selectedConsole ?? activeConsole.name;
@@ -318,7 +349,7 @@
       selectedItem = refreshedSelectedItem;
     }
   }
-  $: if (stage !== 'library') {
+  $: if (!isLibraryContextStage) {
     librarySearchOpen = false;
     playersDropdownOpen = false;
   }
@@ -454,24 +485,66 @@
     confirmOpen = true;
   }
 
+  function openBulkDeleteConfirm() {
+    if (!selectedAdminCount) return;
+    confirmMode = 'bulk-delete';
+    confirmItem = null;
+    confirmOpen = true;
+  }
+
+  function toggleAdminItemSelection(itemId: number, selected: boolean) {
+    const next = new Set(selectedAdminItemIds);
+    if (selected) {
+      next.add(itemId);
+    } else {
+      next.delete(itemId);
+    }
+    selectedAdminItemIds = next;
+  }
+
+  function handleAdminRowSelectionChange(itemId: number, event: Event) {
+    const input = event.currentTarget as HTMLInputElement | null;
+    toggleAdminItemSelection(itemId, !!input?.checked);
+  }
+
+  function toggleSelectAllVisibleAdminItems() {
+    const next = new Set(selectedAdminItemIds);
+    if (allVisibleAdminItemsSelected) {
+      adminVisibleIds.forEach((id) => next.delete(id));
+    } else {
+      adminVisibleIds.forEach((id) => next.add(id));
+    }
+    selectedAdminItemIds = next;
+  }
+
+  function clearSelectedAdminItems() {
+    selectedAdminItemIds = new Set();
+  }
+
   function closeConfirm() {
     confirmOpen = false;
     confirmItem = null;
   }
 
   async function confirmAction() {
-    if (!confirmItem) return;
-
-    const item = confirmItem;
     const mode = confirmMode;
+    const item = confirmItem;
+    const selectedIds = mode === 'bulk-delete' ? [...selectedAdminItemIds] : [];
     closeConfirm();
 
     if (mode === 'edit') {
+      if (!item) return;
       startEditItem(item);
       return;
     }
 
-    await deleteAdminItem(item);
+    if (mode === 'bulk-delete') {
+      await deleteAdminItems(selectedIds);
+      return;
+    }
+
+    if (!item) return;
+    await deleteAdminItems([item.id]);
   }
 
   async function toggleLibrarySearch() {
@@ -575,8 +648,6 @@
     if (value === 'playstation 4') return 'ps4';
     if (value === 'nintendo ds') return 'nds';
     if (value === 'nintendo 3ds') return '3ds';
-    if (value === 'gameboy') return 'gb';
-    if (value === 'gamecube') return 'gamecube';
     if (value === 'wii') return 'wii';
     if (value === 'xbox') return 'xbox';
     if (value === 'xbox 360') return 'xbox360';
@@ -585,15 +656,15 @@
 
   function inferAppearancePreset(platform: string | null | undefined) {
     const key = normalizeConsoleKey(platform);
-    if (key === 'nds' || key === '3ds' || key === 'gb') return key;
-    if (key === 'ps2' || key === 'ps3' || key === 'ps4' || key === 'gamecube' || key === 'wii' || key === 'xbox' || key === 'xbox360') return key;
+    if (key === 'nds' || key === '3ds') return key;
+    if (key === 'ps2' || key === 'ps3' || key === 'ps4' || key === 'wii' || key === 'xbox' || key === 'xbox360') return key;
     return 'generic-disc';
   }
 
   function getSystemAppearance(platform: string | null | undefined) {
     const system = availableConsoles.find((entry) => entry.name === (platform ?? ''));
     const preset = (system?.appearancePreset ?? inferAppearancePreset(platform) ?? 'generic-disc').toLowerCase();
-    const inferredCartridge = preset === 'nds' || preset === '3ds' || preset === 'gb';
+    const inferredCartridge = preset === 'nds' || preset === '3ds';
     const caseType = inferredCartridge ? 'cartridge' : (system?.caseType ?? 'disc');
     return { caseType, preset } as const;
   }
@@ -657,13 +728,11 @@
     if (caseType === 'cartridge') {
       if (preset === 'nds') return ' disc-case--nds';
       if (preset === '3ds') return ' disc-case--3ds';
-      if (preset === 'gb') return ' disc-case--gb';
       return ' disc-case--cart-generic';
     }
     if (preset === 'ps2') return ' disc-case--ps2';
     if (preset === 'ps3') return ' disc-case--ps3';
     if (preset === 'ps4') return ' disc-case--ps4';
-    if (preset === 'gamecube') return ' disc-case--gamecube';
     if (preset === 'wii') return ' disc-case--wii';
     if (preset === 'xbox') return ' disc-case--xbox';
     if (preset === 'xbox360') return ' disc-case--xbox360';
@@ -675,13 +744,11 @@
     if (caseType === 'cartridge') {
       if (preset === 'nds') return 'disc-shell--nds';
       if (preset === '3ds') return 'disc-shell--3ds';
-      if (preset === 'gb') return 'disc-shell--gb';
       return 'disc-shell--cart-generic';
     }
     if (preset === 'ps2') return 'disc-shell--ps2';
     if (preset === 'ps3') return 'disc-shell--ps3';
     if (preset === 'ps4') return 'disc-shell--ps4';
-    if (preset === 'gamecube') return 'disc-shell--gamecube';
     if (preset === 'wii') return 'disc-shell--wii';
     if (preset === 'xbox') return 'disc-shell--xbox';
     if (preset === 'xbox360') return 'disc-shell--xbox360';
@@ -1077,6 +1144,81 @@
     closeLaunchboxArtPicker();
   }
 
+  function closeDeezerArtPicker() {
+    deezerArtPickerOpen = false;
+    deezerArtPickerBusy = false;
+    deezerArtPickerError = '';
+    deezerArtOptions = [];
+  }
+
+  async function openDeezerArtPicker() {
+    if (deezerArtPickerBusy) return;
+
+    adminError = '';
+    adminMessage = '';
+
+    const album = (adminForm.title ?? '').trim();
+    const artist = (adminForm.artist ?? '').trim();
+    
+    if (!album || !artist) {
+      deezerArtPickerError = 'Enter an album name and artist first.';
+      deezerArtPickerOpen = true;
+      return;
+    }
+
+    deezerArtPickerOpen = true;
+    deezerArtPickerBusy = true;
+    deezerArtPickerError = '';
+    deezerArtOptions = [];
+
+    try {
+      const response = await fetch('/api/deezer/album-art-options', {
+        method: 'POST',
+        headers: mediaHeaders(),
+        body: JSON.stringify({
+          album: album,
+          artist: artist,
+        }),
+      });
+      if (response.status === 401) {
+        adminToken = '';
+        localStorage.removeItem('ps2-admin-token');
+        adminError = 'Session expired. Log in again.';
+        closeDeezerArtPicker();
+        return;
+      }
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        deezerArtPickerError = data?.detail ?? 'Could not find album art options on Deezer.';
+        return;
+      }
+
+      deezerArtOptions = Array.isArray(data?.options)
+        ? data.options.filter((entry: unknown) => typeof entry === 'string' && entry.trim())
+        : [];
+
+      if (!deezerArtOptions.length) {
+        deezerArtPickerError = 'No album art options were found on Deezer.';
+      }
+    } catch {
+      deezerArtPickerError = 'Could not fetch album art options from Deezer.';
+    } finally {
+      deezerArtPickerBusy = false;
+    }
+  }
+
+  function chooseDeezerArtOption(imageData: string) {
+    if (!imageData) return;
+    adminForm = {
+      ...adminForm,
+      cover_image: imageData,
+    };
+    adminMessage = 'Album art selected from Deezer.';
+    adminError = '';
+    closeDeezerArtPicker();
+  }
+
   async function bulkUpload() {
     if (bulkBusy) return;
     bulkResults = [];
@@ -1260,6 +1402,70 @@
       launchboxFetchError = 'Could not fetch game data from available sources.';
     } finally {
       launchboxFetchBusy = false;
+    }
+  }
+
+  function canFetchDeezerAlbumData() {
+    const title = (adminForm.title ?? '').trim();
+    const artist = (adminForm.artist ?? '').trim();
+    return title.length > 0 && artist.length > 0;
+  }
+
+  async function fetchDeezerAlbumData() {
+    deezerAlbumFetchError = '';
+    adminError = '';
+    adminMessage = '';
+    if (!canFetchDeezerAlbumData()) {
+      deezerAlbumFetchError = 'Enter an album title and artist first.';
+      return;
+    }
+
+    deezerAlbumFetchBusy = true;
+    try {
+      const response = await fetch('/api/deezer/album-data', {
+        method: 'POST',
+        headers: mediaHeaders(),
+        body: JSON.stringify({
+          album: (adminForm.title ?? '').trim(),
+          artist: (adminForm.artist ?? '').trim(),
+          item_id: adminForm.id ?? null,
+        }),
+      });
+      if (response.status === 401) {
+        adminToken = '';
+        localStorage.removeItem('ps2-admin-token');
+        adminError = 'Session expired. Log in again.';
+        return;
+      }
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        deezerAlbumFetchError = data?.detail ?? 'Deezer could not find matching album data.';
+        return;
+      }
+
+      const fetchedGenre: string = (Array.isArray(data?.genres) && data.genres.length > 0)
+        ? String(data.genres[0])
+        : (data?.genre ? String(data.genre) : '');
+
+      adminForm = {
+        ...adminForm,
+        title: data?.title ?? adminForm.title,
+        artist: data?.artist ?? adminForm.artist,
+        release_date: normalizeDateForInput(data?.release_date) || adminForm.release_date,
+        musicGenre: fetchedGenre || adminForm.musicGenre,
+        cover_image: data?.coverImage ?? adminForm.cover_image,
+        notes: data?.trackList ?? adminForm.notes,
+      };
+
+      if (fetchedGenre) {
+        adminMusicGenreChoice = fetchedGenre;
+      }
+
+      adminMessage = 'Album data loaded from Deezer.';
+    } catch {
+      deezerAlbumFetchError = 'Could not fetch album data from Deezer.';
+    } finally {
+      deezerAlbumFetchBusy = false;
     }
   }
 
@@ -1483,7 +1689,7 @@
       }
 
       const startAt = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
-      video.currentTime = Math.max(video.currentTime, startAt);
+      video.currentTime = startAt;
       const shouldFadeAudioIn = bootAudioFadeInMs > 0;
       video.volume = shouldFadeAudioIn ? 0 : 1;
 
@@ -1501,8 +1707,6 @@
       }
 
       bootAudioFadeInMs = 0;
-
-      bootResumeAtSix = false;
     } catch {
       bootError = true;
       bootTextVisible = true;
@@ -1522,15 +1726,25 @@
       return;
     }
 
-    bootVideoRef.currentTime = BOOT_SKIP_TIME;
-    bootTextVisible = true;
+    const seekToSkip = () => {
+      if (!bootVideoRef) return;
+      bootVideoRef.currentTime = BOOT_SKIP_TIME;
+      bootTextVisible = true;
 
-    if (bootVideoRef.paused) {
-      void bootVideoRef.play().catch(() => {
-        bootError = true;
-        bootTextVisible = true;
-      });
+      if (bootVideoRef.paused) {
+        void bootVideoRef.play().catch(() => {
+          bootError = true;
+          bootTextVisible = true;
+        });
+      }
+    };
+
+    if (bootVideoRef.readyState >= 1) {
+      seekToSkip();
+      return;
     }
+
+    bootVideoRef.addEventListener('loadedmetadata', seekToSkip, { once: true });
   }
 
   async function queueBootStart() {
@@ -1689,10 +1903,6 @@
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg', caseType: 'cartridge', appearancePreset: 'nds' },
       { id: '3ds', name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg', caseType: 'cartridge', appearancePreset: '3ds' },
-      { id: 'gb', name: 'GameBoy', shortName: 'GB', logo: 'GB',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg', caseType: 'cartridge', appearancePreset: 'gb' },
-      { id: 'gc', name: 'GameCube', shortName: 'GC', logo: 'GC',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg', caseType: 'disc', appearancePreset: 'gamecube' },
       { id: 'wii', name: 'Wii', shortName: 'Wii', logo: 'Wii',
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg', caseType: 'disc', appearancePreset: 'wii' },
       { id: 'xbox', name: 'Xbox', shortName: 'XBX', logo: 'XBX',
@@ -1837,13 +2047,92 @@
     editingSystemCaseType = '';
   }
 
+  function clearNewSystemForm() {
+    newSystemFormOpen = false;
+    newSystemName = '';
+    newSystemIcon = '';
+    newSystemCaseType = '';
+    systemError = '';
+    systemLogoFetchError = '';
+  }
+
   let draggedSystemId: string | null = null;
+  let draggedMediaId: number | null = null;
 
   function handleSystemDragStart(event: DragEvent, systemId: string) {
     draggedSystemId = systemId;
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
     }
+  }
+
+  function handleMediaDragStart(event: DragEvent, itemId: number) {
+    draggedMediaId = itemId;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+    }
+  }
+
+  function handleMediaDragOver(event: DragEvent) {
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+  }
+
+  async function handleMediaDrop(event: DragEvent, targetItemId: number) {
+    event.preventDefault();
+    if (!draggedMediaId || draggedMediaId === targetItemId) {
+      draggedMediaId = null;
+      return;
+    }
+
+    const draggedIndex = allMedia.findIndex((item) => item.id === draggedMediaId);
+    const targetIndex = allMedia.findIndex((item) => item.id === targetItemId);
+
+    if (draggedIndex === -1 || targetIndex === -1) {
+      draggedMediaId = null;
+      return;
+    }
+
+    const reordered = [...allMedia];
+    const [draggedItem] = reordered.splice(draggedIndex, 1);
+    reordered.splice(targetIndex, 0, draggedItem);
+    allMedia = reordered;
+
+    const reorderCategory: Category = libraryAdminTab === 'games' ? 'Games' : 'Music';
+    const reorderPlatform = reorderCategory === 'Games' && adminSearchPlatform !== 'All'
+      ? adminSearchPlatform
+      : null;
+    const orderedIds = allMedia
+      .filter((item) => item.category === reorderCategory && (!reorderPlatform || item.platform === reorderPlatform))
+      .map((item) => item.id);
+
+    try {
+      const response = await fetch('/api/media/reorder', {
+        method: 'PATCH',
+        headers: mediaHeaders(),
+        body: JSON.stringify({
+          category: reorderCategory,
+          platform: reorderPlatform,
+          order: orderedIds,
+        }),
+      });
+
+      if (response.status === 401) {
+        adminToken = '';
+        localStorage.removeItem('ps2-admin-token');
+        adminError = 'Session expired. Log in again.';
+      }
+    } catch (error) {
+      console.warn('Failed to persist media order:', error);
+    }
+
+    draggedMediaId = null;
+  }
+
+  function handleMediaDragEnd() {
+    draggedMediaId = null;
   }
 
   function handleSystemDragOver(event: DragEvent) {
@@ -1952,10 +2241,6 @@
       nintendods: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg',
       '3ds': 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg',
       nintendo3ds: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg',
-      gb: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg',
-      gameboy: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg',
-      gc: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg',
-      gamecube: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg',
       wii: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg',
       xbox: 'https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg',
       xbox360: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg',
@@ -2103,20 +2388,50 @@
       adminSearchCategory = category as Category;
       adminSearchPlatform = (category === 'Games' && selectedConsole) ? selectedConsole : 'All';
       adminListPage = 0;
+      selectedAdminItemIds = new Set();
+    }
+    if (adminOpen) {
+      closeLaunchboxArtPicker();
+      closeDeezerArtPicker();
     }
       adminMode = 'hub';
       adminContextItem = null;
     adminOpen = !adminOpen;
   }
 
+  function switchLibraryAdminTab(tab: 'games' | 'music') {
+    libraryAdminTab = tab;
+    adminSearchCategory = tab === 'games' ? 'Games' : 'Music';
+    if (tab === 'music') {
+      adminSearchPlatform = 'All';
+    } else if (adminSearchPlatform === 'All' && selectedConsole) {
+      adminSearchPlatform = selectedConsole;
+    }
+    adminListPage = 0;
+    clearSelectedAdminItems();
+    adminEditingId = null;
+    adminContextItem = null;
+    resetAdminForm(tab === 'music' ? 'Music' : 'Games');
+  }
+
   function openAdminMode(mode: 'systems' | 'library', tab?: 'games' | 'music', contextItem?: MediaItem) {
     adminOpen = true;
     adminMode = mode;
-    if (tab) libraryAdminTab = tab;
+    if (tab) {
+      libraryAdminTab = tab;
+      adminSearchCategory = tab === 'games' ? 'Games' : 'Music';
+      if (tab === 'music') {
+        adminSearchPlatform = 'All';
+      }
+    }
 
     if (mode === 'library' && contextItem) {
       startEditItem(contextItem);
       return;
+    }
+
+    if (mode !== 'library') {
+      selectedAdminItemIds = new Set();
     }
 
     resetAdminForm(tab === 'music' ? 'Music' : 'Games');
@@ -2126,6 +2441,7 @@
       adminMode = 'hub';
       adminContextItem = null;
       adminEditingId = null;
+      selectedAdminItemIds = new Set();
     }
 
   function startEditItem(item: MediaItem) {
@@ -2292,32 +2608,58 @@
     }
   }
 
-  async function deleteAdminItem(item: MediaItem) {
+  async function deleteAdminItems(itemIds: number[]) {
+    const uniqueIds = [...new Set(itemIds)];
+    if (!uniqueIds.length) return;
+
     adminError = '';
     adminMessage = '';
     adminBusy = true;
+    let deletedCount = 0;
+    let failedCount = 0;
+
     try {
-      const response = await fetch(`/api/media/${item.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${adminToken}` },
+      for (const itemId of uniqueIds) {
+        const response = await fetch(`/api/media/${itemId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        if (response.status === 401) {
+          adminToken = '';
+          localStorage.removeItem('ps2-admin-token');
+          adminError = 'Session expired. Log in again.';
+          return;
+        }
+        if (!response.ok) {
+          failedCount += 1;
+          continue;
+        }
+        if (selectedItem?.id === itemId) {
+          selectedItem = null;
+        }
+        deletedCount += 1;
+      }
+
+      if (!deletedCount) {
+        adminError = uniqueIds.length === 1 ? 'Could not delete item.' : 'Could not delete selected items.';
+        return;
+      }
+
+      adminMessage = deletedCount === 1 ? 'Item deleted.' : `${deletedCount} items deleted.`;
+      if (failedCount > 0) {
+        adminError = failedCount === 1 ? '1 item could not be deleted.' : `${failedCount} items could not be deleted.`;
+      }
+
+      const deletedSet = new Set(uniqueIds);
+      const nextSelected = new Set<number>();
+      selectedAdminItemIds.forEach((id) => {
+        if (!deletedSet.has(id)) nextSelected.add(id);
       });
-      if (response.status === 401) {
-        adminToken = '';
-        localStorage.removeItem('ps2-admin-token');
-        adminError = 'Session expired. Log in again.';
-        return;
-      }
-      if (!response.ok) {
-        adminError = 'Could not delete item.';
-        return;
-      }
-      if (selectedItem?.id === item.id) {
-        selectedItem = null;
-      }
-      adminMessage = 'Item deleted.';
+      selectedAdminItemIds = nextSelected;
+
       await Promise.all([loadAllMedia(), loadMedia()]);
     } catch {
-      adminError = 'Could not delete item.';
+      adminError = uniqueIds.length === 1 ? 'Could not delete item.' : 'Could not delete selected items.';
     } finally {
       adminBusy = false;
     }
@@ -2471,8 +2813,9 @@
     aria-label="Toggle boot audio mute"
     on:click={handleBootScreenClick}
     on:keydown={(event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
+      if (event.key === 'Enter') {
         event.preventDefault();
+        event.stopPropagation();
         toggleBootMute();
       }
     }}
@@ -2481,9 +2824,10 @@
       <video
         bind:this={bootVideoRef}
         class="boot-video"
-        src="/ps2-intro.mp4"
+        src="/api/boot-video"
         preload="auto"
         playsinline
+        aria-label="PlayStation 2 boot intro video"
         on:loadedmetadata={() => {
           if (bootVideoRef) {
             bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
@@ -2494,6 +2838,7 @@
           if (bootResumeAtSix) {
             if (bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
               bootTextVisible = true;
+              bootResumeAtSix = false;
             }
           } else {
             if (bootVideoRef.currentTime >= 9) {
@@ -2506,7 +2851,9 @@
           bootError = true;
           bootTextVisible = true;
         }}
-      />
+      >
+        <track kind="captions" srclang="en" label="English" src="/api/boot-captions.vtt" />
+      </video>
     {/if}
 
     <div class="boot-vignette"></div>
@@ -2620,7 +2967,7 @@
             {/if}
           </div>
 
-          {#if stage === 'library'}
+          {#if isLibraryContextStage}
             <div class="library-toolbar">
               <div class="library-search-shell" class:is-open={librarySearchOpen}>
                 <button
@@ -2954,13 +3301,49 @@
       </div>
     {/if}
 
-    {#if confirmOpen && confirmItem}
+    {#if deezerArtPickerOpen}
+      <div class="deezer-art-picker-overlay" role="dialog" aria-modal="true" aria-labelledby="deezer-art-picker-title" transition:popupOverlayTransition>
+        <button type="button" class="deezer-art-picker-backdrop" aria-label="Close Deezer album art selector" on:click={closeDeezerArtPicker}></button>
+        <div class="deezer-art-picker-panel" transition:popupPanelTransition>
+          <div class="deezer-art-picker-header">
+            <h3 id="deezer-art-picker-title">Choose Album Art</h3>
+            <button type="button" class="ghost" on:click={closeDeezerArtPicker}>Close</button>
+          </div>
+          {#if deezerArtPickerBusy}
+            <p class="deezer-art-picker-state">Loading album art options from Deezer...</p>
+          {:else if deezerArtPickerError}
+            <p class="admin-error deezer-art-picker-state">{deezerArtPickerError}</p>
+          {:else if deezerArtOptions.length}
+            <div class="deezer-art-picker-grid">
+              {#each deezerArtOptions as artOption, index}
+                <button
+                  type="button"
+                  class="deezer-art-picker-option"
+                  on:click={() => chooseDeezerArtOption(artOption)}
+                  aria-label={`Select album art option ${index + 1}`}
+                >
+                  <img src={artOption} alt={`Deezer album art option ${index + 1}`} loading="lazy" />
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <p class="deezer-art-picker-state">No album art options available.</p>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    {#if confirmOpen && (confirmMode === 'bulk-delete' || confirmItem)}
       <div class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title" transition:popupOverlayTransition>
         <button type="button" class="confirm-backdrop" aria-label="Close confirmation" on:click={closeConfirm}></button>
         <div class="confirm-panel" transition:popupPanelTransition>
-          <h3 id="confirm-title">{confirmMode === 'delete' ? 'Delete Item?' : 'Edit Item?'}</h3>
+          <h3 id="confirm-title">
+            {confirmMode === 'edit' ? 'Edit Item?' : (confirmMode === 'bulk-delete' ? 'Delete Selected Items?' : 'Delete Item?')}
+          </h3>
           <p>
-            {#if confirmMode === 'delete'}
+            {#if confirmMode === 'bulk-delete'}
+              Delete {selectedAdminCount} selected {selectedAdminCount === 1 ? 'entry' : 'entries'} from the library? This cannot be undone.
+            {:else if confirmMode === 'delete'}
               Delete "{confirmItem.title}" from the library? This cannot be undone.
             {:else}
               Open "{confirmItem.title}" in the editor?
@@ -2968,26 +3351,26 @@
           </p>
           <div class="confirm-actions">
             <button type="button" class="ghost" on:click={closeConfirm}>Cancel</button>
-            <button type="button" class:danger={confirmMode === 'delete'} on:click={confirmAction}>
-              {confirmMode === 'delete' ? 'Delete' : 'Edit'}
+            <button type="button" class:danger={confirmMode !== 'edit'} on:click={confirmAction}>
+              {confirmMode === 'edit' ? 'Edit' : 'Delete'}
             </button>
           </div>
         </div>
       </div>
     {/if}
 
-    {#if stage !== 'details'}
+    {#if showPersistentBackButton}
       <button type="button" class="back-button" on:click={backAction}>Back</button>
     {/if}
 
-    <button type="button" class="admin-launch" on:click={toggleAdminPanel}>{adminOpen ? 'Close' : 'Admin'}</button>
+    <button type="button" class="admin-launch" on:click={toggleAdminPanel} aria-haspopup="dialog" aria-expanded={adminOpen}>Admin</button>
 
     {#if isAdmin}
       <div class="admin-toolbar">
         {#if stage === 'console'}
           <button type="button" on:click={() => openAdminMode('systems')}>Manage Systems</button>
         {/if}
-        {#if stage === 'library'}
+        {#if isLibraryContextStage}
           <button type="button" on:click={startAddItem}>Add {category === 'Music' ? 'Album' : 'Game'}</button>
         {/if}
       </div>
@@ -3006,6 +3389,9 @@
           <label for="admin-password">Password</label>
           <input id="admin-password" type="password" bind:value={adminPassword} placeholder="Enter password..." on:keydown={(e) => e.key === 'Enter' && adminLogin()} />
           <button type="button" disabled={adminBusy} on:click={adminLogin}>Log In</button>
+          {#if adminError}
+            <p class="admin-error" style="color: #ffb2b2; margin-top: 12px;">{adminError}</p>
+          {/if}
         </div>
       {:else}
         {#if adminMode === 'hub'}
@@ -3032,7 +3418,7 @@
         {:else if adminMode === 'systems'}
           <!-- SYSTEMS MANAGER VIEW -->
           <div class="admin-header">
-            <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>← Hub</button>
+            <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>←  Hub</button>
             <h2>System Manager</h2>
             <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
           </div>
@@ -3040,50 +3426,13 @@
           <div class="admin-layout systems-layout">
             <!-- Systems List (Left) -->
             <div class="admin-list-pane">
-              <div class="systems-add-section">
-                <h4>Add New System</h4>
-                <div class="systems-add-row">
-                  <div class="form-field">
-                    <label for="new-system-name">System Name</label>
-                    <input id="new-system-name" type="text" bind:value={newSystemName} placeholder="e.g., PlayStation 5" />
-                  </div>
-                  <div class="form-field">
-                    <label for="new-system-case-type">Case Type</label>
-                    <select id="new-system-case-type" bind:value={newSystemCaseType}>
-                      <option value="">Auto-detect</option>
-                      <option value="cartridge">Cartridge</option>
-                      <option value="disc">Disc</option>
-                      <option value="hybrid">Hybrid</option>
-                    </select>
-                  </div>
-                  <div class="form-field form-field--logo">
-                    <label for="new-system-logo">Logo Image</label>
-                    <div class="file-input-group file-input-group--logo">
-                      <input id="new-system-logo" type="file" accept="image/*" on:change={(e) => handleLogoUpload(e, true)} />
-                      <span class="file-input-group-divider" aria-hidden="true"><span>or</span></span>
-                      <input type="text" bind:value={newSystemIcon} placeholder="Image URL (optional)" />
-                    </div>
-                    <div class="system-logo-controls">
-                      <button
-                        type="button"
-                        class="system-logo-fetch-button"
-                        disabled={systemLogoFetchBusy}
-                        on:click={() => fetchSystemLogo(true)}
-                      >
-                        {systemLogoFetchBusy ? 'Fetching Logo...' : 'Fetch Logo'}
-                      </button>
-                      {#if systemLogoFetchError && canFetchSystemLogo(true)}
-                        <p class="admin-error system-logo-fetch-error">{systemLogoFetchError}</p>
-                      {/if}
-                    </div>
-                    {#if newSystemIcon}
-                      <div class="logo-preview logo-preview--compact">
-                        <img src={newSystemIcon} alt="Logo preview" />
-                      </div>
-                    {/if}
-                  </div>
-                  <button type="button" on:click={addSystem} class="add-button">Add System</button>
-                </div>
+              <div class="admin-list-filters systems-list-filters">
+                <input
+                  type="search"
+                  class="search-input-unified"
+                  bind:value={adminSystemSearchQuery}
+                  placeholder="Search by system name..."
+                />
               </div>
 
               {#if systemError}
@@ -3091,7 +3440,7 @@
               {/if}
 
               <div class="systems-list" role="list">
-                {#each editableSystems as system}
+                {#each filteredSystems as system}
                   <div
                     class="systems-row"
                     role="listitem"
@@ -3127,10 +3476,13 @@
                     </div>
                     <div class="systems-actions">
                       <button type="button" class="edit-button" on:click={() => startEditSystem(system.id)}>Edit</button>
-                      <button type="button" class="danger" on:click={() => removeSystem(system.id)}>Remove</button>
+                      <button type="button" class="danger" on:click={() => removeSystem(system.id)}>Delete</button>
                     </div>
                   </div>
                 {/each}
+                {#if filteredSystems.length === 0}
+                  <p class="admin-status">No systems match your search.</p>
+                {/if}
               </div>
             </div>
 
@@ -3145,12 +3497,17 @@
                   </div>
                   <div class="form-field">
                     <label for="edit-system-case-type">Case Type</label>
-                    <select id="edit-system-case-type" bind:value={editingSystemCaseType}>
-                      <option value="">Auto-detect</option>
-                      <option value="cartridge">Cartridge</option>
-                      <option value="disc">Disc</option>
-                      <option value="hybrid">Hybrid</option>
-                    </select>
+                    <AdminSelect
+                      id="edit-system-case-type"
+                      bind:value={editingSystemCaseType}
+                      solidUnderline
+                      options={[
+                        { value: '', label: 'Auto-detect' },
+                        { value: 'cartridge', label: 'Cartridge' },
+                        { value: 'disc', label: 'Disc' },
+                        { value: 'hybrid', label: 'Hybrid' }
+                      ]}
+                    />
                   </div>
                   <div class="form-field form-field--logo">
                     <label for="edit-system-logo">Logo Image</label>
@@ -3179,13 +3536,66 @@
                     {/if}
                   </div>
                   <div class="form-actions">
-                    <button type="button" on:click={saveEditSystem} class="save-button">Save</button>
-                    <button type="button" on:click={cancelEditSystem} class="cancel-button">Cancel</button>
+                    <button type="button" on:click={saveEditSystem} class="save-button">Save Changes</button>
+                    <button type="button" on:click={cancelEditSystem} class="cancel-button">Clear</button>
+                  </div>
+                </div>
+              {:else if newSystemFormOpen}
+                <div class="systems-edit-mode">
+                  <h3>Add System</h3>
+                  <div class="form-field">
+                    <label for="new-system-name">System Name</label>
+                    <input id="new-system-name" type="text" bind:value={newSystemName} placeholder="e.g., PlayStation 5" />
+                  </div>
+                  <div class="form-field">
+                    <label for="new-system-case-type">Case Type</label>
+                    <AdminSelect
+                      id="new-system-case-type"
+                      bind:value={newSystemCaseType}
+                      solidUnderline
+                      options={[
+                        { value: '', label: 'Auto-detect' },
+                        { value: 'cartridge', label: 'Cartridge' },
+                        { value: 'disc', label: 'Disc' },
+                        { value: 'hybrid', label: 'Hybrid' }
+                      ]}
+                    />
+                  </div>
+                  <div class="form-field form-field--logo">
+                    <label for="new-system-logo">Logo Image</label>
+                    <div class="file-input-group file-input-group--logo">
+                      <input id="new-system-logo" type="file" accept="image/*" on:change={(e) => handleLogoUpload(e, true)} />
+                      <span class="file-input-group-divider" aria-hidden="true"><span>or</span></span>
+                      <input type="text" bind:value={newSystemIcon} placeholder="Image URL (optional)" />
+                    </div>
+                    <div class="system-logo-controls">
+                      <button
+                        type="button"
+                        class="system-logo-fetch-button"
+                        disabled={systemLogoFetchBusy}
+                        on:click={() => fetchSystemLogo(true)}
+                      >
+                        {systemLogoFetchBusy ? 'Fetching Logo...' : 'Fetch Logo'}
+                      </button>
+                      {#if systemLogoFetchError && canFetchSystemLogo(true)}
+                        <p class="admin-error system-logo-fetch-error">{systemLogoFetchError}</p>
+                      {/if}
+                    </div>
+                    {#if newSystemIcon}
+                      <div class="logo-preview logo-preview--compact">
+                        <img src={newSystemIcon} alt="Logo preview" />
+                      </div>
+                    {/if}
+                  </div>
+                  <div class="form-actions">
+                    <button type="button" on:click={addSystem} class="save-button">Add System</button>
+                    <button type="button" on:click={clearNewSystemForm} class="cancel-button">Clear</button>
                   </div>
                 </div>
               {:else}
                 <div class="admin-form-empty">
-                  <p>Select a system to edit, or add a new one on the left.</p>
+                  <p>Select an item from the list to edit, or click the button below to create a new one.</p>
+                  <button type="button" on:click={() => (newSystemFormOpen = true)}>Create New System</button>
                 </div>
               {/if}
             </div>
@@ -3194,7 +3604,7 @@
         {:else if adminMode === 'library'}
           <!-- LIBRARY MANAGER VIEW -->
           <div class="admin-header">
-            <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>← Hub</button>
+            <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>←  Hub</button>
             <h2>Library Manager</h2>
             <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
           </div>
@@ -3202,15 +3612,17 @@
           <div class="admin-tabs">
             <button 
               type="button" 
+              class="admin-library-tab"
               class:active={libraryAdminTab === 'games'}
-              on:click={() => { libraryAdminTab = 'games'; adminListPage = 0; if (adminEditingId === null) resetAdminForm('Games'); }}
+              on:click={() => switchLibraryAdminTab('games')}
             >
               Games
             </button>
             <button 
               type="button" 
+              class="admin-library-tab"
               class:active={libraryAdminTab === 'music'}
-              on:click={() => { libraryAdminTab = 'music'; adminListPage = 0; if (adminEditingId === null) resetAdminForm('Music'); }}
+              on:click={() => switchLibraryAdminTab('music')}
             >
               Music
             </button>
@@ -3222,13 +3634,34 @@
               <div class="admin-list-filters">
                 <input type="search" class="search-input-unified" bind:value={adminSearchQuery} placeholder="Search by title..." />
                 {#if libraryAdminTab === 'games'}
-                  <select bind:value={adminSearchPlatform} on:change={() => (adminListPage = 0)}>
-                    <option value="All">All Platforms</option>
-                    {#each adminConsoleOptions as platform}
-                      <option value={platform}>{platform}</option>
-                    {/each}
-                  </select>
+                  <AdminSelect
+                    bind:value={adminSearchPlatform}
+                    options={[
+                      { value: 'All', label: 'All Platforms' },
+                      ...adminConsoleOptions.map((p) => ({ value: p, label: p }))
+                    ]}
+                    on:change={() => (adminListPage = 0)}
+                  />
                 {/if}
+              </div>
+
+              <div class="admin-selection-bar">
+                <label class="admin-select-all">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleAdminItemsSelected}
+                    disabled={adminVisibleIds.length === 0}
+                    on:change={toggleSelectAllVisibleAdminItems}
+                  />
+                  <span>Select Page</span>
+                </label>
+                <div class="admin-selection-actions">
+                  <span class="admin-selection-count">{selectedAdminCount} selected</span>
+                  <button type="button" on:click={clearSelectedAdminItems} disabled={selectedAdminCount === 0 || adminBusy}>Clear</button>
+                  <button type="button" class="danger" on:click={openBulkDeleteConfirm} disabled={selectedAdminCount === 0 || adminBusy}>
+                    Delete Selected ({selectedAdminCount})
+                  </button>
+                </div>
               </div>
 
               <div class="admin-list">
@@ -3237,8 +3670,15 @@
                     <div
                       class="admin-row"
                       class:active={adminEditingId === item.id}
+                      class:selected={selectedAdminItemIds.has(item.id)}
                       role="button"
                       tabindex="0"
+                      draggable="true"
+                      on:dragstart={(event) => handleMediaDragStart(event, item.id)}
+                      on:dragover={handleMediaDragOver}
+                      on:drop={(event) => handleMediaDrop(event, item.id)}
+                      on:dragend={handleMediaDragEnd}
+                      on:dragleave={(event) => event.preventDefault()}
                       on:click={() => openAdminMode('library', libraryAdminTab, item)}
                       on:keydown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
@@ -3247,6 +3687,25 @@
                         }
                       }}
                     >
+                      <div class="admin-row-handle" aria-label="Drag to reorder">
+                        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" aria-hidden="true">
+                          <circle cx="6" cy="6" r="1.5" />
+                          <circle cx="6" cy="12" r="1.5" />
+                          <circle cx="6" cy="18" r="1.5" />
+                          <circle cx="12" cy="6" r="1.5" />
+                          <circle cx="12" cy="12" r="1.5" />
+                          <circle cx="12" cy="18" r="1.5" />
+                        </svg>
+                      </div>
+                      <input
+                        class="admin-row-select"
+                        type="checkbox"
+                        aria-label={`Select ${item.title} for deletion`}
+                        checked={selectedAdminItemIds.has(item.id)}
+                        on:click|stopPropagation
+                        on:keydown|stopPropagation
+                        on:change={(event) => handleAdminRowSelectionChange(item.id, event)}
+                      />
                       {#if item.cover_image}
                         <img src={item.cover_image} alt="" class="admin-row-thumb" draggable="false" />
                       {/if}
@@ -3287,7 +3746,7 @@
                     bulkErrorText = '';
                   }}
                 >
-                  {bulkOpen ? '▲ Hide Bulk Upload' : '▼ Bulk Upload'}
+                  <span class="bulk-upload-toggle-label">{bulkOpen ? '▲ Hide Bulk Upload' : '▼ Bulk Upload'}</span>
                 </button>
                 <div class="bulk-upload-body" class:open={bulkOpen}>
                   <p class="bulk-format-hint">
@@ -3345,7 +3804,7 @@
             <div class="admin-form-pane">
               {#if adminEditingId !== null}
                 <form class="admin-form" on:submit|preventDefault={saveAdminItem}>
-                  <h3>{adminContextItem?.title ?? 'Edit Item'}</h3>
+                  <h3>{adminContextItem ? adminContextItem.title : (libraryAdminTab === 'music' ? 'Add Album' : 'Add Game')}</h3>
                   {#if libraryAdminTab === 'games'}
                     <section class="admin-loaded-art" aria-label="Loaded Art">
                       <p class="admin-loaded-art-title">Loaded Art</p>
@@ -3418,6 +3877,34 @@
                         </div>
                       </div>
                     </section>
+                  {:else}
+                    <section class="admin-loaded-art admin-loaded-art--music" aria-label="Loaded Art">
+                      <p class="admin-loaded-art-title">Loaded Art</p>
+                      <div class="admin-loaded-art-grid admin-loaded-art-grid--single">
+                        <div class="admin-loaded-art-item">
+                          <div class="admin-loaded-art-item-header">
+                            <span>Album Art</span>
+                            <label for="admin-upload-album-art" class="admin-art-upload-button">Upload</label>
+                            <input
+                              id="admin-upload-album-art"
+                              class="admin-art-upload-input"
+                              type="file"
+                              accept="image/*"
+                              on:change={(e) => handleGameArtUpload(e, 'cover_image')}
+                            />
+                          </div>
+                          <div class="admin-loaded-art-media">
+                            {#if adminForm.cover_image}
+                              <button type="button" class="admin-loaded-art-preview" on:click={() => openDeezerArtPicker()}>
+                                <img src={adminForm.cover_image} alt="Fetched album art" />
+                              </button>
+                            {:else}
+                              <div class="admin-loaded-art-empty">No album art loaded</div>
+                            {/if}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
                   {/if}
                   <div class="form-field">
                     <label for="admin-item-title">Title</label>
@@ -3427,12 +3914,16 @@
                   {#if libraryAdminTab === 'games'}
                     <div class="form-field">
                       <label for="admin-platform">Platform</label>
-                      <select id="admin-platform" bind:value={adminForm.platform} required>
-                        <option value="">Select console</option>
-                        {#each adminConsoleOptions as consoleName}
-                          <option value={consoleName}>{consoleName}</option>
-                        {/each}
-                      </select>
+                      <AdminSelect
+                        id="admin-platform"
+                        bind:value={adminForm.platform}
+                        solidUnderline
+                        options={[
+                          { value: '', label: 'Select console' },
+                          ...adminConsoleOptions.map((c) => ({ value: c, label: c }))
+                        ]}
+                        required
+                      />
                     </div>
                     <button
                       type="button"
@@ -3449,17 +3940,23 @@
                     <div class="admin-field-group">
                       <label class="admin-field-label" for="admin-publishers">Publisher(s)</label>
                       <div class="admin-chip-row">
-                        <select id="admin-publishers" bind:value={adminPublisherChoice} on:change={() => {
-                          if (adminPublisherChoice) {
-                            updateAdminSelection('publishers', adminPublisherChoice, 'add');
-                            adminPublisherChoice = '';
-                          }
-                        }}>
-                          <option value="">Select publisher</option>
-                          {#each adminPublisherOptions as publisherName}
-                            <option value={publisherName} disabled={adminForm.publishers.includes(publisherName)}>{publisherName}</option>
-                          {/each}
-                        </select>
+                        <AdminSelect
+                          id="admin-publishers"
+                          bind:value={adminPublisherChoice}
+                          solidUnderline
+                          options={[
+                            { value: '', label: 'Select publisher' },
+                            ...adminPublisherOptions
+                              .filter((p) => !adminForm.publishers.includes(p))
+                              .map((p) => ({ value: p, label: p }))
+                          ]}
+                          on:change={() => {
+                            if (adminPublisherChoice) {
+                              updateAdminSelection('publishers', adminPublisherChoice, 'add');
+                              adminPublisherChoice = '';
+                            }
+                          }}
+                        />
                       </div>
                       {#if adminForm.publishers.length}
                         <div class="admin-chip-list">
@@ -3475,17 +3972,23 @@
                     <div class="admin-field-group">
                       <label class="admin-field-label" for="admin-game-genres">Genre(s)</label>
                       <div class="admin-chip-row">
-                        <select id="admin-game-genres" bind:value={adminGameGenreChoice} on:change={() => {
-                          if (adminGameGenreChoice) {
-                            updateAdminSelection('gameGenres', adminGameGenreChoice, 'add');
-                            adminGameGenreChoice = '';
-                          }
-                        }}>
-                          <option value="">Select genre</option>
-                          {#each adminGameGenreOptions as genreName}
-                            <option value={genreName} disabled={adminForm.gameGenres.includes(genreName)}>{genreName}</option>
-                          {/each}
-                        </select>
+                        <AdminSelect
+                          id="admin-game-genres"
+                          bind:value={adminGameGenreChoice}
+                          solidUnderline
+                          options={[
+                            { value: '', label: 'Select genre' },
+                            ...adminGameGenreOptions
+                              .filter((g) => !adminForm.gameGenres.includes(g))
+                              .map((g) => ({ value: g, label: g }))
+                          ]}
+                          on:change={() => {
+                            if (adminGameGenreChoice) {
+                              updateAdminSelection('gameGenres', adminGameGenreChoice, 'add');
+                              adminGameGenreChoice = '';
+                            }
+                          }}
+                        />
                       </div>
                       {#if adminForm.gameGenres.length}
                         <div class="admin-chip-list">
@@ -3504,44 +4007,66 @@
                     </div>
                     <div class="form-field">
                       <label for="admin-players">Players</label>
-                      <select id="admin-players" bind:value={adminForm.players}>
-                        <option value="">Number of players</option>
-                        {#each adminPlayerOptions as playerCount}
-                          <option value={String(playerCount)}>{playerCount}</option>
-                        {/each}
-                      </select>
+                      <AdminSelect
+                        id="admin-players"
+                        bind:value={adminForm.players}
+                        solidUnderline
+                        options={[
+                          { value: '', label: 'Number of players' },
+                          ...adminPlayerOptions.map((p) => ({ value: String(p), label: String(p) }))
+                        ]}
+                      />
                     </div>
                     <div class="form-field">
                       <label for="admin-cooperative">Cooperative</label>
-                      <select id="admin-cooperative" bind:value={adminForm.cooperative}>
-                        {#each cooperativeOptions as cooperativeOption}
-                          <option value={cooperativeOption}>{cooperativeOption}</option>
-                        {/each}
-                      </select>
+                      <AdminSelect
+                        id="admin-cooperative"
+                        bind:value={adminForm.cooperative}
+                        solidUnderline
+                        options={cooperativeOptions.map((o) => ({ value: o, label: o }))}
+                      />
                     </div>
                     <div class="form-field">
                       <label for="admin-rating">Rating</label>
-                      <select id="admin-rating" bind:value={adminForm.rating}>
-                        {#each gameRatingOptions as ratingOption}
-                          <option value={ratingOption}>{ratingOption}</option>
-                        {/each}
-                      </select>
+                      <AdminSelect
+                        id="admin-rating"
+                        bind:value={adminForm.rating}
+                        solidUnderline
+                        options={gameRatingOptions.map((r) => ({ value: r, label: r }))}
+                      />
                     </div>
                   {:else}
                     <div class="form-field">
                       <label for="admin-artist">Artist</label>
                       <input id="admin-artist" type="text" bind:value={adminForm.artist} placeholder="Artist" />
                     </div>
+                    <button
+                      type="button"
+                      class="launchbox-fetch-button"
+                      class:pulse={canFetchDeezerAlbumData() && !deezerAlbumFetchBusy}
+                      disabled={deezerAlbumFetchBusy}
+                      on:click={fetchDeezerAlbumData}
+                    >
+                      {deezerAlbumFetchBusy ? 'Fetching Album Data...' : 'Fetch Album Data'}
+                    </button>
+                    {#if deezerAlbumFetchError}
+                      <p class="admin-error launchbox-fetch-error">{deezerAlbumFetchError}</p>
+                    {/if}
                     <div class="form-field">
                       <label for="admin-music-genre">Genre</label>
-                      <select id="admin-music-genre" bind:value={adminMusicGenreChoice} required on:change={() => {
-                        adminForm = { ...adminForm, musicGenre: adminMusicGenreChoice };
-                      }}>
-                        <option value="">Select genre</option>
-                        {#each adminMusicGenreOptions as genreName}
-                          <option value={genreName}>{genreName}</option>
-                        {/each}
-                      </select>
+                      <AdminSelect
+                        id="admin-music-genre"
+                        bind:value={adminMusicGenreChoice}
+                        solidUnderline
+                        options={[
+                          { value: '', label: 'Select genre' },
+                          ...adminMusicGenreOptions.map((g) => ({ value: g, label: g }))
+                        ]}
+                        required
+                        on:change={() => {
+                          adminForm = { ...adminForm, musicGenre: adminMusicGenreChoice };
+                        }}
+                      />
                     </div>
                     <div class="form-field">
                       <label for="admin-music-release-date">Release Date</label>
@@ -3549,12 +4074,12 @@
                     </div>
                   {/if}
                   <div class="form-field">
-                    <label for="admin-notes">Overview</label>
-                    <textarea id="admin-notes" bind:value={adminForm.notes} rows="3" placeholder="Overview"></textarea>
+                    <label for="admin-notes">Track List</label>
+                    <textarea id="admin-notes" bind:value={adminForm.notes} rows="3" placeholder="Track List"></textarea>
                   </div>
                   
                   <div class="form-actions">
-                    <button type="submit" disabled={adminBusy}>{adminEditingId ? 'Save Changes' : 'Create Item'}</button>
+                    <button type="submit" disabled={adminBusy}>{adminEditingId > 0 ? 'Save Changes' : (libraryAdminTab === 'games' ? 'Add Game' : 'Add Album')}</button>
                     <button type="button" on:click={() => { adminEditingId = null; adminContextItem = null; }}>Clear</button>
                   </div>
                 </form>
@@ -3585,4 +4110,5 @@
     </div>
   </div>
 {/if}
+
 

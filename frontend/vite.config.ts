@@ -11,4 +11,8 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  build: {
+    copyPublicDir: false,
+    emptyOutDir: false,
+  },
 });
