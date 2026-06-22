@@ -128,6 +128,7 @@ class LaunchboxGameArtOptionsRequest(SQLModel):
 
 class BulkGamesRequest(SQLModel):
     items: List[str]
+    platform: Optional[str] = None
 
 
 class BulkMusicRequest(SQLModel):
@@ -1859,19 +1860,21 @@ def fetch_game_art_options(payload: LaunchboxGameArtOptionsRequest, authorizatio
 def bulk_upload_games(payload: BulkGamesRequest, authorization: Optional[str] = Header(default=None)) -> dict:
     """Bulk-create game entries by fetching metadata from LaunchBox."""
     require_admin(authorization)
+    platform = (payload.platform or "").strip()
+    if not platform:
+        raise HTTPException(status_code=400, detail="A platform filter selection is required for bulk game upload.")
+
     results = []
     for raw_line in payload.items:
         line = raw_line.strip()
         if not line:
             continue
-        if " - " not in line:
-            results.append({"line": line, "status": "error", "error": "Invalid format - use: Game Title - Platform"})
+        title_part = line
+        if not title_part:
+            results.append({"line": line, "status": "error", "error": "Invalid format - provide a game title per line"})
             continue
-        title_part, platform_part = line.rsplit(" - ", 1)
-        title_part = title_part.strip()
-        platform_part = platform_part.strip()
         try:
-            game_data = fetch_game_data_with_fallback(title_part, platform_part)
+            game_data = fetch_game_data_with_fallback(title_part, platform)
         except HTTPException as exc:
             results.append({"line": line, "status": "error", "error": exc.detail})
             continue
@@ -1893,7 +1896,7 @@ def bulk_upload_games(payload: BulkGamesRequest, authorization: Optional[str] = 
         item = MediaItem(
             title=normalize_game_title(game_data.get("title", title_part)),
             category="Games",
-            platform=game_data.get("platform", platform_part),
+            platform=platform,
             genre=game_genres[0] if game_genres else "Action",
             genres=", ".join(game_genres) if game_genres else None,
             release_date=release_date_iso,

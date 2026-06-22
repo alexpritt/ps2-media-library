@@ -13,6 +13,9 @@ A personal web application that catalogs my physical media collection in a PlayS
 ## ✨ Features
 
 ### 🆕 Recent Updates (2026-06-22)
+- Bulk game upload now accepts one title per line and uses the selected platform filter above the bulk editor
+- Bulk game upload no longer writes LaunchBox platform labels; saved platform always matches the selected app platform
+- Bulk upload now shows an in-panel progress bar, live status text, and explicit error summary/details during processing
 - Fixed console selection page header layout to prevent text wrapping on narrow screens
 - Added fade animation to game count text when hovering over consoles
 - Fixed system logo upload persistence to preserve image MIME types (PNG/JPG/SVG support)
@@ -57,6 +60,8 @@ PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Nintendo 3DS, Game Boy
 - Inline edit from the details popup skips the confirm step and refreshes the popup on save
 - Admin list pre-filtered to the current library's category and platform on open
 - Bulk edit mode (accessed from library admin toolbar) retains standard confirm flow
+- Bulk game upload uses the current platform filter selection and title-only lines (no ` - Platform` suffix required)
+- Bulk upload panel includes live progress/status and line-level error reporting while requests are processing
 - Custom console management (add / remove systems)
 - LaunchBox fetch for Games with automatic population of title metadata and artwork
 - Loaded Art panel for Games with upload controls for Box Art, Spine Art, and Disc Art
@@ -73,6 +78,7 @@ PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Nintendo 3DS, Game Boy
 - Game-data endpoint can return persisted cached records when metadata/art is already available
 - Game-data fetch includes approved keyless fallback metadata source when LaunchBox cannot provide data
 - Game-art options endpoint supports targeted retrieval by art type (`cover`, `spine`, `disc`, `cart`)
+- Bulk games endpoint requires a selected platform parameter and applies that platform as source-of-truth when creating items
 
 ## ⚙️ Setup
 
