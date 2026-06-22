@@ -1,7 +1,8 @@
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 import secrets
 import base64
+import os
 import re
 import unicodedata
 from urllib.parse import quote, urljoin
@@ -22,6 +23,17 @@ app = FastAPI(title="PS2 Media Library API")
 
 ADMIN_PASSWORD = "foreverandalways"
 admin_tokens: Dict[str, bool] = {}
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+ENABLE_KEYLESS_METADATA_FALLBACK = env_flag("ENABLE_KEYLESS_METADATA_FALLBACK", default=True)
+ENABLE_SCREENSCRAPER_FALLBACK = env_flag("ENABLE_SCREENSCRAPER_FALLBACK", default=False)
 
 
 def iter_file_range(file_path: Path, start: int, end: int, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
@@ -66,6 +78,10 @@ class GameSystem(SQLModel, table=True):
     short_name: str
     logo: str
     logo_image: Optional[str] = None  # Base64 encoded image data
+    case_type: str = "disc"
+    appearance_preset: Optional[str] = None
+    is_cartridge_inferred: bool = False
+    display_order: int = Field(default=0)
 
 
 class AdminLoginRequest(SQLModel):
@@ -76,6 +92,12 @@ class LaunchboxGameDataRequest(SQLModel):
     title: str
     platform: str
     item_id: Optional[int] = None
+
+
+class LaunchboxGameArtOptionsRequest(SQLModel):
+    title: str
+    platform: str
+    art_type: str
 
 
 class BulkGamesRequest(SQLModel):
@@ -149,6 +171,44 @@ def ensure_spine_image_column() -> None:
             connection.execute(text("ALTER TABLE mediaitem ADD COLUMN spine_image VARCHAR"))
 
 
+def ensure_system_case_type_column() -> None:
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(gamesystem)")).fetchall()
+        has_case_type = any(column[1] == "case_type" for column in columns)
+        if not has_case_type:
+            connection.execute(text("ALTER TABLE gamesystem ADD COLUMN case_type VARCHAR DEFAULT 'disc'"))
+            connection.execute(text("UPDATE gamesystem SET case_type = 'disc' WHERE case_type IS NULL OR case_type = ''"))
+
+
+def ensure_system_appearance_preset_column() -> None:
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(gamesystem)")).fetchall()
+        has_appearance_preset = any(column[1] == "appearance_preset" for column in columns)
+        if not has_appearance_preset:
+            connection.execute(text("ALTER TABLE gamesystem ADD COLUMN appearance_preset VARCHAR"))
+
+
+def ensure_system_is_cartridge_inferred_column() -> None:
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(gamesystem)")).fetchall()
+        has_is_cartridge_inferred = any(column[1] == "is_cartridge_inferred" for column in columns)
+        if not has_is_cartridge_inferred:
+            connection.execute(text("ALTER TABLE gamesystem ADD COLUMN is_cartridge_inferred BOOLEAN DEFAULT 0"))
+            connection.execute(text("UPDATE gamesystem SET is_cartridge_inferred = 0 WHERE is_cartridge_inferred IS NULL"))
+
+
+def ensure_system_display_order_column() -> None:
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(gamesystem)")).fetchall()
+        has_display_order = any(column[1] == "display_order" for column in columns)
+        if not has_display_order:
+            connection.execute(text("ALTER TABLE gamesystem ADD COLUMN display_order INTEGER DEFAULT 0"))
+            # Set display_order alphabetically by name for existing systems
+            systems = connection.execute(text("SELECT id, name FROM gamesystem ORDER BY name ASC")).fetchall()
+            for order, (system_id, _) in enumerate(systems):
+                connection.execute(text("UPDATE gamesystem SET display_order = ? WHERE id = ?"), {"order": order, "id": system_id})
+
+
 def normalize_game_title(title: str) -> str:
     normalized = re.sub(r"\s+", " ", title.strip())
     if not normalized:
@@ -188,6 +248,46 @@ def normalize_game_title(title: str) -> str:
 
 def normalize_launchbox_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+CARTRIDGE_PRESET_ALIASES: Dict[str, str] = {
+    "nds": "nds",
+    "nintendods": "nds",
+    "3ds": "3ds",
+    "nintendo3ds": "3ds",
+    "gb": "gb",
+    "gameboy": "gb",
+}
+
+
+DISC_PRESET_ALIASES: Dict[str, str] = {
+    "ps2": "ps2",
+    "playstation2": "ps2",
+    "ps3": "ps3",
+    "playstation3": "ps3",
+    "ps4": "ps4",
+    "playstation4": "ps4",
+    "gc": "gamecube",
+    "gamecube": "gamecube",
+    "wii": "wii",
+    "xbox": "xbox",
+    "xbox360": "xbox360",
+}
+
+
+def infer_system_appearance(system_id: str, name: str) -> Tuple[str, str, bool]:
+    key = normalize_launchbox_key(system_id or name)
+    name_key = normalize_launchbox_key(name)
+
+    for alias, preset in CARTRIDGE_PRESET_ALIASES.items():
+        if alias in key or alias in name_key:
+            return ("cartridge", preset, True)
+
+    for alias, preset in DISC_PRESET_ALIASES.items():
+        if alias in key or alias in name_key:
+            return ("disc", preset, False)
+
+    return ("disc", "generic-disc", False)
 
 
 def normalize_title_for_match(value: str) -> str:
@@ -238,6 +338,228 @@ def parse_launchbox_date(date_str: Optional[str]) -> Optional[str]:
     if year_m:
         return f"{year_m.group(0)}-01-01"
     return None
+
+
+def parse_optional_int(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_release_date(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    value = value.strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+        return value
+    if re.match(r"^\d{4}-\d{2}$", value):
+        return f"{value}-01"
+    year_m = re.search(r"\b(19|20)\d{2}\b", value)
+    if year_m:
+        return f"{year_m.group(0)}-01-01"
+    return parse_launchbox_date(value)
+
+
+def fetch_wikidata_game_data(title: str, platform: str) -> Optional[dict]:
+    """Fetch minimal keyless metadata from Wikidata as a LaunchBox-down fallback."""
+
+    search_response = requests.get(
+        "https://www.wikidata.org/w/api.php",
+        params={
+            "action": "wbsearchentities",
+            "format": "json",
+            "language": "en",
+            "type": "item",
+            "search": title,
+            "limit": 5,
+        },
+        timeout=20,
+        headers={"User-Agent": "PS2MediaLibrary/1.0"},
+    )
+    search_response.raise_for_status()
+    candidates = search_response.json().get("search", [])
+    if not candidates:
+        return None
+
+    title_key = normalize_title_for_match(title)
+    platform_key = normalize_title_for_match(platform)
+    best_candidate = None
+    best_score = -1
+
+    for candidate in candidates:
+        label = candidate.get("label", "")
+        description = candidate.get("description", "") or ""
+        candidate_score = 0
+
+        if normalize_title_for_match(label) == title_key:
+            candidate_score += 120
+        elif title_key and title_key in normalize_title_for_match(label):
+            candidate_score += 80
+
+        if "video game" in description.lower() or "videogame" in description.lower():
+            candidate_score += 35
+
+        if platform_key and platform_key in normalize_title_for_match(description):
+            candidate_score += 20
+
+        if candidate_score > best_score:
+            best_score = candidate_score
+            best_candidate = candidate
+
+    if not best_candidate or best_score < 60:
+        return None
+
+    entity_id = best_candidate.get("id")
+    if not entity_id:
+        return None
+
+    entity_response = requests.get(
+        "https://www.wikidata.org/w/api.php",
+        params={
+            "action": "wbgetentities",
+            "format": "json",
+            "ids": entity_id,
+            "languages": "en",
+            "props": "labels|descriptions|claims",
+        },
+        timeout=20,
+        headers={"User-Agent": "PS2MediaLibrary/1.0"},
+    )
+    entity_response.raise_for_status()
+    entity = (entity_response.json().get("entities") or {}).get(entity_id) or {}
+    claims = entity.get("claims") or {}
+
+    def claim_time(prop: str) -> Optional[str]:
+        claim_entries = claims.get(prop) or []
+        for claim in claim_entries:
+            datavalue = (((claim.get("mainsnak") or {}).get("datavalue")) or {})
+            value = datavalue.get("value") or {}
+            time_value = value.get("time")
+            if isinstance(time_value, str):
+                normalized = time_value.lstrip("+")
+                if len(normalized) >= 10:
+                    return normalized[:10]
+        return None
+
+    release_date = claim_time("P577")
+    year_released = parse_optional_int(release_date[:4] if release_date else None)
+    description = ((entity.get("descriptions") or {}).get("en") or {}).get("value")
+
+    return {
+        "title": ((entity.get("labels") or {}).get("en") or {}).get("value") or best_candidate.get("label") or title,
+        "platform": platform,
+        "release_date": release_date,
+        "year_released": year_released,
+        "rating": None,
+        "players": None,
+        "cooperative": None,
+        "publishers": [],
+        "gameGenres": [],
+        "notes": description,
+        "coverImage": None,
+        "spineImage": None,
+        "discImage": None,
+        "data_source": "wikidata",
+        "is_partial_fallback": True,
+        "completeness": {
+            "metadata": True,
+            "cover": False,
+            "disc": False,
+            "spine": False,
+            "cart": False,
+        },
+    }
+
+
+def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
+    try:
+        payload = fetch_launchbox_game_data(title, platform)
+        payload["data_source"] = "launchbox"
+        payload["is_partial_fallback"] = False
+        payload["completeness"] = {
+            "metadata": True,
+            "cover": bool(payload.get("coverImage")),
+            "disc": bool(payload.get("discImage")),
+            "spine": bool(payload.get("spineImage")),
+            "cart": False,
+        }
+        return payload
+    except Exception as exc:
+        if ENABLE_KEYLESS_METADATA_FALLBACK:
+            try:
+                metadata_payload = fetch_wikidata_game_data(title, platform)
+                if metadata_payload:
+                    return metadata_payload
+            except Exception:
+                pass
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Could not fetch game data. LaunchBox is unavailable and no approved "
+                "keyless metadata fallback source returned a match."
+            ),
+        ) from exc
+
+
+def fetch_game_art_options_with_fallback(title: str, platform: str, art_type: str) -> dict:
+    try:
+        launchbox_options = fetch_launchbox_game_art_options(title, platform, art_type)
+        launchbox_options["data_source"] = "launchbox"
+        return launchbox_options
+    except Exception as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Could not fetch {art_type} art. LaunchBox art is unavailable and this art type "
+                "will not be inferred from other media. Use manual upload while LaunchBox is down."
+            ),
+        ) from exc
+
+
+def apply_fetched_game_data_to_item(item: MediaItem, fetched: dict) -> None:
+    source = (fetched.get("data_source") or "").lower()
+    is_launchbox_source = source == "launchbox"
+
+    item.cover_image = fetched.get("coverImage") or item.cover_image
+    if is_launchbox_source:
+        item.spine_image = fetched.get("spineImage") or item.spine_image
+        item.disc_image = fetched.get("discImage") or item.disc_image
+
+    incoming_release_date = normalize_release_date(fetched.get("release_date"))
+    incoming_year_released = fetched.get("year_released")
+    incoming_rating = normalize_esrb_rating(fetched.get("rating"))
+    incoming_cooperative = fetched.get("cooperative")
+
+    if is_launchbox_source:
+        item.release_date = incoming_release_date or item.release_date
+        item.year_released = incoming_year_released or item.year_released
+        item.rating = incoming_rating or item.rating
+        item.cooperative = incoming_cooperative or item.cooperative
+    else:
+        item.release_date = item.release_date or incoming_release_date
+        item.year_released = item.year_released or incoming_year_released
+        item.rating = item.rating or incoming_rating
+        item.cooperative = item.cooperative or incoming_cooperative
+
+    if fetched.get("notes") and (is_launchbox_source or not item.notes):
+        item.notes = fetched.get("notes")
+
+    publishers = [entry.strip() for entry in fetched.get("publishers", []) if isinstance(entry, str) and entry.strip()]
+    game_genres = [entry.strip() for entry in fetched.get("gameGenres", []) if isinstance(entry, str) and entry.strip()]
+
+    if publishers and (is_launchbox_source or not (item.publisher or "").strip()):
+        item.publisher = ", ".join(publishers)
+    if game_genres and (is_launchbox_source or not (item.genres or item.genre or "").strip()):
+        item.genres = ", ".join(game_genres)
+        item.genre = game_genres[0]
+
+    players_int = parse_optional_int(fetched.get("players"))
+    if players_int is not None:
+        item.players = players_int
 
 
 def score_music_match(item: dict, artist: str, album: str) -> int:
@@ -318,6 +640,11 @@ def first_text_from_definition(detail_soup: BeautifulSoup, label: str) -> Option
 
 
 def section_image_by_region(detail_soup: BeautifulSoup, section_title: str, region: str = "North America") -> Optional[str]:
+    images = section_images_by_region(detail_soup, section_title, region)
+    return images[0] if images else None
+
+
+def section_images_by_region(detail_soup: BeautifulSoup, section_title: str, region: str = "North America") -> List[str]:
     target = normalize_launchbox_key(section_title)
     heading = None
     for item in detail_soup.find_all(["h2", "h3"]):
@@ -341,17 +668,35 @@ def section_image_by_region(detail_soup: BeautifulSoup, section_title: str, regi
             continue
         images.append((image.get("alt", ""), image_url))
     if not images:
-        return None
-    preferred = next((image_url for alt, image_url in images if region in alt), None)
-    return preferred or images[0][1]
+        return []
+
+    region_lower = (region or "").lower().strip()
+    preferred = [image_url for alt, image_url in images if region_lower and region_lower in (alt or "").lower()]
+    fallback = [image_url for alt, image_url in images if image_url not in preferred]
+
+    ordered = preferred + fallback
+    deduped: List[str] = []
+    for image_url in ordered:
+        if image_url and image_url not in deduped:
+            deduped.append(image_url)
+    return deduped
 
 
 def section_image_from_titles(detail_soup: BeautifulSoup, titles: List[str], region: str = "North America") -> Optional[str]:
+    images = section_images_from_titles(detail_soup, titles, region, limit=1)
+    return images[0] if images else None
+
+
+def section_images_from_titles(detail_soup: BeautifulSoup, titles: List[str], region: str = "North America", limit: int = 20) -> List[str]:
+    collected: List[str] = []
     for title in titles:
-        image_url = section_image_by_region(detail_soup, title, region)
-        if image_url:
-            return image_url
-    return None
+        image_urls = section_images_by_region(detail_soup, title, region)
+        for image_url in image_urls:
+            if image_url and image_url not in collected:
+                collected.append(image_url)
+                if len(collected) >= limit:
+                    return collected
+    return collected
 
 
 def is_cartridge_platform_name(platform: Optional[str]) -> bool:
@@ -359,7 +704,20 @@ def is_cartridge_platform_name(platform: Optional[str]) -> bool:
     return key in {"nintendods", "nds", "nintendo3ds", "3ds", "gameboy", "gb"}
 
 
-def fetch_launchbox_game_data(title: str, platform: str) -> dict:
+def launchbox_disc_section_titles(platform: Optional[str]) -> List[str]:
+    if is_cartridge_platform_name(platform):
+        return [
+            "Cart - Front",
+            "Cartridge - Front",
+            "Cartridge",
+            "Cart",
+            "Label - Front",
+            "Disc",
+        ]
+    return ["Disc"]
+
+
+def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
     search_url = f"https://gamesdb.launchbox-app.com/games/results/{quote(title.strip().lower())}"
     search_response = requests.get(search_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
     search_response.raise_for_status()
@@ -399,20 +757,17 @@ def fetch_launchbox_game_data(title: str, platform: str) -> dict:
         candidate_platform = normalize_launchbox_key(candidate["platform"])
         candidate_score = 0
 
-        # Strong exact/substring checks for deterministic matches.
         if candidate_title == target_title:
             candidate_score += 140
         elif target_title in candidate_title or candidate_title in target_title:
             candidate_score += 90
 
-        # Token overlap handles missing punctuation/colons and spacing differences.
         if target_tokens and candidate_tokens:
             overlap = len(target_tokens.intersection(candidate_tokens))
             union = len(target_tokens.union(candidate_tokens))
             if union:
                 candidate_score += int((overlap / union) * 80)
 
-        # Sequence similarity catches normalized foreign characters and minor typos.
         if target_title_loose and candidate_title_loose:
             similarity = SequenceMatcher(None, target_title_loose, candidate_title_loose).ratio()
             candidate_score += int(similarity * 50)
@@ -432,6 +787,13 @@ def fetch_launchbox_game_data(title: str, platform: str) -> dict:
     detail_response = requests.get(detail_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
     detail_response.raise_for_status()
     detail_soup = BeautifulSoup(detail_response.text, "html.parser")
+    resolved_platform = first_text_from_definition(detail_soup, "Platform") or best_match["platform"] or platform
+    resolved_title = detail_soup.find("h1").get_text(" ", strip=True) if detail_soup.find("h1") else best_match["title"]
+    return detail_url, detail_soup, resolved_platform, resolved_title
+
+
+def fetch_launchbox_game_data(title: str, platform: str) -> dict:
+    detail_url, detail_soup, resolved_platform, resolved_title = resolve_launchbox_game_detail(title, platform)
 
     release_date = first_text_from_definition(detail_soup, "Release Date")
     release_date_iso = parse_launchbox_date(release_date)
@@ -449,19 +811,8 @@ def fetch_launchbox_game_data(title: str, platform: str) -> dict:
             overview_parts = [paragraph.get_text(" ", strip=True) for paragraph in overview_article.find_all("p") if paragraph.get_text(" ", strip=True)]
             notes = "\n\n".join(overview_parts) if overview_parts else None
 
-    resolved_platform = first_text_from_definition(detail_soup, "Platform") or best_match["platform"] or platform
     cover_section_url = section_image_from_titles(detail_soup, ["Box - Front"])
-
-    disc_section_titles = ["Disc"]
-    if is_cartridge_platform_name(resolved_platform):
-        disc_section_titles = [
-            "Cart - Front",
-            "Cartridge - Front",
-            "Cartridge",
-            "Cart",
-            "Label - Front",
-            "Disc",
-        ]
+    disc_section_titles = launchbox_disc_section_titles(resolved_platform)
     disc_section_url = section_image_from_titles(detail_soup, disc_section_titles)
     spine_section_url = section_image_from_titles(
         detail_soup,
@@ -489,7 +840,7 @@ def fetch_launchbox_game_data(title: str, platform: str) -> dict:
         disc_image = cover_image
 
     return {
-        "title": detail_soup.find("h1").get_text(" ", strip=True) if detail_soup.find("h1") else best_match["title"],
+        "title": resolved_title,
         "platform": resolved_platform,
         "release_date": release_date_iso,
         "year_released": year_released,
@@ -502,6 +853,66 @@ def fetch_launchbox_game_data(title: str, platform: str) -> dict:
         "coverImage": cover_image,
         "spineImage": spine_image,
         "discImage": disc_image,
+    }
+
+
+def fetch_launchbox_game_art_options(title: str, platform: str, art_type: str) -> dict:
+    detail_url, detail_soup, resolved_platform, resolved_title = resolve_launchbox_game_detail(title, platform)
+
+    if art_type == "cover":
+        section_titles = ["Box - Front"]
+    elif art_type == "spine":
+        section_titles = [
+            "Box - Spine",
+            "Box Spine",
+            "Spine",
+            "Box - Spine (Left)",
+            "Box - Spine (Right)",
+            "Box - Side",
+            "Case - Spine",
+        ]
+    elif art_type == "disc":
+        section_titles = launchbox_disc_section_titles(resolved_platform)
+    elif art_type == "cart":
+        section_titles = [
+            "Cart - Front",
+            "Cartridge - Front",
+            "Cartridge",
+            "Cart",
+            "Label - Front",
+        ]
+    else:
+        raise HTTPException(status_code=400, detail="Invalid art_type. Use cover, disc, spine, or cart.")
+
+    section_urls = section_images_from_titles(detail_soup, section_titles, limit=24)
+
+    if art_type in {"disc", "cart"} and is_cartridge_platform_name(resolved_platform) and not section_urls:
+        section_urls = section_images_from_titles(detail_soup, ["Box - Front"], limit=24)
+
+    if art_type == "spine" and not section_urls:
+        section_urls = section_images_from_titles(detail_soup, ["Box - Front"], limit=24)
+
+    if not section_urls:
+        raise HTTPException(status_code=404, detail="No LaunchBox art options found for that category.")
+
+    data_uri_options: List[str] = []
+    for section_url in section_urls:
+        image_url = urljoin(detail_url, section_url)
+        try:
+            image_data = fetch_image_data_uri(image_url)
+        except Exception:
+            continue
+        if image_data and image_data not in data_uri_options:
+            data_uri_options.append(image_data)
+
+    if not data_uri_options:
+        raise HTTPException(status_code=502, detail="Could not download LaunchBox art options.")
+
+    return {
+        "title": resolved_title,
+        "platform": resolved_platform,
+        "artType": art_type,
+        "options": data_uri_options,
     }
 
 
@@ -608,30 +1019,30 @@ def require_admin(authorization: Optional[str]) -> None:
 def ensure_systems() -> None:
     """Initialize default gaming systems if they don't exist."""
     default_systems = [
-        {"system_id": "ps2", "name": "PlayStation 2", "short_name": "PS2", "logo": "PS2",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/7/76/PlayStation_2_logo.svg"},
-        {"system_id": "ps3", "name": "PlayStation 3", "short_name": "PS3", "logo": "PS3",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/d/dc/PlayStation_3_logo.svg"},
-        {"system_id": "ps4", "name": "PlayStation 4", "short_name": "PS4", "logo": "PS4",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/8/87/PlayStation_4_logo_and_wordmark.svg"},
-        {"system_id": "nds", "name": "Nintendo DS", "short_name": "NDS", "logo": "NDS",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg"},
         {"system_id": "3ds", "name": "Nintendo 3DS", "short_name": "3DS", "logo": "3DS",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg"},
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg", "case_type": "cartridge", "appearance_preset": "3ds"},
         {"system_id": "gb", "name": "GameBoy", "short_name": "GB", "logo": "GB",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg"},
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg", "case_type": "cartridge", "appearance_preset": "gb"},
         {"system_id": "gc", "name": "GameCube", "short_name": "GC", "logo": "GC",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg"},
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg", "case_type": "disc", "appearance_preset": "gamecube"},
+        {"system_id": "nds", "name": "Nintendo DS", "short_name": "NDS", "logo": "NDS",
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg", "case_type": "cartridge", "appearance_preset": "nds"},
+        {"system_id": "ps2", "name": "PlayStation 2", "short_name": "PS2", "logo": "PS2",
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/7/76/PlayStation_2_logo.svg", "case_type": "disc", "appearance_preset": "ps2"},
+        {"system_id": "ps3", "name": "PlayStation 3", "short_name": "PS3", "logo": "PS3",
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/d/dc/PlayStation_3_logo.svg", "case_type": "disc", "appearance_preset": "ps3"},
+        {"system_id": "ps4", "name": "PlayStation 4", "short_name": "PS4", "logo": "PS4",
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/8/87/PlayStation_4_logo_and_wordmark.svg", "case_type": "disc", "appearance_preset": "ps4"},
         {"system_id": "wii", "name": "Wii", "short_name": "Wii", "logo": "Wii",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg"},
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg", "case_type": "disc", "appearance_preset": "wii"},
         {"system_id": "xbox", "name": "Xbox", "short_name": "XBX", "logo": "XBX",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg"},
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg", "case_type": "disc", "appearance_preset": "xbox"},
         {"system_id": "xbox360", "name": "Xbox 360", "short_name": "360", "logo": "360",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg"},
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg", "case_type": "disc", "appearance_preset": "xbox360"},
     ]
 
     with Session(engine) as session:
-        for system_data in default_systems:
+        for order, system_data in enumerate(default_systems):
             existing = session.exec(select(GameSystem).where(GameSystem.system_id == system_data["system_id"])).first()
             if not existing:
                 # Try to fetch and encode the logo image
@@ -649,9 +1060,150 @@ def ensure_systems() -> None:
                     short_name=system_data["short_name"],
                     logo=system_data["logo"],
                     logo_image=logo_image_data,
+                    case_type=system_data["case_type"],
+                    appearance_preset=system_data["appearance_preset"],
+                    is_cartridge_inferred=False,
+                    display_order=order,
                 )
                 session.add(system)
+            else:
+                existing.case_type = system_data["case_type"]
+                existing.appearance_preset = system_data["appearance_preset"]
+                existing.is_cartridge_inferred = False
+                if existing.display_order is None or existing.display_order == 0:
+                    existing.display_order = order
+                session.add(existing)
         session.commit()
+
+
+def svg_data_uri(svg: str) -> str:
+        return f"data:image/svg+xml;utf8,{quote(svg)}"
+
+
+def make_case_cover_art(label: str, accent: str, accent_dark: str) -> str:
+        svg = f"""
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 720 1080'>
+    <defs>
+        <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
+            <stop offset='0%' stop-color='{accent}'/>
+            <stop offset='100%' stop-color='{accent_dark}'/>
+        </linearGradient>
+    </defs>
+    <rect width='720' height='1080' fill='url(#bg)'/>
+    <rect x='34' y='34' width='652' height='1012' rx='26' fill='none' stroke='rgba(255,255,255,0.42)' stroke-width='6'/>
+    <text x='360' y='450' fill='white' font-family='Arial, sans-serif' font-size='90' font-weight='700' text-anchor='middle'>CASE FIT</text>
+    <text x='360' y='565' fill='white' font-family='Arial, sans-serif' font-size='80' font-weight='700' text-anchor='middle'>{label}</text>
+    <text x='360' y='662' fill='rgba(255,255,255,0.92)' font-family='Arial, sans-serif' font-size='44' font-weight='600' text-anchor='middle'>ICON SCALE TEST</text>
+</svg>
+""".strip()
+        return svg_data_uri(svg)
+
+
+def make_case_spine_art(label: str, accent: str, accent_dark: str) -> str:
+        svg = f"""
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 140 1080'>
+    <defs>
+        <linearGradient id='spine' x1='0' y1='0' x2='0' y2='1'>
+            <stop offset='0%' stop-color='{accent}'/>
+            <stop offset='100%' stop-color='{accent_dark}'/>
+        </linearGradient>
+    </defs>
+    <rect width='140' height='1080' fill='url(#spine)'/>
+    <rect x='12' y='12' width='116' height='1056' rx='14' fill='none' stroke='rgba(255,255,255,0.34)' stroke-width='4'/>
+    <text x='70' y='540' fill='white' font-family='Arial, sans-serif' font-size='52' font-weight='700' text-anchor='middle' transform='rotate(-90 70 540)'>{label}</text>
+</svg>
+""".strip()
+        return svg_data_uri(svg)
+
+
+def make_disc_or_cartridge_art(label: str, accent: str, accent_dark: str, cartridge: bool) -> str:
+        if cartridge:
+                svg = f"""
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 440 540'>
+    <defs>
+        <linearGradient id='cart' x1='0' y1='0' x2='1' y2='1'>
+            <stop offset='0%' stop-color='{accent}'/>
+            <stop offset='100%' stop-color='{accent_dark}'/>
+        </linearGradient>
+    </defs>
+    <rect width='440' height='540' rx='24' fill='url(#cart)'/>
+    <rect x='22' y='22' width='396' height='496' rx='16' fill='none' stroke='rgba(255,255,255,0.42)' stroke-width='5'/>
+    <text x='220' y='280' fill='white' font-family='Arial, sans-serif' font-size='62' font-weight='700' text-anchor='middle'>{label}</text>
+</svg>
+""".strip()
+                return svg_data_uri(svg)
+
+        svg = f"""
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'>
+    <defs>
+        <radialGradient id='disc' cx='35%' cy='30%' r='70%'>
+            <stop offset='0%' stop-color='{accent}'/>
+            <stop offset='100%' stop-color='{accent_dark}'/>
+        </radialGradient>
+    </defs>
+    <circle cx='320' cy='320' r='312' fill='url(#disc)'/>
+    <circle cx='320' cy='320' r='88' fill='rgba(0,0,0,0.36)'/>
+    <text x='320' y='540' fill='white' font-family='Arial, sans-serif' font-size='58' font-weight='700' text-anchor='middle'>{label}</text>
+</svg>
+""".strip()
+        return svg_data_uri(svg)
+
+
+def ensure_console_test_games() -> None:
+        presets = [
+                {"platform": "PlayStation 2", "short": "PS2", "accent": "#2a49c8", "accent_dark": "#121a52", "cartridge": False},
+                {"platform": "PlayStation 3", "short": "PS3", "accent": "#1f5ec6", "accent_dark": "#12264f", "cartridge": False},
+                {"platform": "PlayStation 4", "short": "PS4", "accent": "#0f55aa", "accent_dark": "#0b1e3f", "cartridge": False},
+                {"platform": "Nintendo DS", "short": "NDS", "accent": "#535a69", "accent_dark": "#1f2330", "cartridge": True},
+                {"platform": "Nintendo 3DS", "short": "3DS", "accent": "#b3262d", "accent_dark": "#4f1215", "cartridge": True},
+                {"platform": "GameBoy", "short": "GB", "accent": "#5d6b8f", "accent_dark": "#23314e", "cartridge": True},
+                {"platform": "GameCube", "short": "GC", "accent": "#5a40a5", "accent_dark": "#291b53", "cartridge": False},
+                {"platform": "Wii", "short": "WII", "accent": "#9ca7b8", "accent_dark": "#4b5665", "cartridge": False},
+                {"platform": "Xbox", "short": "XBOX", "accent": "#2f9d44", "accent_dark": "#144920", "cartridge": False},
+                {"platform": "Xbox 360", "short": "360", "accent": "#4ea95f", "accent_dark": "#244d2c", "cartridge": False},
+        ]
+
+        with Session(engine) as session:
+                existing_platforms = {
+                        platform
+                        for platform in session.exec(
+                                select(MediaItem.platform).where(MediaItem.category == "Games")
+                        ).all()
+                        if platform
+                }
+
+                created_any = False
+                for preset in presets:
+                        platform = preset["platform"]
+                        if platform in existing_platforms:
+                                continue
+
+                        label = preset["short"]
+                        cover = make_case_cover_art(label, preset["accent"], preset["accent_dark"])
+                        spine = make_case_spine_art(label, preset["accent"], preset["accent_dark"])
+                        disc = make_disc_or_cartridge_art(label, preset["accent"], preset["accent_dark"], preset["cartridge"])
+
+                        item = MediaItem(
+                                title=f"{platform} Case Fit Test",
+                                category="Games",
+                                platform=platform,
+                                genre="Action",
+                                genres="Action",
+                                year_released=2006,
+                                rating="E",
+                                players=1,
+                                cooperative="No",
+                                publisher="PS2 Media Library",
+                                notes="Auto-generated QA entry for verifying per-console case, spine, and cover scaling.",
+                                cover_image=cover,
+                                spine_image=spine,
+                                disc_image=disc,
+                        )
+                        session.add(item)
+                        created_any = True
+
+                if created_any:
+                        session.commit()
 
 
 @app.on_event("startup")
@@ -663,7 +1215,12 @@ def on_startup() -> None:
     ensure_cooperative_column()
     ensure_disc_image_column()
     ensure_spine_image_column()
+    ensure_system_case_type_column()
+    ensure_system_appearance_preset_column()
+    ensure_system_is_cartridge_inferred_column()
+    ensure_system_display_order_column()
     ensure_systems()
+    ensure_console_test_games()
 
 @app.get("/api/media", response_model=List[MediaItem])
 def read_media(
@@ -811,44 +1368,74 @@ def fetch_game_data(payload: LaunchboxGameDataRequest, authorization: Optional[s
     with Session(engine) as session:
         cached_item = find_cached_game_item(session, title, platform, payload.item_id)
         if cached_item and cached_item.cover_image and cached_item.disc_image and cached_item.spine_image:
-            return media_item_to_game_data(cached_item)
+            data = media_item_to_game_data(cached_item)
+            data["data_source"] = "cache"
+            return data
 
-    fetched = fetch_launchbox_game_data(title, platform)
+    fetched = fetch_game_data_with_fallback(title, platform)
 
     with Session(engine) as session:
         item_to_update = find_cached_game_item(session, title, platform, payload.item_id)
         if item_to_update:
-            item_to_update.cover_image = fetched.get("coverImage") or item_to_update.cover_image
-            item_to_update.spine_image = fetched.get("spineImage") or item_to_update.spine_image
-            item_to_update.disc_image = fetched.get("discImage") or item_to_update.disc_image
-            item_to_update.release_date = parse_launchbox_date(fetched.get("release_date")) or item_to_update.release_date
-            item_to_update.year_released = fetched.get("year_released") or item_to_update.year_released
-            item_to_update.rating = normalize_esrb_rating(fetched.get("rating")) or item_to_update.rating
-            item_to_update.cooperative = fetched.get("cooperative") or item_to_update.cooperative
-            if fetched.get("notes"):
-                item_to_update.notes = fetched.get("notes")
-
-            publishers = [entry.strip() for entry in fetched.get("publishers", []) if entry.strip()]
-            game_genres = [entry.strip() for entry in fetched.get("gameGenres", []) if entry.strip()]
-            if publishers:
-                item_to_update.publisher = ", ".join(publishers)
-            if game_genres:
-                item_to_update.genres = ", ".join(game_genres)
-                item_to_update.genre = game_genres[0]
-
-            players_raw = fetched.get("players")
-            if players_raw:
-                try:
-                    item_to_update.players = int(players_raw)
-                except (TypeError, ValueError):
-                    pass
+            apply_fetched_game_data_to_item(item_to_update, fetched)
 
             session.add(item_to_update)
             session.commit()
             session.refresh(item_to_update)
-            return media_item_to_game_data(item_to_update)
+            data = media_item_to_game_data(item_to_update)
+            data["data_source"] = fetched.get("data_source", "launchbox")
+            data["is_partial_fallback"] = bool(fetched.get("is_partial_fallback"))
+            data["completeness"] = fetched.get("completeness")
+            return data
 
     return fetched
+
+
+@app.post("/api/refresh-game/{item_id}")
+def refresh_game_data(item_id: int, authorization: Optional[str] = Header(default=None)) -> dict:
+    require_admin(authorization)
+
+    with Session(engine) as session:
+        item = session.get(MediaItem, item_id)
+        if not item or item.category != "Games":
+            raise HTTPException(status_code=404, detail="Game item not found")
+
+        if not item.title or not item.platform:
+            raise HTTPException(status_code=400, detail="Game must have title and platform to refresh data")
+
+        fetched = fetch_game_data_with_fallback(item.title, item.platform)
+        apply_fetched_game_data_to_item(item, fetched)
+
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+
+        data = media_item_to_game_data(item)
+        data["data_source"] = fetched.get("data_source", "launchbox")
+        data["is_partial_fallback"] = bool(fetched.get("is_partial_fallback"))
+        data["completeness"] = fetched.get("completeness")
+        return data
+
+
+@app.post("/api/launchbox/game-art-options")
+def fetch_game_art_options(payload: LaunchboxGameArtOptionsRequest, authorization: Optional[str] = Header(default=None)) -> dict:
+    require_admin(authorization)
+
+    title = payload.title.strip()
+    platform = payload.platform.strip()
+    art_type = payload.art_type.strip().lower()
+    if not title or not platform:
+        raise HTTPException(status_code=400, detail="Game title and platform are required.")
+
+    if art_type not in {"cover", "disc", "spine", "cart"}:
+        raise HTTPException(status_code=400, detail="Invalid art_type. Use cover, disc, spine, or cart.")
+
+    try:
+        return fetch_game_art_options_with_fallback(title, platform, art_type)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not fetch art options: {exc}") from exc
 
 
 @app.post("/api/bulk/games")
@@ -867,7 +1454,7 @@ def bulk_upload_games(payload: BulkGamesRequest, authorization: Optional[str] = 
         title_part = title_part.strip()
         platform_part = platform_part.strip()
         try:
-            game_data = fetch_launchbox_game_data(title_part, platform_part)
+            game_data = fetch_game_data_with_fallback(title_part, platform_part)
         except HTTPException as exc:
             results.append({"line": line, "status": "error", "error": exc.detail})
             continue
@@ -957,9 +1544,9 @@ def bulk_upload_music(payload: BulkMusicRequest, authorization: Optional[str] = 
 
 @app.get("/api/systems", response_model=List[dict])
 def get_systems():
-    """Get all gaming systems with their logos."""
+    """Get all gaming systems with their logos, sorted by display_order."""
     with Session(engine) as session:
-        systems = session.exec(select(GameSystem)).all()
+        systems = session.exec(select(GameSystem).order_by(GameSystem.display_order)).all()
         return [
             {
                 "id": s.system_id,
@@ -967,6 +1554,10 @@ def get_systems():
                 "shortName": s.short_name,
                 "logo": s.logo,
                 "logoImage": s.logo_image,
+                "caseType": s.case_type,
+                "appearancePreset": s.appearance_preset,
+                "isCartridgeInferred": s.is_cartridge_inferred,
+                "displayOrder": s.display_order,
             }
             for s in systems
         ]
@@ -982,6 +1573,8 @@ def create_system(system_data: dict, authorization: Optional[str] = Header(defau
     short_name = system_data.get("shortName", "").strip()
     logo = system_data.get("logo", "").strip()
     logo_image_url = system_data.get("logoImageUrl", "").strip()
+    case_type = (system_data.get("caseType") or "").strip().lower()
+    appearance_preset = (system_data.get("appearancePreset") or "").strip().lower() or None
     
     if not system_id or not name or not short_name:
         raise HTTPException(status_code=400, detail="Missing required fields: id, name, shortName")
@@ -990,6 +1583,10 @@ def create_system(system_data: dict, authorization: Optional[str] = Header(defau
         existing = session.exec(select(GameSystem).where(GameSystem.system_id == system_id)).first()
         if existing:
             raise HTTPException(status_code=409, detail="System ID already exists")
+
+        inferred_case_type, inferred_preset, inferred_flag = infer_system_appearance(system_id, name)
+        effective_case_type = case_type if case_type in {"disc", "cartridge", "hybrid"} else inferred_case_type
+        effective_preset = appearance_preset or inferred_preset
         
         logo_image_data = None
         if logo_image_url.startswith("data:image"):
@@ -1010,6 +1607,9 @@ def create_system(system_data: dict, authorization: Optional[str] = Header(defau
             short_name=short_name,
             logo=logo,
             logo_image=logo_image_data,
+            case_type=effective_case_type,
+            appearance_preset=effective_preset,
+            is_cartridge_inferred=inferred_flag and not case_type,
         )
         session.add(system)
         session.commit()
@@ -1021,6 +1621,10 @@ def create_system(system_data: dict, authorization: Optional[str] = Header(defau
             "shortName": system.short_name,
             "logo": system.logo,
             "logoImage": system.logo_image,
+            "caseType": system.case_type,
+            "appearancePreset": system.appearance_preset,
+            "isCartridgeInferred": system.is_cartridge_inferred,
+            "displayOrder": system.display_order,
         }
 
 
@@ -1058,6 +1662,13 @@ def update_system(system_id: str, system_data: dict, authorization: Optional[str
             system.short_name = system_data["shortName"].strip()
         if "logo" in system_data:
             system.logo = system_data["logo"].strip()
+        if "caseType" in system_data:
+            requested_case_type = (system_data.get("caseType") or "").strip().lower()
+            if requested_case_type in {"disc", "cartridge", "hybrid"}:
+                system.case_type = requested_case_type
+        if "appearancePreset" in system_data:
+            requested_preset = (system_data.get("appearancePreset") or "").strip().lower()
+            system.appearance_preset = requested_preset or None
         
         # Handle logo image update (URL or base64)
         if "logoImageUrl" in system_data:
@@ -1071,6 +1682,15 @@ def update_system(system_id: str, system_data: dict, authorization: Optional[str
                         system.logo_image = base64.b64encode(response.content).decode("utf-8")
                 except Exception:
                     pass
+
+        if not system.case_type or not system.appearance_preset:
+            inferred_case_type, inferred_preset, inferred_flag = infer_system_appearance(system.system_id, system.name)
+            if not system.case_type:
+                system.case_type = inferred_case_type
+            if not system.appearance_preset:
+                system.appearance_preset = inferred_preset
+            if inferred_flag:
+                system.is_cartridge_inferred = True
         
         session.add(system)
         session.commit()
@@ -1082,6 +1702,10 @@ def update_system(system_id: str, system_data: dict, authorization: Optional[str
             "shortName": system.short_name,
             "logo": system.logo,
             "logoImage": system.logo_image,
+            "caseType": system.case_type,
+            "appearancePreset": system.appearance_preset,
+            "isCartridgeInferred": system.is_cartridge_inferred,
+            "displayOrder": system.display_order,
         }
 
 
@@ -1113,6 +1737,29 @@ def delete_system(system_id: str, authorization: Optional[str] = Header(default=
             raise HTTPException(status_code=404, detail="System not found")
         
         session.delete(system)
+        session.commit()
+        
+        return {"success": True}
+
+
+@app.patch("/api/systems/reorder")
+def reorder_systems(payload: dict, authorization: Optional[str] = Header(default=None)):
+    """Update display order for systems.
+    
+    Expected payload: {"order": ["system_id_1", "system_id_2", ...]}
+    """
+    require_admin(authorization)
+    
+    system_ids = payload.get("order", [])
+    if not system_ids or not isinstance(system_ids, list):
+        raise HTTPException(status_code=400, detail="Expected 'order' array of system IDs")
+    
+    with Session(engine) as session:
+        for order, system_id in enumerate(system_ids):
+            system = session.exec(select(GameSystem).where(GameSystem.system_id == system_id)).first()
+            if system:
+                system.display_order = order
+                session.add(system)
         session.commit()
         
         return {"success": True}
