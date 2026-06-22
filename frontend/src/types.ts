@@ -4,15 +4,19 @@ export interface MediaItem {
   category: string;
   platform: string | null;
   genre: string;
+  genres: string | null;
   year_released: number | null;
   release_date: string | null;
   rating: string | null;
   players: number | null;
+  cooperative: string | null;
   artist: string | null;
   publisher: string | null;
   format: string | null;
   region: string | null;
   cover_image: string | null;
+  spine_image: string | null;
+  disc_image: string | null;
   tags: string | null;
   notes: string | null;
 }

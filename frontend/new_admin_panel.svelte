@@ -212,7 +212,6 @@
                       <option value={genreName}>{genreName}</option>
                     {/each}
                   </select>
-                  <input type="text" bind:value={adminForm.cover_image} placeholder="Cover image URL" />
                   <textarea bind:value={adminForm.notes} rows="3" placeholder="Short description"></textarea>
                   
                   <div class="form-actions">
