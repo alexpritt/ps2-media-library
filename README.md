@@ -12,6 +12,16 @@ A personal web application that catalogs my physical media collection in a PlayS
 
 ## ✨ Features
 
+### 🆕 Recent Updates
+- LaunchBox game-data fetch flow now supports cached reuse and persistence of fetched metadata/art on existing library items
+- LaunchBox matching is more forgiving for punctuation, accents, foreign-character normalization, and partial title input
+- Release-date handling is normalized to `YYYY-MM-DD` for reliable HTML datepicker binding
+- Added spine-art support end-to-end: LaunchBox fetch, admin loaded-art preview, custom upload, and library icon spine rendering
+- Added robust spine and disc fallback behavior when dedicated source art is unavailable
+- System logo fetching now includes compatibility fallback routes and browser-side fallback sources
+- Systems Manager spacing and layout density were refined for improved readability
+- Game case sizing now adapts dynamically to loaded cover art aspect ratios
+
 ### 🧭 UI / Navigation
 - PS2-style boot screen with intro video and muted-by-default audio (click anywhere to enable sound)
 - Console selection grid for Games; direct library for Music
@@ -40,13 +50,17 @@ PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Game Boy — plus cust
 - Admin list pre-filtered to the current library's category and platform on open
 - Bulk edit mode (accessed from library admin toolbar) retains standard confirm flow
 - Custom console management (add / remove systems)
+- LaunchBox fetch for Games with automatic population of title metadata and artwork
+- Loaded Art panel for Games with upload controls for Box Art, Spine Art, and Disc Art
 
 ### 🧱 Data Model (`MediaItem`)
-`id` · `title` · `category` · `platform` · `genre` · `release_date` · `year_released` · `players` · `artist` · `cover_image` · `notes` · `publisher` · `format` · `region` · `tags`
+`id` · `title` · `category` · `platform` · `genre` · `genres` · `release_date` · `year_released` · `rating` · `players` · `cooperative` · `artist` · `publisher` · `format` · `region` · `cover_image` · `spine_image` · `disc_image` · `tags` · `notes`
 
 ### 🔌 Backend Notes
 - FastAPI serves the compiled frontend and suggestions asset directories directly
 - Admin authentication uses a bearer token workflow for protected CRUD operations
+- Startup migration helpers add new columns to existing SQLite databases automatically
+- Game-data endpoint can return persisted cached records when metadata/art is already available
 
 ## ⚙️ Setup
 
