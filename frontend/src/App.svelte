@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { fade } from 'svelte/transition';
+  import type { TransitionConfig } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import type { MediaItem, EditableSystem } from './types';
 
   type Stage = 'boot' | 'console' | 'library' | 'details';
@@ -36,12 +38,23 @@
   };
 
   type GameArtField = 'cover_image' | 'spine_image' | 'disc_image';
+  type LaunchboxArtKind = 'cover' | 'disc' | 'spine';
+  type DataSource = 'launchbox' | 'mobygames' | 'rawg' | 'cache' | 'unknown';
+  type DetailTagTone = 'blue' | 'cyan' | 'green' | 'amber' | 'rose' | 'violet';
+
+  type DetailTag = {
+    label: string;
+    query: string;
+    tone: DetailTagTone;
+  };
 
   type ConsoleOption = {
     name: string;
     shortName: string;
     logo: string;
     logoImage?: string;
+    caseType?: 'disc' | 'cartridge' | 'hybrid';
+    appearancePreset?: string | null;
   };
 
   const ZOOM_TRANSITION_MS = 900;
@@ -149,8 +162,6 @@
   let brokenCoverIds = new Set<number>();
   let brokenSpineIds = new Set<number>();
   let brokenDiscIds = new Set<number>();
-  let coverAspectRatios: Record<number, number> = {};
-  let coverCaseHeights: Record<number, number> = {};
   let hoveredConsoleFadeVisible = false;
   let hoveredConsoleFadeTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -175,6 +186,11 @@
   let adminMessage = '';
   let launchboxFetchBusy = false;
   let launchboxFetchError = '';
+  let launchboxArtPickerOpen = false;
+  let launchboxArtPickerBusy = false;
+  let launchboxArtPickerError = '';
+  let launchboxArtPickerField: GameArtField | null = null;
+  let launchboxArtOptions: string[] = [];
   let bulkOpen = false;
   let bulkText = '';
   let bulkBusy = false;
@@ -275,11 +291,7 @@
     const q = librarySearch.trim().toLowerCase();
     let result = [...media].sort((a, b) => a.title.localeCompare(b.title));
     if (q) {
-      result = result.filter((item) =>
-        item.title.toLowerCase().includes(q) ||
-        (item.genre ?? '').toLowerCase().includes(q) ||
-        (item.year_released != null && String(item.year_released).includes(q))
-      );
+      result = result.filter((item) => matchesLibrarySearch(item, q));
     }
     if (libraryPlayersFilter !== null) {
       result = result.filter((item) => (item.players ?? 0) >= libraryPlayersFilter!);
@@ -555,6 +567,20 @@
     return '';
   }
 
+  function inferAppearancePreset(platform: string | null | undefined) {
+    const key = normalizeConsoleKey(platform);
+    if (key === 'nds' || key === '3ds' || key === 'gb') return key;
+    if (key === 'ps2' || key === 'ps3' || key === 'ps4' || key === 'gamecube' || key === 'wii' || key === 'xbox' || key === 'xbox360') return key;
+    return 'generic-disc';
+  }
+
+  function getSystemAppearance(platform: string | null | undefined) {
+    const system = availableConsoles.find((entry) => entry.name === (platform ?? ''));
+    const preset = (system?.appearancePreset ?? inferAppearancePreset(platform) ?? 'generic-disc').toLowerCase();
+    const caseType = system?.caseType ?? (preset === 'nds' || preset === '3ds' || preset === 'gb' ? 'cartridge' : 'disc');
+    return { caseType, preset } as const;
+  }
+
   function normalizeGameRating(rating: string | null | undefined): GameRating {
     const value = (rating ?? 'RP').toUpperCase().trim();
     const compact = value.replace(/\s+/g, ' ').trim();
@@ -606,73 +632,42 @@
   }
 
   function isCartridgePlatform(platform: string | null | undefined) {
-    const key = normalizeConsoleKey(platform);
-    return key === 'nds' || key === '3ds' || key === 'gb';
+    return getSystemAppearance(platform).caseType === 'cartridge';
   }
 
   function caseGeometryClass(platform: string | null | undefined) {
-    const key = normalizeConsoleKey(platform);
-    if (key === 'ps3' || key === 'ps4') return ' disc-case--blu-ray';
-    if (key === 'nds' || key === '3ds') return ' disc-case--nds';
-    if (key === 'gb') return ' disc-case--gb';
+    const { caseType, preset } = getSystemAppearance(platform);
+    if (caseType === 'cartridge') {
+      if (preset === 'nds') return ' disc-case--nds';
+      if (preset === '3ds') return ' disc-case--3ds';
+      if (preset === 'gb') return ' disc-case--gb';
+      return ' disc-case--cart-generic';
+    }
+    if (preset === 'ps2') return ' disc-case--ps2';
+    if (preset === 'ps3') return ' disc-case--ps3';
+    if (preset === 'ps4') return ' disc-case--ps4';
+    if (preset === 'gamecube') return ' disc-case--gamecube';
+    if (preset === 'wii') return ' disc-case--wii';
+    if (preset === 'xbox') return ' disc-case--xbox';
+    if (preset === 'xbox360') return ' disc-case--xbox360';
     return '';
   }
 
-  function defaultCaseCoverRatio(platform: string | null | undefined) {
-    const key = normalizeConsoleKey(platform);
-    if (key === 'ps3' || key === 'ps4') return 0.67;
-    if (key === 'nds' || key === '3ds') return 0.78;
-    if (key === 'gb') return 0.82;
-    return 0.68;
-  }
-
-  function defaultCaseHeight(platform: string | null | undefined) {
-    const key = normalizeConsoleKey(platform);
-    if (key === 'ps3' || key === 'ps4') return 136;
-    if (key === 'nds' || key === '3ds') return 126;
-    if (key === 'gb') return 116;
-    return 144;
-  }
-
-  function registerCaseCoverAspect(event: Event, itemId: number, platform: string | null | undefined) {
-    const image = event.currentTarget as HTMLImageElement | null;
-    if (!image || !image.naturalWidth || !image.naturalHeight) return;
-    const ratio = image.naturalWidth / image.naturalHeight;
-    if (!Number.isFinite(ratio) || ratio <= 0) return;
-    const clamped = Math.max(0.3, Math.min(2.2, ratio));
-    const baseHeight = defaultCaseHeight(platform);
-    const baseWidth = baseHeight * defaultCaseCoverRatio(platform);
-    const targetArea = Math.max(1, baseWidth * baseHeight);
-
-    let fittedHeight = Math.sqrt(targetArea / clamped);
-    const minHeight = Math.max(82, baseHeight * 0.72);
-    const maxHeight = baseHeight * 1.18;
-    fittedHeight = Math.min(maxHeight, Math.max(minHeight, fittedHeight));
-    const roundedHeight = Math.round(fittedHeight);
-
-    if (coverAspectRatios[itemId] === clamped && coverCaseHeights[itemId] === roundedHeight) return;
-    coverAspectRatios = {
-      ...coverAspectRatios,
-      [itemId]: clamped,
-    };
-    coverCaseHeights = {
-      ...coverCaseHeights,
-      [itemId]: roundedHeight,
-    };
-  }
-
   function discBackingClass(item: MediaItem) {
-    const key = normalizeConsoleKey(item.platform);
-    if (key === 'ps2') return 'disc-shell--ps2';
-    if (key === 'ps3') return 'disc-shell--ps3';
-    if (key === 'ps4') return 'disc-shell--ps4';
-    if (key === 'gamecube') return 'disc-shell--gamecube';
-    if (key === 'wii') return 'disc-shell--wii';
-    if (key === 'xbox') return 'disc-shell--xbox';
-    if (key === 'xbox360') return 'disc-shell--xbox360';
-    if (key === 'nds') return 'disc-shell--nds';
-    if (key === '3ds') return 'disc-shell--3ds';
-    if (key === 'gb') return 'disc-shell--gb';
+    const { caseType, preset } = getSystemAppearance(item.platform);
+    if (caseType === 'cartridge') {
+      if (preset === 'nds') return 'disc-shell--nds';
+      if (preset === '3ds') return 'disc-shell--3ds';
+      if (preset === 'gb') return 'disc-shell--gb';
+      return 'disc-shell--cart-generic';
+    }
+    if (preset === 'ps2') return 'disc-shell--ps2';
+    if (preset === 'ps3') return 'disc-shell--ps3';
+    if (preset === 'ps4') return 'disc-shell--ps4';
+    if (preset === 'gamecube') return 'disc-shell--gamecube';
+    if (preset === 'wii') return 'disc-shell--wii';
+    if (preset === 'xbox') return 'disc-shell--xbox';
+    if (preset === 'xbox360') return 'disc-shell--xbox360';
     return 'disc-shell--default';
   }
 
@@ -680,34 +675,43 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  function buildConsoleList(mediaItems: MediaItem[], systems: EditableSystem[]) {
-    const mediaNames = Array.from(
-      new Set(
-        mediaItems
-          .filter((item) => item.category === 'Games' && item.platform)
-          .map((item) => item.platform as string),
-      ),
-    );
-    const systemNames = systems.map((system) => system.name);
-    const all = [...systemNames, ...mediaNames];
-    const source = Array.from(new Set(all));
-    return source.map((name) => {
-      const system = systems.find((item) => item.name === name);
-      if (system) {
-        return {
-          name: system.name,
-          shortName: system.shortName,
-          logo: system.logo,
-          logoImage: system.logoImage,
-        };
-      }
-      return {
-        name,
-        shortName: name.slice(0, 3).toUpperCase(),
-        logo: name.slice(0, 3).toUpperCase(),
-        logoImage: null,
-      };
+  function popupOverlayTransition(_node: Element): TransitionConfig {
+    return {
+      duration: 190,
+      easing: cubicOut,
+      css: (t) => `opacity: ${t};`,
+    };
+  }
+
+  function popupPanelTransition(_node: Element): TransitionConfig {
+    return {
+      duration: 220,
+      easing: cubicOut,
+      css: (t) => {
+        const scale = 0.97 + (0.03 * t);
+        const y = (1 - t) * 10;
+        return `opacity: ${t}; transform: translateY(${y}px) scale(${scale});`;
+      },
+    };
+  }
+
+  function buildConsoleList(_mediaItems: MediaItem[], systems: EditableSystem[]) {
+    // Sort by displayOrder (or alphabetically if displayOrder is missing)
+    const sorted = [...systems].sort((a, b) => {
+      const orderA = a.displayOrder ?? 999;
+      const orderB = b.displayOrder ?? 999;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.name.localeCompare(b.name);
     });
+
+    return sorted.map((system) => ({
+      name: system.name,
+      shortName: system.shortName,
+      logo: system.logo,
+      logoImage: system.logoImage,
+      caseType: system.caseType,
+      appearancePreset: system.appearancePreset,
+    }));
   }
 
   function pagedItems() {
@@ -773,6 +777,20 @@
     return 'Release Date: Unknown';
   }
 
+  function releaseTagValue(item: MediaItem) {
+    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    if (item.release_date) {
+      const parts = item.release_date.split('-');
+      if (parts.length === 3) {
+        const [year, month, day] = parts;
+        const monthName = MONTHS[parseInt(month, 10) - 1] ?? month;
+        return `${monthName} ${parseInt(day, 10)}, ${year}`;
+      }
+    }
+    if (item.year_released) return String(item.year_released);
+    return 'Unknown';
+  }
+
   function normalizeDateForInput(value: unknown): string {
     if (typeof value !== 'string') return '';
     const raw = value.trim();
@@ -802,11 +820,106 @@
 
   function detailText(item: MediaItem) {
     if (item.category === 'Music') {
-      return item.genre;
+      return `Genre: ${item.genre?.trim() || 'Unknown'}`;
     }
+
+    const genres = (item.genres ?? item.genre ?? '').trim() || 'Unknown genre';
+    const publisher = (item.publisher ?? '').trim() || 'Unknown publisher';
     const players = item.players ? `${item.players} player${item.players === 1 ? '' : 's'}` : 'Players unknown';
-    const rating = normalizeGameRating(item.rating);
-    return `${item.genres ?? item.genre} | ${players} | Rated ${rating}`;
+    const cooperative = item.cooperative?.trim() ? `Co-op: ${item.cooperative}` : 'Co-op: Unknown';
+    const rating = `Rated ${normalizeGameRating(item.rating)}`;
+
+    return `${genres} | ${publisher} | ${players} | ${cooperative} | ${rating}`;
+  }
+
+  function librarySearchTokens(item: MediaItem) {
+    const tokens: string[] = [];
+    const push = (...values: Array<string | number | null | undefined>) => {
+      for (const value of values) {
+        const text = String(value ?? '').trim();
+        if (text) tokens.push(text.toLowerCase());
+      }
+    };
+
+    push(item.title, item.platform, item.genre, item.genres, item.publisher, item.artist, item.rating, item.cooperative, item.release_date, item.notes);
+    if (item.year_released != null) push(String(item.year_released));
+
+    if (item.players != null) {
+      push(
+        String(item.players),
+        `${item.players} player`,
+        `${item.players} players`,
+        `players ${item.players}`,
+        `player count ${item.players}`,
+      );
+    }
+
+    return tokens;
+  }
+
+  function matchesLibrarySearch(item: MediaItem, query: string) {
+    if (!query) return true;
+    const tokens = librarySearchTokens(item);
+    return tokens.some((token) => token.includes(query));
+  }
+
+  function addTag(tags: DetailTag[], seen: Set<string>, label: string, query: string, tone: DetailTagTone) {
+    const normalizedLabel = label.trim();
+    const normalizedQuery = query.trim();
+    if (!normalizedLabel || !normalizedQuery) return;
+    const key = `${normalizedLabel.toLowerCase()}|${normalizedQuery.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    tags.push({ label: normalizedLabel, query: normalizedQuery, tone });
+  }
+
+  function detailTags(item: MediaItem): DetailTag[] {
+    const tags: DetailTag[] = [];
+    const seen = new Set<string>();
+
+    if (item.category === 'Games') {
+      addTag(tags, seen, `Platform: ${item.platform ?? selectedConsole ?? 'Unknown'}`, item.platform ?? selectedConsole ?? 'Unknown', 'blue');
+      addTag(tags, seen, `Release: ${releaseTagValue(item)}`, item.year_released ? String(item.year_released) : releaseTagValue(item), 'cyan');
+
+      for (const genre of splitDelimitedValues(item.genres ?? item.genre)) {
+        addTag(tags, seen, `Genre: ${genre}`, genre, 'green');
+      }
+
+      for (const publisher of splitDelimitedValues(item.publisher)) {
+        addTag(tags, seen, `Publisher: ${publisher}`, publisher, 'amber');
+      }
+
+      if (item.players != null) {
+        const playerLabel = `${item.players} Player${item.players === 1 ? '' : 's'}`;
+        addTag(tags, seen, `Players: ${playerLabel}`, `${item.players} players`, 'violet');
+      }
+
+      if (item.cooperative?.trim()) {
+        addTag(tags, seen, `Co-op: ${item.cooperative}`, item.cooperative, 'rose');
+      }
+
+      addTag(tags, seen, `Rating: ${normalizeGameRating(item.rating)}`, normalizeGameRating(item.rating), 'blue');
+      return tags;
+    }
+
+    addTag(tags, seen, `Artist: ${item.artist?.trim() || 'Unknown'}`, item.artist?.trim() || 'Unknown', 'blue');
+    addTag(tags, seen, `Genre: ${item.genre?.trim() || 'Unknown'}`, item.genre?.trim() || 'Unknown', 'green');
+    addTag(tags, seen, `Release: ${releaseTagValue(item)}`, item.year_released ? String(item.year_released) : releaseTagValue(item), 'cyan');
+
+    if (item.format?.trim()) addTag(tags, seen, `Format: ${item.format}`, item.format, 'violet');
+    if (item.region?.trim()) addTag(tags, seen, `Region: ${item.region}`, item.region, 'amber');
+
+    return tags;
+  }
+
+  function applyDetailTagFilter(query: string) {
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) return;
+    librarySearch = normalizedQuery;
+    librarySearchOpen = true;
+    playersDropdownOpen = false;
+    page = 0;
+    closeDetails();
   }
 
   function buildGameGenreOptions(mediaItems: MediaItem[]) {
@@ -846,6 +959,105 @@
     const title = (adminForm.title ?? '').trim();
     const platform = ((adminForm.platform ?? '').trim() || (selectedConsole ?? '').trim());
     return title.length > 0 && platform.length > 0;
+  }
+
+  function launchboxArtKindForField(field: GameArtField): LaunchboxArtKind {
+    if (field === 'cover_image') return 'cover';
+    if (field === 'spine_image') return 'spine';
+    return 'disc';
+  }
+
+  function adminArtLabel(field: GameArtField) {
+    if (field === 'cover_image') return 'Box Art';
+    if (field === 'spine_image') return 'Spine Art';
+    return 'Disc/Cart Art';
+  }
+
+  function formatDataSourceLabel(value: unknown): string {
+    const source = String(value ?? '').trim().toLowerCase();
+    if (source === 'launchbox') return 'LaunchBox';
+    if (source === 'mobygames') return 'MobyGames';
+    if (source === 'rawg') return 'RAWG';
+    if (source === 'igdb') return 'IGDB';
+    if (source === 'cache') return 'cache';
+    return 'backup source';
+  }
+
+  function closeLaunchboxArtPicker() {
+    launchboxArtPickerOpen = false;
+    launchboxArtPickerBusy = false;
+    launchboxArtPickerError = '';
+    launchboxArtOptions = [];
+    launchboxArtPickerField = null;
+  }
+
+  async function openLaunchboxArtPicker(field: GameArtField) {
+    if (launchboxArtPickerBusy) return;
+
+    launchboxFetchError = '';
+    adminError = '';
+    adminMessage = '';
+
+    if (!canFetchLaunchBoxGameData()) {
+      launchboxFetchError = 'Enter a game title and select a platform first.';
+      return;
+    }
+
+    launchboxArtPickerOpen = true;
+    launchboxArtPickerBusy = true;
+    launchboxArtPickerError = '';
+    launchboxArtPickerField = field;
+    launchboxArtOptions = [];
+
+    try {
+      const response = await fetch('/api/launchbox/game-art-options', {
+        method: 'POST',
+        headers: mediaHeaders(),
+        body: JSON.stringify({
+          title: (adminForm.title ?? '').trim(),
+          platform: ((adminForm.platform ?? '').trim() || (selectedConsole ?? '').trim()),
+          art_type: launchboxArtKindForField(field),
+        }),
+      });
+      if (response.status === 401) {
+        adminToken = '';
+        localStorage.removeItem('ps2-admin-token');
+        adminError = 'Session expired. Log in again.';
+        closeLaunchboxArtPicker();
+        return;
+      }
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        launchboxArtPickerError = data?.detail ?? 'Could not find art options for this category from any source.';
+        return;
+      }
+
+      launchboxArtOptions = Array.isArray(data?.options)
+        ? data.options.filter((entry: unknown) => typeof entry === 'string' && entry.trim())
+        : [];
+
+      if (!launchboxArtOptions.length) {
+        launchboxArtPickerError = 'No art options were returned for this category.';
+      }
+    } catch {
+      launchboxArtPickerError = 'Could not fetch art options from any source.';
+    } finally {
+      launchboxArtPickerBusy = false;
+    }
+  }
+
+  function chooseLaunchboxArtOption(imageData: string) {
+    if (!launchboxArtPickerField || !imageData) return;
+    const label = adminArtLabel(launchboxArtPickerField);
+    adminForm = {
+      ...adminForm,
+      [launchboxArtPickerField]: imageData,
+    } as AdminForm;
+    adminMessage = `${label} selected from LaunchBox.`;
+    adminError = '';
+    launchboxFetchError = '';
+    closeLaunchboxArtPicker();
   }
 
   async function bulkUpload() {
@@ -915,6 +1127,8 @@
         return;
       }
 
+      const sourceLabel = formatDataSourceLabel(data?.data_source);
+
       adminForm = {
         ...adminForm,
         title: data?.title ?? adminForm.title,
@@ -940,13 +1154,14 @@
       if (data?.gameGenres?.length) {
         adminGameGenreChoice = '';
       }
-      adminMessage = 'LaunchBox data loaded.';
+      adminMessage = `Game data loaded from ${sourceLabel}.`;
     } catch {
-      launchboxFetchError = 'Could not fetch data from LaunchBox.';
+      launchboxFetchError = 'Could not fetch game data from available sources.';
     } finally {
       launchboxFetchBusy = false;
     }
   }
+
 
   function mediaHeaders() {
     return {
@@ -1115,8 +1330,6 @@
     brokenCoverIds = new Set();
     brokenSpineIds = new Set();
     brokenDiscIds = new Set();
-    coverAspectRatios = {};
-    coverCaseHeights = {};
 
     const params = new URLSearchParams();
     params.set('category', nextCategory);
@@ -1345,6 +1558,10 @@
           shortName: s.shortName,
           logo: s.logo,
           logoImage: s.logoImage ? `data:image/svg+xml;base64,${s.logoImage}` : null,
+          caseType: s.caseType ?? undefined,
+          appearancePreset: s.appearancePreset ?? null,
+          isCartridgeInferred: Boolean(s.isCartridgeInferred),
+          displayOrder: s.displayOrder ?? 0,
         }));
       } else {
         console.warn('Failed to load systems from API, using defaults');
@@ -1359,25 +1576,25 @@
   function initializeDefaultSystems(): EditableSystem[] {
     return [
       { id: 'ps2', name: 'PlayStation 2', shortName: 'PS2', logo: 'PS2',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/7/76/PlayStation_2_logo.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/7/76/PlayStation_2_logo.svg', caseType: 'disc', appearancePreset: 'ps2' },
       { id: 'ps3', name: 'PlayStation 3', shortName: 'PS3', logo: 'PS3',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/d/dc/PlayStation_3_logo.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/d/dc/PlayStation_3_logo.svg', caseType: 'disc', appearancePreset: 'ps3' },
       { id: 'ps4', name: 'PlayStation 4', shortName: 'PS4', logo: 'PS4',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/87/PlayStation_4_logo_and_wordmark.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/87/PlayStation_4_logo_and_wordmark.svg', caseType: 'disc', appearancePreset: 'ps4' },
       { id: 'nds', name: 'Nintendo DS', shortName: 'NDS', logo: 'NDS',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg', caseType: 'cartridge', appearancePreset: 'nds' },
       { id: '3ds', name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg', caseType: 'cartridge', appearancePreset: '3ds' },
       { id: 'gb', name: 'GameBoy', shortName: 'GB', logo: 'GB',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg', caseType: 'cartridge', appearancePreset: 'gb' },
       { id: 'gc', name: 'GameCube', shortName: 'GC', logo: 'GC',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg', caseType: 'disc', appearancePreset: 'gamecube' },
       { id: 'wii', name: 'Wii', shortName: 'Wii', logo: 'Wii',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg', caseType: 'disc', appearancePreset: 'wii' },
       { id: 'xbox', name: 'Xbox', shortName: 'XBX', logo: 'XBX',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg', caseType: 'disc', appearancePreset: 'xbox' },
       { id: 'xbox360', name: 'Xbox 360', shortName: '360', logo: '360',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg' },
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg', caseType: 'disc', appearancePreset: 'xbox360' },
     ];
   }
 
@@ -1425,17 +1642,20 @@
   }
 
   async function removeSystem(systemId: string) {
+    const removedSystem = editableSystems.find((s) => s.id === systemId);
     try {
       const response = await fetch(`/api/systems/${systemId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${adminToken}` },
       });
       if (response.ok) {
-        await loadSystemsFromAPI();
-        const removedSystem = editableSystems.find((s) => s.id === systemId);
         if (removedSystem && selectedConsole === removedSystem.name) {
           selectedConsole = null;
+          if (stage === 'library' && category === 'Games') {
+            stage = 'console';
+          }
         }
+        await loadSystemsFromAPI();
       } else {
         const error = await response.json();
         systemError = error.detail || 'Failed to delete system';
@@ -1484,6 +1704,63 @@
     editingSystemId = null;
     editingSystemName = '';
     editingSystemIcon = '';
+  }
+
+  let draggedSystemId: string | null = null;
+
+  function handleSystemDragStart(event: DragEvent, systemId: string) {
+    draggedSystemId = systemId;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+    }
+  }
+
+  function handleSystemDragOver(event: DragEvent) {
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+  }
+
+  async function handleSystemDrop(event: DragEvent, targetSystemId: string) {
+    event.preventDefault();
+    if (!draggedSystemId || draggedSystemId === targetSystemId) {
+      draggedSystemId = null;
+      return;
+    }
+
+    const draggedIndex = editableSystems.findIndex((s) => s.id === draggedSystemId);
+    const targetIndex = editableSystems.findIndex((s) => s.id === targetSystemId);
+
+    if (draggedIndex === -1 || targetIndex === -1) {
+      draggedSystemId = null;
+      return;
+    }
+
+    // Reorder locally
+    const newSystems = [...editableSystems];
+    const [draggedSystem] = newSystems.splice(draggedIndex, 1);
+    newSystems.splice(targetIndex, 0, draggedSystem);
+    editableSystems = newSystems;
+
+    // Persist new order to backend
+    try {
+      await fetch('/api/systems/reorder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+        body: JSON.stringify({
+          order: editableSystems.map((s) => s.id),
+        }),
+      });
+    } catch (error) {
+      console.warn('Failed to persist system order:', error);
+    }
+
+    draggedSystemId = null;
+  }
+
+  function handleSystemDragEnd() {
+    draggedSystemId = null;
   }
 
   function saveEditSystem() {
@@ -1664,7 +1941,7 @@
       } else if (field === 'spine_image') {
         adminMessage = 'Custom spine art loaded.';
       } else {
-        adminMessage = 'Custom disc art loaded.';
+        adminMessage = 'Custom disc/cart art loaded.';
       }
     };
     reader.readAsDataURL(file);
@@ -2287,17 +2564,18 @@
                   {:else}
                     <span
                       class={`disc-case${caseGeometryClass(item.platform)}`}
-                      style={`--cover-ratio: ${coverAspectRatios[item.id] ?? defaultCaseCoverRatio(item.platform)}; --case-h: ${coverCaseHeights[item.id] ?? defaultCaseHeight(item.platform)}px;`}
                       aria-hidden="true"
                     >
                       <span class="disc-case-spine">
                         {#if item.spine_image && !brokenSpineIds.has(item.id)}
-                          <img src={item.spine_image} alt="" class="spine-image" aria-hidden="true" draggable="false" on:error={() => markSpineBroken(item.id)} />
+                          <img src={item.spine_image} alt="" class="spine-image spine-image--bg" aria-hidden="true" draggable="false" />
+                          <img src={item.spine_image} alt="" class="spine-image spine-image--fg" aria-hidden="true" draggable="false" on:error={() => markSpineBroken(item.id)} />
                         {/if}
                       </span>
                       <span class="disc-case-front">
                         {#if item.cover_image && !brokenCoverIds.has(item.id)}
-                          <img src={item.cover_image} alt={item.title} class="library-art" loading="lazy" on:load={(e) => registerCaseCoverAspect(e, item.id, item.platform)} on:error={() => markCoverBroken(item.id)} />
+                          <img src={item.cover_image} alt="" class="library-art library-art--bg" loading="lazy" aria-hidden="true" />
+                          <img src={item.cover_image} alt={item.title} class="library-art library-art--fg" loading="lazy" on:error={() => markCoverBroken(item.id)} />
                         {:else}
                           <span class="library-fallback">{iconInitials(item.title)}</span>
                         {/if}
@@ -2305,9 +2583,9 @@
                       <span class={`disc-case-disc ${discBackingClass(item)}${isCartridgePlatform(item.platform) ? ' disc-case-disc--cartridge' : ''}`}>
                         <span class="disc-shell-backing"></span>
                         {#if item.disc_image && !brokenDiscIds.has(item.id)}
-                          <img src={item.disc_image} alt="" class="disc-image" aria-hidden="true" draggable="false" on:error={() => markDiscBroken(item.id)} />
+                          <img src={item.disc_image} alt="" class={`disc-image${isCartridgePlatform(item.platform) ? ' disc-image--cartridge' : ''}`} aria-hidden="true" draggable="false" on:error={() => markDiscBroken(item.id)} />
                         {:else if isCartridgePlatform(item.platform) && item.cover_image && !brokenCoverIds.has(item.id)}
-                          <img src={item.cover_image} alt="" class="disc-image" aria-hidden="true" draggable="false" on:error={() => markCoverBroken(item.id)} />
+                          <img src={item.cover_image} alt="" class="disc-image disc-image--cartridge" aria-hidden="true" draggable="false" on:error={() => markCoverBroken(item.id)} />
                         {:else}
                           <span class="disc-shell-fallback">{iconInitials(item.title)}</span>
                         {/if}
@@ -2385,8 +2663,10 @@
                       </div>
                     </div>
                     <div class="details-disc-flip-face details-disc-flip-face--back" aria-hidden="true">
-                      <div class={`details-cartridge ${discBackingClass(selectedItem)}`}>
+                      <div class={`details-cartridge details-cartridge--back ${discBackingClass(selectedItem)}`}>
                         <span class="disc-shell-backing"></span>
+                        <span class="details-cartridge-back-panel"></span>
+                        <span class="details-cartridge-contacts"></span>
                       </div>
                     </div>
                   </div>
@@ -2429,10 +2709,18 @@
         </div>
 
         <div class="details-right">
-          <p class="details-line-1">{selectedItem.category === 'Music' ? (selectedItem.artist ?? 'Music') : (selectedConsole ?? '')}</p>
           <p class="details-line-2">{selectedItem.title}</p>
-          <p class="details-line-3">{releaseDate(selectedItem)}</p>
-          <p class="details-line-4">{detailText(selectedItem)}</p>
+          <div class="details-tags" aria-label="Details tags">
+            {#each detailTags(selectedItem) as tag}
+              <button
+                type="button"
+                class={`details-tag details-tag--${tag.tone}`}
+                on:click={() => applyDetailTagFilter(tag.query)}
+              >
+                {tag.label}
+              </button>
+            {/each}
+          </div>
           <p class="details-line-5">{selectedItem.notes?.trim() || 'No description available.'}</p>
         </div>
 
@@ -2448,10 +2736,42 @@
       </section>
     {/if}
 
+    {#if launchboxArtPickerOpen}
+      <div class="launchbox-art-picker-overlay" role="dialog" aria-modal="true" aria-labelledby="launchbox-art-picker-title" transition:popupOverlayTransition>
+        <button type="button" class="launchbox-art-picker-backdrop" aria-label="Close LaunchBox art selector" on:click={closeLaunchboxArtPicker}></button>
+        <div class="launchbox-art-picker-panel" transition:popupPanelTransition>
+          <div class="launchbox-art-picker-header">
+            <h3 id="launchbox-art-picker-title">Choose {adminArtLabel(launchboxArtPickerField ?? 'cover_image')}</h3>
+            <button type="button" class="ghost" on:click={closeLaunchboxArtPicker}>Close</button>
+          </div>
+          {#if launchboxArtPickerBusy}
+            <p class="launchbox-art-picker-state">Loading art options from available sources...</p>
+          {:else if launchboxArtPickerError}
+            <p class="admin-error launchbox-art-picker-state">{launchboxArtPickerError}</p>
+          {:else if launchboxArtOptions.length}
+            <div class="launchbox-art-picker-grid">
+              {#each launchboxArtOptions as artOption, index}
+                <button
+                  type="button"
+                  class="launchbox-art-picker-option"
+                  on:click={() => chooseLaunchboxArtOption(artOption)}
+                  aria-label={`Select ${adminArtLabel(launchboxArtPickerField ?? 'cover_image')} option ${index + 1}`}
+                >
+                  <img src={artOption} alt={`LaunchBox art option ${index + 1}`} loading="lazy" />
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <p class="launchbox-art-picker-state">No options available.</p>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
     {#if confirmOpen && confirmItem}
-      <div class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title" transition:popupOverlayTransition>
         <button type="button" class="confirm-backdrop" aria-label="Close confirmation" on:click={closeConfirm}></button>
-        <div class="confirm-panel">
+        <div class="confirm-panel" transition:popupPanelTransition>
           <h3 id="confirm-title">{confirmMode === 'delete' ? 'Delete Item?' : 'Edit Item?'}</h3>
           <p>
             {#if confirmMode === 'delete'}
@@ -2488,9 +2808,9 @@
     {/if}
 
     {#if adminOpen}
-  <div class="admin-overlay" role="dialog" aria-modal="true">
+  <div class="admin-overlay" role="dialog" aria-modal="true" transition:popupOverlayTransition>
     <button type="button" class="admin-backdrop" aria-label="Close admin panel" on:click={() => (adminOpen = false)}></button>
-    <div class="admin-panel">
+    <div class="admin-panel" transition:popupPanelTransition>
       {#if !isAdmin}
         <div class="admin-header">
           <h2>Admin Access</h2>
@@ -2498,7 +2818,7 @@
         </div>
         <div class="admin-login">
           <label for="admin-password">Password</label>
-          <input id="admin-password" type="password" bind:value={adminPassword} placeholder="Enter password..." />
+          <input id="admin-password" type="password" bind:value={adminPassword} placeholder="Enter password..." on:keydown={(e) => e.key === 'Enter' && adminLogin()} />
           <button type="button" disabled={adminBusy} on:click={adminLogin}>Log In</button>
         </div>
       {:else}
@@ -2541,26 +2861,28 @@
                     <label for="new-system-name">System Name</label>
                     <input id="new-system-name" type="text" bind:value={newSystemName} placeholder="e.g., PlayStation 5" />
                   </div>
-                  <div class="form-field">
+                  <div class="form-field form-field--logo">
                     <label for="new-system-logo">Logo Image</label>
-                    <div class="file-input-group">
+                    <div class="file-input-group file-input-group--logo">
                       <input id="new-system-logo" type="file" accept="image/*" on:change={(e) => handleLogoUpload(e, true)} />
-                      <span class="file-hint">or</span>
+                      <span class="file-input-group-divider" aria-hidden="true"><span>or</span></span>
                       <input type="text" bind:value={newSystemIcon} placeholder="Image URL (optional)" />
                     </div>
-                    <button
-                      type="button"
-                      class="system-logo-fetch-button"
-                      disabled={systemLogoFetchBusy}
-                      on:click={() => fetchSystemLogo(true)}
-                    >
-                      {systemLogoFetchBusy ? 'Fetching Logo...' : 'Fetch Logo'}
-                    </button>
-                    {#if systemLogoFetchError && canFetchSystemLogo(true)}
-                      <p class="admin-error system-logo-fetch-error">{systemLogoFetchError}</p>
-                    {/if}
+                    <div class="system-logo-controls">
+                      <button
+                        type="button"
+                        class="system-logo-fetch-button"
+                        disabled={systemLogoFetchBusy}
+                        on:click={() => fetchSystemLogo(true)}
+                      >
+                        {systemLogoFetchBusy ? 'Fetching Logo...' : 'Fetch Logo'}
+                      </button>
+                      {#if systemLogoFetchError && canFetchSystemLogo(true)}
+                        <p class="admin-error system-logo-fetch-error">{systemLogoFetchError}</p>
+                      {/if}
+                    </div>
                     {#if newSystemIcon}
-                      <div class="logo-preview">
+                      <div class="logo-preview logo-preview--compact">
                         <img src={newSystemIcon} alt="Logo preview" />
                       </div>
                     {/if}
@@ -2573,9 +2895,28 @@
                 <p class="admin-error">{systemError}</p>
               {/if}
 
-              <div class="systems-list">
+              <div class="systems-list" role="list">
                 {#each editableSystems as system}
-                  <div class="systems-row">
+                  <div
+                    class="systems-row"
+                    role="listitem"
+                    draggable="true"
+                    on:dragstart={(e) => handleSystemDragStart(e, system.id)}
+                    on:dragover={handleSystemDragOver}
+                    on:drop={(e) => handleSystemDrop(e, system.id)}
+                    on:dragend={handleSystemDragEnd}
+                    on:dragleave={(e) => e.preventDefault()}
+                  >
+                    <div class="systems-row-handle" aria-label="Drag to reorder">
+                      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" aria-hidden="true">
+                        <circle cx="6" cy="6" r="1.5" />
+                        <circle cx="6" cy="12" r="1.5" />
+                        <circle cx="6" cy="18" r="1.5" />
+                        <circle cx="12" cy="6" r="1.5" />
+                        <circle cx="12" cy="12" r="1.5" />
+                        <circle cx="12" cy="18" r="1.5" />
+                      </svg>
+                    </div>
                     <div class="systems-row-main">
                       <div class="systems-logo-container">
                         {#if system.logoImage}
@@ -2607,26 +2948,28 @@
                     <label for="edit-system-name">System Name</label>
                     <input id="edit-system-name" type="text" bind:value={editingSystemName} placeholder="System name" />
                   </div>
-                  <div class="form-field">
+                  <div class="form-field form-field--logo">
                     <label for="edit-system-logo">Logo Image</label>
-                    <div class="file-input-group">
+                    <div class="file-input-group file-input-group--logo">
                       <input id="edit-system-logo" type="file" accept="image/*" on:change={(e) => handleLogoUpload(e, false)} />
-                      <span class="file-hint">or</span>
+                      <span class="file-input-group-divider" aria-hidden="true"><span>or</span></span>
                       <input type="text" bind:value={editingSystemIcon} placeholder="Image URL" />
                     </div>
-                    <button
-                      type="button"
-                      class="system-logo-fetch-button"
-                      disabled={systemLogoFetchBusy}
-                      on:click={() => fetchSystemLogo(false)}
-                    >
-                      {systemLogoFetchBusy ? 'Fetching Logo...' : 'Fetch Logo'}
-                    </button>
-                    {#if systemLogoFetchError && canFetchSystemLogo(false)}
-                      <p class="admin-error system-logo-fetch-error">{systemLogoFetchError}</p>
-                    {/if}
+                    <div class="system-logo-controls">
+                      <button
+                        type="button"
+                        class="system-logo-fetch-button"
+                        disabled={systemLogoFetchBusy}
+                        on:click={() => fetchSystemLogo(false)}
+                      >
+                        {systemLogoFetchBusy ? 'Fetching Logo...' : 'Fetch Logo'}
+                      </button>
+                      {#if systemLogoFetchError && canFetchSystemLogo(false)}
+                        <p class="admin-error system-logo-fetch-error">{systemLogoFetchError}</p>
+                      {/if}
+                    </div>
                     {#if editingSystemIcon}
-                      <div class="logo-preview">
+                      <div class="logo-preview logo-preview--compact">
                         <img src={editingSystemIcon} alt="Logo preview" />
                       </div>
                     {/if}
@@ -2792,7 +3135,9 @@
                           </div>
                           <div class="admin-loaded-art-media">
                             {#if adminForm.cover_image}
-                              <img src={adminForm.cover_image} alt="Fetched box art" />
+                              <button type="button" class="admin-loaded-art-preview" on:click={() => openLaunchboxArtPicker('cover_image')}>
+                                <img src={adminForm.cover_image} alt="Fetched box art" />
+                              </button>
                             {:else}
                               <div class="admin-loaded-art-empty">No box art loaded</div>
                             {/if}
@@ -2800,7 +3145,7 @@
                         </div>
                         <div class="admin-loaded-art-item">
                           <div class="admin-loaded-art-item-header">
-                            <span>Disc Art</span>
+                            <span>Disc/Cart Art</span>
                             <label for="admin-upload-disc-art" class="admin-art-upload-button">Upload</label>
                             <input
                               id="admin-upload-disc-art"
@@ -2812,9 +3157,11 @@
                           </div>
                           <div class="admin-loaded-art-media">
                             {#if adminForm.disc_image}
-                              <img src={adminForm.disc_image} alt="Fetched disc art" />
+                              <button type="button" class="admin-loaded-art-preview" on:click={() => openLaunchboxArtPicker('disc_image')}>
+                                <img src={adminForm.disc_image} alt="Fetched disc/cart art" />
+                              </button>
                             {:else}
-                              <div class="admin-loaded-art-empty">No disc art loaded</div>
+                              <div class="admin-loaded-art-empty">No disc/cart art loaded</div>
                             {/if}
                           </div>
                         </div>
@@ -2832,7 +3179,9 @@
                           </div>
                           <div class="admin-loaded-art-media">
                             {#if adminForm.spine_image}
-                              <img src={adminForm.spine_image} alt="Fetched spine art" />
+                              <button type="button" class="admin-loaded-art-preview" on:click={() => openLaunchboxArtPicker('spine_image')}>
+                                <img src={adminForm.spine_image} alt="Fetched spine art" />
+                              </button>
                             {:else}
                               <div class="admin-loaded-art-empty">No spine art loaded</div>
                             {/if}

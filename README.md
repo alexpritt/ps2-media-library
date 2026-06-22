@@ -13,14 +13,14 @@ A personal web application that catalogs my physical media collection in a PlayS
 ## ✨ Features
 
 ### 🆕 Recent Updates
-- LaunchBox game-data fetch flow now supports cached reuse and persistence of fetched metadata/art on existing library items
-- LaunchBox matching is more forgiving for punctuation, accents, foreign-character normalization, and partial title input
-- Release-date handling is normalized to `YYYY-MM-DD` for reliable HTML datepicker binding
-- Added spine-art support end-to-end: LaunchBox fetch, admin loaded-art preview, custom upload, and library icon spine rendering
-- Added robust spine and disc fallback behavior when dedicated source art is unavailable
-- System logo fetching now includes compatibility fallback routes and browser-side fallback sources
-- Systems Manager spacing and layout density were refined for improved readability
-- Game case sizing now adapts dynamically to loaded cover art aspect ratios
+- Multi-source metadata flow for games: LaunchBox first, with approved keyless fallback metadata when LaunchBox is unavailable
+- LaunchBox art-option picker for Box Art, Spine Art, and Disc/Cart Art directly in Admin
+- Per-system appearance model added (case type + appearance preset + display order) and used by library rendering
+- Systems can be reordered with drag-and-drop in System Manager (persisted to backend)
+- Details view now includes interactive metadata tags that can instantly apply library search filters
+- Console case visuals were expanded and tuned for PS2/PS3/PS4/GameCube/Wii/Xbox/Xbox 360 plus handheld cartridge styles
+- Box-front art sizing now uses full-coverage fitting for cleaner per-console case presentation
+- Admin popup styling was unified across Admin Access, Hub, System Manager, and Library Manager
 
 ### 🧭 UI / Navigation
 - PS2-style boot screen with intro video and muted-by-default audio (click anywhere to enable sound)
@@ -33,7 +33,7 @@ A personal web application that catalogs my physical media collection in a PlayS
 - Unified, glass-style select/dropdown visuals in admin and filter flows
 
 ### 🕹️ Supported Consoles
-PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Game Boy — plus custom user-defined systems
+PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Nintendo 3DS, Game Boy, GameCube, Wii, Xbox, Xbox 360 — plus custom user-defined systems
 
 ### 💿 Game Library Visual System
 - Console-specific case banner overlays for PS2/PS3/PS4/GameCube/Wii/Xbox/Xbox 360
@@ -41,6 +41,8 @@ PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Game Boy — plus cust
 - Handheld cartridge presentation overlays for Nintendo DS / Nintendo 3DS / Game Boy
 - Library-only square icon treatment for handheld case cards (Game Boy, DS, 3DS)
 - Wii/Xbox/Xbox 360 overlay set refresh and expanded disc-back asset mapping
+- Layered cover/spine rendering with blurred background pass plus foreground art pass
+- Full-coverage box-front art fitment for PS2/Wii/Xbox/Xbox 360 case presets
 
 ### 🛠️ Admin Panel
 - Password-protected session token login
@@ -52,6 +54,8 @@ PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Game Boy — plus cust
 - Custom console management (add / remove systems)
 - LaunchBox fetch for Games with automatic population of title metadata and artwork
 - Loaded Art panel for Games with upload controls for Box Art, Spine Art, and Disc Art
+- LaunchBox art-option picker for selecting alternate Box/Spine/Disc assets before save
+- System Manager drag-and-drop order controls persisted via backend reorder endpoint
 
 ### 🧱 Data Model (`MediaItem`)
 `id` · `title` · `category` · `platform` · `genre` · `genres` · `release_date` · `year_released` · `rating` · `players` · `cooperative` · `artist` · `publisher` · `format` · `region` · `cover_image` · `spine_image` · `disc_image` · `tags` · `notes`
@@ -61,6 +65,8 @@ PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Game Boy — plus cust
 - Admin authentication uses a bearer token workflow for protected CRUD operations
 - Startup migration helpers add new columns to existing SQLite databases automatically
 - Game-data endpoint can return persisted cached records when metadata/art is already available
+- Game-data fetch includes approved keyless fallback metadata source when LaunchBox cannot provide data
+- Game-art options endpoint supports targeted retrieval by art type (`cover`, `spine`, `disc`, `cart`)
 
 ## ⚙️ Setup
 

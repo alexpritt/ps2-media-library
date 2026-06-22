@@ -27,4 +27,8 @@ export interface EditableSystem {
   shortName: string;
   logo: string;
   logoImage: string | null;
+  caseType?: 'disc' | 'cartridge' | 'hybrid';
+  appearancePreset?: string | null;
+  isCartridgeInferred?: boolean;
+  displayOrder?: number;
 }
