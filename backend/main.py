@@ -4,8 +4,9 @@ import secrets
 import base64
 import os
 import re
+import time
 import unicodedata
-from urllib.parse import quote, urljoin
+from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 import requests
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -17,7 +18,6 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 DATABASE_PATH = Path(__file__).parent / "media.db"
 FRONTEND_BUILD_DIR = Path(__file__).parent.parent / "frontend" / "build"
-SUGGESTIONS_DIR = Path(__file__).parent.parent / "frontend" / "suggestions"
 
 app = FastAPI(title="PS2 Media Library API")
 
@@ -32,8 +32,34 @@ def env_flag(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return default
+
+
 ENABLE_KEYLESS_METADATA_FALLBACK = env_flag("ENABLE_KEYLESS_METADATA_FALLBACK", default=True)
 ENABLE_SCREENSCRAPER_FALLBACK = env_flag("ENABLE_SCREENSCRAPER_FALLBACK", default=False)
+ENABLE_MOBYGAMES_SCRAPE_FALLBACK = env_flag("ENABLE_MOBYGAMES_SCRAPE_FALLBACK", default=False)
+MOBYGAMES_MIN_REQUEST_INTERVAL = env_float("MOBYGAMES_MIN_REQUEST_INTERVAL", default=1.5)
+DEFAULT_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0"}
+MOBYGAMES_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
+MOBYGAMES_BASE_URL = "https://www.mobygames.com"
+_mobygames_html_cache: Dict[str, str] = {}
+_mobygames_last_request_at = 0.0
 
 
 def iter_file_range(file_path: Path, start: int, end: int, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
@@ -251,40 +277,128 @@ def normalize_launchbox_key(value: str) -> str:
 
 
 CARTRIDGE_PRESET_ALIASES: Dict[str, str] = {
+    # Nintendo handhelds
     "nds": "nds",
     "nintendods": "nds",
+    "ds": "nds",
     "3ds": "3ds",
     "nintendo3ds": "3ds",
+    "newnintendo3ds": "3ds",
     "gb": "gb",
     "gameboy": "gb",
+    "gameboycolor": "gb",
+    "gbc": "gb",
+    "gameboyadvance": "gba",
+    "gameboyadvancesp": "gba",
+    "gba": "gba",
+    "gbasp": "gba",
+    "nintendoswitch": "switch",
+    "switch": "switch",
+    "nintendoswitchlite": "switch",
+    "switchlite": "switch",
+    "nintendoswitcholed": "switch",
+    "switcholed": "switch",
+    "nintendo64": "n64",
+    "n64": "n64",
+    "nes": "nes",
+    "nintendoentertainmentsystem": "nes",
+    "snes": "snes",
+    "supernintendo": "snes",
+    "supernintendoentertainmentsystem": "snes",
+    "virtualboy": "virtualboy",
+    # Sega cartridge systems
+    "genesis": "genesis",
+    "segagenesis": "genesis",
+    "megadrive": "genesis",
+    "segamegadrive": "genesis",
+    "segamastersystem": "mastersystem",
+    "mastersystem": "mastersystem",
+    "sg1000": "sg1000",
+    "gamegear": "gamegear",
+    "segagamegear": "gamegear",
+    # Atari cartridge systems
+    "atari2600": "atari2600",
+    "atari5200": "atari5200",
+    "atari7800": "atari7800",
+    "atarilynx": "atarilynx",
+    "lynx": "atarilynx",
+    "jaguar": "jaguar",
+    "atarijaguar": "jaguar",
+    # Other common cartridge systems
+    "intellivision": "intellivision",
+    "colecovision": "colecovision",
+    "neogeo": "neogeo",
+    "neogeoaes": "neogeo",
+    "neogeopocket": "neogeopocket",
+    "neogeopocketcolor": "neogeopocket",
+    "turbografx16": "turbografx16",
+    "pcengine": "turbografx16",
+    "wonderswan": "wonderswan",
+    "wonderswancolor": "wonderswan",
+    "vectrex": "vectrex",
+    "psvita": "psvita",
+    "playstationvita": "psvita",
 }
 
 
 DISC_PRESET_ALIASES: Dict[str, str] = {
+    # Sony
+    "ps1": "ps1",
+    "playstation": "ps1",
+    "playstation1": "ps1",
+    "psx": "ps1",
     "ps2": "ps2",
     "playstation2": "ps2",
     "ps3": "ps3",
     "playstation3": "ps3",
     "ps4": "ps4",
     "playstation4": "ps4",
+    "ps5": "ps5",
+    "playstation5": "ps5",
+    "psp": "psp",
+    "playstationportable": "psp",
+    # Nintendo optical systems
     "gc": "gamecube",
     "gamecube": "gamecube",
     "wii": "wii",
+    "wiiu": "wiiu",
+    # Microsoft
     "xbox": "xbox",
     "xbox360": "xbox360",
+    "xboxone": "xboxone",
+    "xboxseries": "xboxseries",
+    "xboxseriess": "xboxseries",
+    "xboxseriesx": "xboxseries",
+    # Sega optical systems
+    "dreamcast": "dreamcast",
+    "segacd": "segacd",
+    "sega32xcd": "segacd",
+    "saturn": "saturn",
+    # Other optical systems
+    "pcfx": "pcfx",
+    "3do": "3do",
+    "amiga32cd": "amiga32cd",
+    "atarijaguarcd": "jaguarcd",
 }
 
 
 def infer_system_appearance(system_id: str, name: str) -> Tuple[str, str, bool]:
     key = normalize_launchbox_key(system_id or name)
     name_key = normalize_launchbox_key(name)
+    token_source = " ".join(part for part in [system_id or "", name or ""] if part)
+    tokens = set(title_tokens(token_source))
 
-    for alias, preset in CARTRIDGE_PRESET_ALIASES.items():
-        if alias in key or alias in name_key:
+    def alias_matches(alias: str) -> bool:
+        if alias == key or alias == name_key or alias in tokens:
+            return True
+        return False
+
+    for alias, preset in sorted(CARTRIDGE_PRESET_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+        if alias_matches(alias):
             return ("cartridge", preset, True)
 
-    for alias, preset in DISC_PRESET_ALIASES.items():
-        if alias in key or alias in name_key:
+    for alias, preset in sorted(DISC_PRESET_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+        if alias_matches(alias):
             return ("disc", preset, False)
 
     return ("disc", "generic-disc", False)
@@ -511,11 +625,20 @@ def fetch_game_art_options_with_fallback(title: str, platform: str, art_type: st
         launchbox_options["data_source"] = "launchbox"
         return launchbox_options
     except Exception as exc:
+        if ENABLE_MOBYGAMES_SCRAPE_FALLBACK:
+            try:
+                mobygames_options = fetch_mobygames_game_art_options(title, platform, art_type)
+                mobygames_options["data_source"] = "mobygames"
+                return mobygames_options
+            except Exception:
+                pass
+
         raise HTTPException(
             status_code=404,
             detail=(
-                f"Could not fetch {art_type} art. LaunchBox art is unavailable and this art type "
-                "will not be inferred from other media. Use manual upload while LaunchBox is down."
+                f"Could not fetch {art_type} art. LaunchBox art is unavailable"
+                + (" and MobyGames fallback did not return an approved NTSC-US match" if ENABLE_MOBYGAMES_SCRAPE_FALLBACK else "")
+                + ". This art type will not be inferred from other media. Use manual upload while LaunchBox is down."
             ),
         ) from exc
 
@@ -612,16 +735,313 @@ def fetch_image_data_uri(image_url: str) -> Optional[str]:
     if not image_url:
         return None
     try:
-        response = requests.get(image_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+        response = requests.get(image_url, timeout=20, headers=DEFAULT_HTTP_HEADERS)
     except requests.RequestException:
         if image_url.startswith("https://gamesdb-images.launchbox.gg/"):
-            response = requests.get(image_url.replace("https://", "http://", 1), timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+            response = requests.get(image_url.replace("https://", "http://", 1), timeout=20, headers=DEFAULT_HTTP_HEADERS)
         else:
             raise
     response.raise_for_status()
     content_type = response.headers.get("content-type", "image/jpeg").split(";", 1)[0].strip() or "image/jpeg"
     encoded = base64.b64encode(response.content).decode("utf-8")
     return f"data:{content_type};base64,{encoded}"
+
+
+def mobygames_throttle() -> None:
+    global _mobygames_last_request_at
+
+    elapsed = time.monotonic() - _mobygames_last_request_at
+    if elapsed < MOBYGAMES_MIN_REQUEST_INTERVAL:
+        time.sleep(MOBYGAMES_MIN_REQUEST_INTERVAL - elapsed)
+    _mobygames_last_request_at = time.monotonic()
+
+
+def fetch_mobygames_html(url: str) -> str:
+    cached = _mobygames_html_cache.get(url)
+    if cached is not None:
+        return cached
+
+    mobygames_throttle()
+    response = requests.get(url, timeout=20, headers=MOBYGAMES_HTTP_HEADERS)
+    response.raise_for_status()
+    _mobygames_html_cache[url] = response.text
+    return response.text
+
+
+def fetch_mobygames_soup(url: str) -> BeautifulSoup:
+    return BeautifulSoup(fetch_mobygames_html(url), "html.parser")
+
+
+def extract_mobygames_link(href: str) -> Optional[str]:
+    if not href:
+        return None
+    if href.startswith("/"):
+        href = urljoin("https://www.bing.com", href)
+    parsed = urlparse(href)
+    if "mobygames.com" in parsed.netloc and "/game/" in parsed.path:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+    if "bing.com" not in parsed.netloc:
+        return None
+
+    query_url = parse_qs(parsed.query).get("u") or parse_qs(parsed.query).get("url") or parse_qs(parsed.query).get("q")
+    if not query_url:
+        return None
+    candidate = unquote(query_url[0])
+    candidate_parsed = urlparse(candidate)
+    if "mobygames.com" in candidate_parsed.netloc and "/game/" in candidate_parsed.path:
+        return f"{candidate_parsed.scheme}://{candidate_parsed.netloc}{candidate_parsed.path}".rstrip("/")
+    return None
+
+
+def mobygames_platform_aliases(platform: str) -> List[str]:
+    normalized = normalize_title_for_match(platform)
+    aliases = [normalized]
+    alias_map = {
+        "nintendo 3ds": ["3ds", "nintendo 3ds"],
+        "nintendo ds": ["ds", "nintendo ds", "nds"],
+        "playstation 2": ["ps2", "playstation 2"],
+        "playstation 3": ["ps3", "playstation 3"],
+        "playstation 4": ["ps4", "playstation 4"],
+        "xbox 360": ["xbox 360"],
+        "xbox": ["xbox"],
+        "wii": ["wii"],
+        "gamecube": ["gamecube", "gc"],
+        "game boy": ["game boy", "gb"],
+        "game boy advance": ["game boy advance", "gba"],
+        "playstation portable": ["psp", "playstation portable"],
+        "playstation vita": ["ps vita", "vita", "playstation vita"],
+        "nintendo switch": ["switch", "nintendo switch"],
+    }
+    for key, values in alias_map.items():
+        if normalized == key:
+            aliases.extend(values)
+            break
+    deduped: List[str] = []
+    for alias in aliases:
+        alias = alias.strip()
+        if alias and alias not in deduped:
+            deduped.append(alias)
+    return deduped
+
+
+def score_mobygames_candidate(candidate_title: str, candidate_platform: str, title: str, platform: str) -> int:
+    target_title = normalize_launchbox_key(title)
+    candidate_title_key = normalize_launchbox_key(candidate_title)
+    target_title_loose = normalize_title_for_match(title)
+    candidate_title_loose = normalize_title_for_match(candidate_title)
+    target_tokens = set(title_tokens(title))
+    candidate_tokens = set(title_tokens(candidate_title))
+    score = 0
+
+    if candidate_title_key == target_title:
+        score += 140
+    elif target_title and (target_title in candidate_title_key or candidate_title_key in target_title):
+        score += 90
+
+    if target_tokens and candidate_tokens:
+        overlap = len(target_tokens.intersection(candidate_tokens))
+        union = len(target_tokens.union(candidate_tokens))
+        if union:
+            score += int((overlap / union) * 80)
+
+    if candidate_title_loose == target_title_loose:
+        score += 20
+
+    platform_haystack = normalize_title_for_match(candidate_platform)
+    for alias in mobygames_platform_aliases(platform):
+        if alias and alias in platform_haystack:
+            score += 35
+            break
+
+    return score
+
+
+def resolve_mobygames_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
+    query = quote(f'site:mobygames.com/game "{title}" "{platform}"')
+    search_url = f"https://www.bing.com/search?q={query}"
+    search_response = requests.get(search_url, timeout=20, headers=MOBYGAMES_HTTP_HEADERS)
+    search_response.raise_for_status()
+    search_soup = BeautifulSoup(search_response.text, "html.parser")
+
+    candidates: List[dict] = []
+    seen_urls = set()
+    for link in search_soup.find_all("a", href=True):
+        resolved_href = extract_mobygames_link(link.get("href", ""))
+        if not resolved_href or resolved_href in seen_urls:
+            continue
+
+        candidate_title = link.get_text(" ", strip=True)
+        platform_slug = ""
+        path_parts = [part for part in urlparse(resolved_href).path.split("/") if part]
+        if len(path_parts) >= 3 and path_parts[0] == "game":
+            platform_slug = path_parts[1].replace("-", " ")
+
+        seen_urls.add(resolved_href)
+        candidates.append({
+            "title": candidate_title,
+            "platform": platform_slug,
+            "href": resolved_href,
+        })
+
+    if not candidates:
+        raise HTTPException(status_code=404, detail=f'MobyGames could not find "{title}" for {platform}.')
+
+    best_match = max(candidates, key=lambda candidate: score_mobygames_candidate(candidate["title"], candidate["platform"], title, platform))
+    best_score = score_mobygames_candidate(best_match["title"], best_match["platform"], title, platform)
+    if best_score < 90:
+        raise HTTPException(status_code=404, detail=f'MobyGames did not return a confident match for "{title}" on {platform}.')
+
+    detail_url = best_match["href"]
+    detail_soup = fetch_mobygames_soup(detail_url)
+    resolved_title = detail_soup.find("h1").get_text(" ", strip=True) if detail_soup.find("h1") else best_match["title"]
+    resolved_platform = best_match["platform"] or platform
+    return detail_url, detail_soup, resolved_platform, resolved_title
+
+
+def mobygames_region_score(context: str) -> int:
+    normalized = normalize_title_for_match(context)
+    if any(term in normalized for term in ["north america", "usa", "u s a", "united states"]):
+        return 2
+    if re.search(r"\bus\b", normalized):
+        return 2
+    if any(term in normalized for term in ["japan", "europe", "germany", "france", "spain", "italy", "australia", "korea"]):
+        return -1
+    return 0
+
+
+def mobygames_image_url(image_tag) -> Optional[str]:
+    for attribute in ["data-src", "data-lazy", "src"]:
+        image_url = image_tag.get(attribute)
+        if image_url:
+            return image_url.split(" ", 1)[0]
+    srcset = image_tag.get("srcset")
+    if srcset:
+        return srcset.split(",", 1)[0].split(" ", 1)[0]
+    return None
+
+
+def mobygames_collect_context(image_tag) -> str:
+    parts: List[str] = []
+    for attribute in ["alt", "title", "aria-label"]:
+        value = image_tag.get(attribute)
+        if value:
+            parts.append(value)
+
+    parent = image_tag.parent
+    if parent:
+        parent_text = parent.get_text(" ", strip=True)
+        if parent_text:
+            parts.append(parent_text)
+
+    ancestor = parent.parent if parent else None
+    if ancestor:
+        ancestor_text = ancestor.get_text(" ", strip=True)
+        if ancestor_text:
+            parts.append(ancestor_text)
+
+    return " | ".join(part for part in parts if part)
+
+
+def mobygames_art_type_matches(context: str, art_type: str, platform: str) -> bool:
+    normalized = normalize_title_for_match(context)
+    cartridge_platform = is_cartridge_platform_name(platform)
+
+    if art_type == "cover":
+        return any(term in normalized for term in ["cover", "box front", "front cover", "front box", "box"])
+    if art_type == "spine":
+        return any(term in normalized for term in ["spine", "side"])
+    if art_type == "disc":
+        if cartridge_platform:
+            return any(term in normalized for term in ["cartridge", "cart", "label", "media"])
+        return any(term in normalized for term in ["disc", "cd", "dvd", "media"])
+    if art_type == "cart":
+        return any(term in normalized for term in ["cartridge", "cart", "label"])
+    return False
+
+
+def mobygames_cover_gallery_links(detail_soup: BeautifulSoup, detail_url: str) -> List[str]:
+    links: List[str] = []
+    for anchor in detail_soup.find_all("a", href=True):
+        href = anchor.get("href", "")
+        label = anchor.get_text(" ", strip=True)
+        full_url = urljoin(detail_url, href)
+        parsed = urlparse(full_url)
+        path = parsed.path.lower()
+        if "/covers/" not in path and "cover" not in label.lower():
+            continue
+        normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if normalized_url not in links:
+            links.append(normalized_url)
+    return links[:4]
+
+
+def mobygames_extract_art_urls(page_soup: BeautifulSoup, page_url: str, art_type: str, platform: str) -> List[str]:
+    candidates: List[Tuple[int, str]] = []
+    seen = set()
+
+    for image_tag in page_soup.find_all("img"):
+        image_url = mobygames_image_url(image_tag)
+        if not image_url or image_url.startswith("data:"):
+            continue
+
+        full_image_url = urljoin(page_url, image_url)
+        if full_image_url in seen:
+            continue
+
+        context = mobygames_collect_context(image_tag)
+        if not mobygames_art_type_matches(context, art_type, platform):
+            continue
+
+        region_score = mobygames_region_score(context)
+        if region_score <= 0:
+            continue
+
+        seen.add(full_image_url)
+        candidates.append((region_score, full_image_url))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return [image_url for _score, image_url in candidates[:12]]
+
+
+def fetch_mobygames_game_art_options(title: str, platform: str, art_type: str) -> dict:
+    if art_type not in {"cover", "spine", "disc", "cart"}:
+        raise HTTPException(status_code=400, detail="Invalid art_type. Use cover, disc, spine, or cart.")
+
+    detail_url, detail_soup, resolved_platform, resolved_title = resolve_mobygames_game_detail(title, platform)
+    gallery_urls = mobygames_cover_gallery_links(detail_soup, detail_url)
+    search_pages = [detail_url, *gallery_urls]
+
+    image_urls: List[str] = []
+    for page_url in search_pages:
+        page_soup = detail_soup if page_url == detail_url else fetch_mobygames_soup(page_url)
+        for image_url in mobygames_extract_art_urls(page_soup, page_url, art_type, resolved_platform):
+            if image_url not in image_urls:
+                image_urls.append(image_url)
+
+    if not image_urls:
+        raise HTTPException(
+            status_code=404,
+            detail=f"MobyGames did not return an approved NTSC-US {art_type} image for {resolved_title}.",
+        )
+
+    data_uri_options: List[str] = []
+    for image_url in image_urls:
+        try:
+            image_data = fetch_image_data_uri(image_url)
+        except Exception:
+            continue
+        if image_data and image_data not in data_uri_options:
+            data_uri_options.append(image_data)
+
+    if not data_uri_options:
+        raise HTTPException(status_code=502, detail="Could not download approved MobyGames art options.")
+
+    return {
+        "title": resolved_title,
+        "platform": platform,
+        "artType": art_type,
+        "options": data_uri_options,
+    }
 
 
 def first_text_from_definition(detail_soup: BeautifulSoup, label: str) -> Optional[str]:
@@ -700,8 +1120,8 @@ def section_images_from_titles(detail_soup: BeautifulSoup, titles: List[str], re
 
 
 def is_cartridge_platform_name(platform: Optional[str]) -> bool:
-    key = normalize_launchbox_key(platform or "")
-    return key in {"nintendods", "nds", "nintendo3ds", "3ds", "gameboy", "gb"}
+    case_type, _preset, _inferred = infer_system_appearance(platform or "", platform or "")
+    return case_type == "cartridge"
 
 
 def launchbox_disc_section_titles(platform: Optional[str]) -> List[str]:
@@ -1045,12 +1465,9 @@ def ensure_systems() -> None:
         for order, system_data in enumerate(default_systems):
             existing = session.exec(select(GameSystem).where(GameSystem.system_id == system_data["system_id"])).first()
             if not existing:
-                # Try to fetch and encode the logo image
                 logo_image_data = None
                 try:
-                    response = requests.get(system_data["logo_url"], timeout=5)
-                    if response.status_code == 200:
-                        logo_image_data = base64.b64encode(response.content).decode("utf-8")
+                    logo_image_data = fetch_image_data_uri(system_data["logo_url"])
                 except Exception:
                     pass  # If fetching fails, just leave logo_image as None
 
@@ -1590,14 +2007,10 @@ def create_system(system_data: dict, authorization: Optional[str] = Header(defau
         
         logo_image_data = None
         if logo_image_url.startswith("data:image"):
-            # Already base64 encoded
-            logo_image_data = logo_image_url.split(",", 1)[1] if "," in logo_image_url else None
+            logo_image_data = logo_image_url
         elif logo_image_url:
-            # Fetch from URL and encode
             try:
-                response = requests.get(logo_image_url, timeout=10)
-                if response.status_code == 200:
-                    logo_image_data = base64.b64encode(response.content).decode("utf-8")
+                logo_image_data = fetch_image_data_uri(logo_image_url)
             except Exception:
                 pass
         
@@ -1666,6 +2079,9 @@ def update_system(system_id: str, system_data: dict, authorization: Optional[str
             requested_case_type = (system_data.get("caseType") or "").strip().lower()
             if requested_case_type in {"disc", "cartridge", "hybrid"}:
                 system.case_type = requested_case_type
+                system.is_cartridge_inferred = False
+            elif requested_case_type in {"", "auto"}:
+                system.case_type = ""
         if "appearancePreset" in system_data:
             requested_preset = (system_data.get("appearancePreset") or "").strip().lower()
             system.appearance_preset = requested_preset or None
@@ -1674,12 +2090,10 @@ def update_system(system_id: str, system_data: dict, authorization: Optional[str
         if "logoImageUrl" in system_data:
             logo_image_url = system_data["logoImageUrl"].strip()
             if logo_image_url.startswith("data:image"):
-                system.logo_image = logo_image_url.split(",", 1)[1] if "," in logo_image_url else None
+                system.logo_image = logo_image_url
             elif logo_image_url:
                 try:
-                    response = requests.get(logo_image_url, timeout=10)
-                    if response.status_code == 200:
-                        system.logo_image = base64.b64encode(response.content).decode("utf-8")
+                    system.logo_image = fetch_image_data_uri(logo_image_url)
                 except Exception:
                     pass
 
@@ -1689,8 +2103,7 @@ def update_system(system_id: str, system_data: dict, authorization: Optional[str
                 system.case_type = inferred_case_type
             if not system.appearance_preset:
                 system.appearance_preset = inferred_preset
-            if inferred_flag:
-                system.is_cartridge_inferred = True
+            system.is_cartridge_inferred = bool(inferred_flag and system.case_type == "cartridge")
         
         session.add(system)
         session.commit()
@@ -1764,44 +2177,6 @@ def reorder_systems(payload: dict, authorization: Optional[str] = Header(default
         
         return {"success": True}
 
-
-@app.get("/suggestions/ps2-intro.mp4")
-def stream_ps2_intro(request: Request):
-    video_path = SUGGESTIONS_DIR / "ps2-intro.mp4"
-    if not video_path.exists():
-        raise HTTPException(status_code=404, detail="Intro video not found")
-
-    file_size = video_path.stat().st_size
-    range_header = request.headers.get("range")
-
-    if not range_header:
-        response = FileResponse(video_path, media_type="video/mp4")
-        response.headers["Accept-Ranges"] = "bytes"
-        return response
-
-    if not range_header.startswith("bytes="):
-        raise HTTPException(status_code=416, detail="Invalid range header")
-
-    start_str, end_str = range_header.replace("bytes=", "").split("-", 1)
-    start = int(start_str) if start_str else 0
-    end = int(end_str) if end_str else file_size - 1
-
-    if start >= file_size:
-        raise HTTPException(status_code=416, detail="Requested range not satisfiable")
-
-    end = min(end, file_size - 1)
-    content_length = end - start + 1
-
-    headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Content-Length": str(content_length),
-        "Content-Type": "video/mp4",
-    }
-    return StreamingResponse(iter_file_range(video_path, start, end), status_code=206, headers=headers)
-
-if SUGGESTIONS_DIR.exists():
-    app.mount("/suggestions", StaticFiles(directory=str(SUGGESTIONS_DIR)), name="suggestions")
 
 if FRONTEND_BUILD_DIR.exists():
     app.mount("/", StaticFiles(directory=str(FRONTEND_BUILD_DIR), html=True), name="frontend")

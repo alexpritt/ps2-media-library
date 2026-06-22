@@ -200,8 +200,10 @@
   let editingSystemId: string | null = null;
   let editingSystemName = '';
   let editingSystemIcon = '';
+  let editingSystemCaseType: '' | 'disc' | 'cartridge' | 'hybrid' = '';
   let newSystemName = '';
   let newSystemIcon = '';
+  let newSystemCaseType: '' | 'disc' | 'cartridge' | 'hybrid' = '';
   let systemError = '';
   let systemLogoFetchBusy = false;
   let systemLogoFetchError = '';
@@ -262,7 +264,7 @@
   $: totalPages = Math.ceil(media.length / itemsPerPage);
   $: libraryCountLabel = category === 'Music'
     ? `${media.length} ${media.length === 1 ? 'Album' : 'Albums'} in Library`
-    : `${media.length} ${media.length === 1 ? 'Game' : 'Games'} in Library`;
+    : `${media.length} ${media.length === 1 ? 'Game' : 'Games'} in ${selectedConsole ?? activeConsole.name} Library`;
   $: adminConsoleOptions = availableConsoles.map((item) => item.name);
   $: adminGameGenreOptions = buildGameGenreOptions(allMedia);
   $: adminMusicGenreOptions = buildMusicGenreOptions(allMedia);
@@ -280,6 +282,9 @@
     adminListPage * adminListItemsPerPage,
     (adminListPage + 1) * adminListItemsPerPage
   );
+  $: detailsConsoleLogo = selectedItem?.category === 'Games'
+    ? availableConsoles.find((item) => item.name === (selectedItem.platform ?? ''))?.logoImage ?? null
+    : null;
 
   $: selectedLibraryConsole = availableConsoles.find((item) => item.name === (selectedConsole ?? activeConsole.name)) ?? activeConsole;
   $: libraryHeaderLeft = category === 'Music' ? 'Music Library' : selectedConsole ?? activeConsole.name;
@@ -302,6 +307,12 @@
   $: availablePlayerCounts = [...new Set(
     media.filter((i) => i.players != null).map((i) => i.players as number)
   )].sort((a, b) => a - b);
+  $: if (selectedItem?.id != null) {
+    const refreshedSelectedItem = allMedia.find((item) => item.id === selectedItem?.id) ?? null;
+    if (refreshedSelectedItem && refreshedSelectedItem !== selectedItem) {
+      selectedItem = refreshedSelectedItem;
+    }
+  }
   $: if (stage !== 'library') {
     librarySearchOpen = false;
     playersDropdownOpen = false;
@@ -577,7 +588,8 @@
   function getSystemAppearance(platform: string | null | undefined) {
     const system = availableConsoles.find((entry) => entry.name === (platform ?? ''));
     const preset = (system?.appearancePreset ?? inferAppearancePreset(platform) ?? 'generic-disc').toLowerCase();
-    const caseType = system?.caseType ?? (preset === 'nds' || preset === '3ds' || preset === 'gb' ? 'cartridge' : 'disc');
+    const inferredCartridge = preset === 'nds' || preset === '3ds' || preset === 'gb';
+    const caseType = inferredCartridge ? 'cartridge' : (system?.caseType ?? 'disc');
     return { caseType, preset } as const;
   }
 
@@ -1472,6 +1484,9 @@
   }
 
   function openItem(item: MediaItem) {
+    detailsManualRotateY = 0;
+    detailsSpinPaused = false;
+    detailsDragActive = false;
     launchItemId = item.id;
     void transitionTo(
       { stage: 'details', category, console: selectedConsole, itemId: item.id, page },
@@ -1557,7 +1572,7 @@
           name: s.name,
           shortName: s.shortName,
           logo: s.logo,
-          logoImage: s.logoImage ? `data:image/svg+xml;base64,${s.logoImage}` : null,
+          logoImage: normalizeSystemLogoImage(s.logoImage),
           caseType: s.caseType ?? undefined,
           appearancePreset: s.appearancePreset ?? null,
           isCartridgeInferred: Boolean(s.isCartridgeInferred),
@@ -1602,6 +1617,28 @@
     localStorage.setItem('ps2-editable-systems', JSON.stringify(editableSystems));
   }
 
+  function inferImageMimeTypeFromBase64(base64Data: string) {
+    try {
+      const binary = atob(base64Data.trim());
+      if (binary.startsWith('\x89PNG\r\n\x1a\n')) return 'image/png';
+      if (binary.startsWith('\xff\xd8\xff')) return 'image/jpeg';
+      if (binary.startsWith('GIF87a') || binary.startsWith('GIF89a')) return 'image/gif';
+      if (binary.startsWith('RIFF') && binary.slice(8, 12) === 'WEBP') return 'image/webp';
+      if (binary.includes('<svg') || binary.includes('<?xml')) return 'image/svg+xml';
+    } catch {
+      return 'image/svg+xml';
+    }
+
+    return 'image/png';
+  }
+
+  function normalizeSystemLogoImage(logoImage: string | null | undefined) {
+    if (!logoImage) return null;
+    if (logoImage.startsWith('data:image/')) return logoImage;
+    if (logoImage.startsWith('data:')) return logoImage;
+    return `data:${inferImageMimeTypeFromBase64(logoImage)};base64,${logoImage}`;
+  }
+
   async function addSystem() {
     systemError = '';
     const name = newSystemName.trim();
@@ -1626,12 +1663,14 @@
           shortName: name.slice(0, 3).toUpperCase(),
           logo: name.slice(0, 3).toUpperCase(),
           logoImageUrl: newSystemIcon.trim() || '',
+          caseType: newSystemCaseType || undefined,
         }),
       });
       if (response.ok) {
         await loadSystemsFromAPI();
         newSystemName = '';
         newSystemIcon = '';
+        newSystemCaseType = '';
       } else {
         const error = await response.json();
         systemError = error.detail || 'Failed to add system';
@@ -1665,7 +1704,7 @@
     }
   }
 
-  async function updateSystem(systemId: string, updates: Partial<EditableSystem>) {
+  async function updateSystem(systemId: string, updates: Partial<EditableSystem> & { caseType?: EditableSystem['caseType'] | '' }) {
     try {
       const system = editableSystems.find((s) => s.id === systemId);
       if (!system) return;
@@ -1678,6 +1717,7 @@
           shortName: updates.shortName || system.shortName,
           logo: updates.logo || system.logo,
           logoImageUrl: updates.logoImage || '',
+          caseType: updates.caseType === '' ? 'auto' : (updates.caseType ?? system.caseType ?? undefined),
         }),
       });
       if (response.ok) {
@@ -1697,6 +1737,7 @@
       editingSystemId = systemId;
       editingSystemName = system.name;
       editingSystemIcon = system.logoImage || '';
+      editingSystemCaseType = (system.caseType as '' | 'disc' | 'cartridge' | 'hybrid') ?? '';
     }
   }
 
@@ -1704,6 +1745,7 @@
     editingSystemId = null;
     editingSystemName = '';
     editingSystemIcon = '';
+    editingSystemCaseType = '';
   }
 
   let draggedSystemId: string | null = null;
@@ -1780,6 +1822,7 @@
     updateSystem(editingSystemId, {
       name,
       logoImage: editingSystemIcon.trim() || null,
+      caseType: editingSystemCaseType,
     });
     cancelEditSystem();
     systemError = '';
@@ -2222,6 +2265,52 @@
     skipBootIntro();
   }
 
+  function handleGlobalEscapeKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Escape') return;
+    if (isTransitioning) return;
+
+    if (launchboxArtPickerOpen) {
+      event.preventDefault();
+      closeLaunchboxArtPicker();
+      return;
+    }
+
+    if (confirmOpen) {
+      event.preventDefault();
+      closeConfirm();
+      return;
+    }
+
+    if (playersDropdownOpen) {
+      event.preventDefault();
+      playersDropdownOpen = false;
+      return;
+    }
+
+    if (librarySearchOpen && !librarySearch.trim()) {
+      event.preventDefault();
+      librarySearchOpen = false;
+      return;
+    }
+
+    if (adminOpen) {
+      event.preventDefault();
+      adminOpen = false;
+      return;
+    }
+
+    if (stage === 'details') {
+      event.preventDefault();
+      closeDetails();
+      return;
+    }
+
+    if (stage !== 'boot') {
+      event.preventDefault();
+      backAction();
+    }
+  }
+
   onMount(async () => {
     const savedToken = localStorage.getItem('ps2-admin-token');
     if (savedToken) {
@@ -2233,11 +2322,13 @@
     history.replaceState(currentHistoryState(), '');
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleGlobalBootKeydown);
+    window.addEventListener('keydown', handleGlobalEscapeKeydown);
     void queueBootStart();
 
     return () => {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleGlobalBootKeydown);
+      window.removeEventListener('keydown', handleGlobalEscapeKeydown);
       if (bootSoundIndicatorTimeout) {
         clearTimeout(bootSoundIndicatorTimeout);
       }
@@ -2301,7 +2392,7 @@
       <video
         bind:this={bootVideoRef}
         class="boot-video"
-        src="/suggestions/ps2-intro.mp4"
+        src="/ps2-intro.mp4"
         preload="auto"
         playsinline
         on:loadedmetadata={() => {
@@ -2382,7 +2473,11 @@
               <span class="console-header-copy">Console Library</span>
             {/if}
           </div>
-          <div class="hud-right console-header-count">{hoveredConsole ? consoleSubheaderLabel : consoleLibraryCountLabel}</div>
+          <div class="hud-right console-header-count">
+            {#key hoveredConsole ? consoleSubheaderLabel : consoleLibraryCountLabel}
+              <span class="console-header-copy console-header-count-copy">{hoveredConsole ? consoleSubheaderLabel : consoleLibraryCountLabel}</span>
+            {/key}
+          </div>
         </div>
         <div class="console-grid">
           {#each availableConsoles as console, index}
@@ -2581,7 +2676,6 @@
                         {/if}
                       </span>
                       <span class={`disc-case-disc ${discBackingClass(item)}${isCartridgePlatform(item.platform) ? ' disc-case-disc--cartridge' : ''}`}>
-                        <span class="disc-shell-backing"></span>
                         {#if item.disc_image && !brokenDiscIds.has(item.id)}
                           <img src={item.disc_image} alt="" class={`disc-image${isCartridgePlatform(item.platform) ? ' disc-image--cartridge' : ''}`} aria-hidden="true" draggable="false" on:error={() => markDiscBroken(item.id)} />
                         {:else if isCartridgePlatform(item.platform) && item.cover_image && !brokenCoverIds.has(item.id)}
@@ -2621,6 +2715,9 @@
       ></button>
 
       <section class="details-screen">
+        {#if detailsConsoleLogo}
+          <img src={detailsConsoleLogo} alt="" class="details-console-logo-bg" aria-hidden="true" draggable="false" />
+        {/if}
         <div class="details-left">
           <div class="details-rotator-control" style="--details-manual-ry: {detailsManualRotateY}deg;">
             <button
@@ -2861,6 +2958,15 @@
                     <label for="new-system-name">System Name</label>
                     <input id="new-system-name" type="text" bind:value={newSystemName} placeholder="e.g., PlayStation 5" />
                   </div>
+                  <div class="form-field">
+                    <label for="new-system-case-type">Case Type</label>
+                    <select id="new-system-case-type" bind:value={newSystemCaseType}>
+                      <option value="">Auto-detect</option>
+                      <option value="cartridge">Cartridge</option>
+                      <option value="disc">Disc</option>
+                      <option value="hybrid">Hybrid</option>
+                    </select>
+                  </div>
                   <div class="form-field form-field--logo">
                     <label for="new-system-logo">Logo Image</label>
                     <div class="file-input-group file-input-group--logo">
@@ -2947,6 +3053,15 @@
                   <div class="form-field">
                     <label for="edit-system-name">System Name</label>
                     <input id="edit-system-name" type="text" bind:value={editingSystemName} placeholder="System name" />
+                  </div>
+                  <div class="form-field">
+                    <label for="edit-system-case-type">Case Type</label>
+                    <select id="edit-system-case-type" bind:value={editingSystemCaseType}>
+                      <option value="">Auto-detect</option>
+                      <option value="cartridge">Cartridge</option>
+                      <option value="disc">Disc</option>
+                      <option value="hybrid">Hybrid</option>
+                    </select>
                   </div>
                   <div class="form-field form-field--logo">
                     <label for="edit-system-logo">Logo Image</label>
@@ -3043,6 +3158,9 @@
                         }
                       }}
                     >
+                      {#if item.cover_image}
+                        <img src={item.cover_image} alt="" class="admin-row-thumb" draggable="false" />
+                      {/if}
                       <div class="admin-row-content">
                         <strong>{item.title}</strong>
                         <small>{item.platform ?? item.format ?? item.artist ?? 'Unknown'}</small>

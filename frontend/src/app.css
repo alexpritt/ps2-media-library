@@ -261,7 +261,7 @@ button {
 .hud-left {
   position: relative;
   color: var(--hud-white);
-  font-size: clamp(1.8rem, 4vw, 4rem);
+  font-size: clamp(1.75rem, 3.8vw, 3.8rem);
   z-index: 2;
 }
 
@@ -272,6 +272,7 @@ button {
   right: 38px;
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 14px;
   z-index: 3;
 }
@@ -292,10 +293,12 @@ button {
   font-size: clamp(1.2rem, 2.5vw, 3rem);
   text-align: right;
   text-shadow: 2px 2px 0 var(--shadow);
-  max-width: 60vw;
+  width: auto;
+  flex: 0 1 auto;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1;
 }
 
 .hud-subheader {
@@ -488,24 +491,30 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
   background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 0;
   color: var(--hud-white);
-  padding: 7px 2px;
+  padding: 8px 0;
   cursor: pointer;
-  transition: border-bottom-color 180ms ease, color 180ms ease, opacity 180ms ease;
+  transition: border-bottom-color 180ms ease, color 180ms ease;
   text-shadow: none;
-  min-width: 56px;
+  letter-spacing: 0.04em;
+  min-width: 52px;
+  box-shadow: none;
 }
 
 .players-filter-btn:hover {
-  border-bottom-color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+  border-bottom-color: rgba(255, 255, 255, 0.6);
 }
 
 .players-filter-btn.is-active {
+  background: transparent;
   border-bottom-color: rgba(255, 255, 255, 0.68);
   color: #fff;
 }
@@ -513,14 +522,14 @@ button {
 .players-filter-inner {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .players-filter-num {
   font-size: clamp(0.78rem, 1vw, 0.9rem);
-  letter-spacing: 0.05em;
-  color: var(--hud-yellow);
-  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--hud-white);
+  font-weight: 600;
 }
 
 .controller-icon {
@@ -533,7 +542,7 @@ button {
 
 .players-filter-caret {
   font-size: 0.62rem;
-  opacity: 0.58;
+  opacity: 0.6;
   line-height: 1;
   letter-spacing: 0;
 }
@@ -545,7 +554,8 @@ button {
 
 .players-filter-btn:focus-visible {
   outline: none;
-  border-bottom-color: rgba(255, 255, 255, 0.68);
+  border-bottom-color: rgba(244, 251, 255, 0.4);
+  box-shadow: none;
 }
 
 .players-dropdown-backdrop {
@@ -561,50 +571,47 @@ button {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  background: rgb(14, 25, 55);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 0;
+  background: linear-gradient(180deg, rgba(16, 34, 63, 0.72), rgba(9, 21, 41, 0.78));
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  border: 1px solid rgba(226, 242, 255, 0.2);
+  border-radius: 16px;
   z-index: 20;
   overflow: hidden;
-  min-width: 88px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+  min-width: 108px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 18px 40px rgba(0, 0, 0, 0.24);
   opacity: 0;
-  transform: translateY(-6px) scale(0.98);
+  transform: translateY(-4px);
   animation: playersDropdownIn 220ms ease forwards;
 }
 
 .players-dropdown button {
   display: block;
   width: 100%;
-  padding: 9px 14px;
+  padding: 8px 12px;
   background: transparent;
   border: 0;
   color: rgba(245, 246, 251, 0.88);
-  font-size: 0.82rem;
-  letter-spacing: 0.05em;
+  font-size: 0.84rem;
+  letter-spacing: 0.04em;
   text-align: left;
   cursor: pointer;
   transition: background 150ms ease, color 150ms ease;
   text-shadow: none;
-  opacity: 0;
-  transform: translateY(-4px);
-  animation: playersDropdownItemIn 220ms ease forwards;
+  opacity: 1;
 }
 
-.players-dropdown button:nth-child(1) { animation-delay: 20ms; }
-.players-dropdown button:nth-child(2) { animation-delay: 40ms; }
-.players-dropdown button:nth-child(3) { animation-delay: 60ms; }
-.players-dropdown button:nth-child(4) { animation-delay: 80ms; }
-
 .players-dropdown button:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
   color: #fff;
 }
 
 .players-dropdown button.selected {
-  color: var(--hud-yellow);
+  color: #fff;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.09);
 }
 
 .players-dropdown button + button {
@@ -731,6 +738,9 @@ button {
   color: var(--hud-white);
   font-size: clamp(1.75rem, 3.8vw, 3.8rem);
   line-height: 1.05;
+  display: flex;
+  align-items: center;
+  min-height: 86px;
   z-index: 2;
 }
 
@@ -758,12 +768,15 @@ button {
   display: flex;
   align-items: center;
   min-height: 86px;
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .console-header-logo {
-  width: clamp(180px, 24vw, 320px);
+  width: clamp(160px, 22vw, 300px);
   height: auto;
-  max-height: 84px;
+  max-height: 110px;
   object-fit: contain;
   display: block;
   filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.55));
@@ -784,9 +797,14 @@ button {
 .console-header-copy {
   color: var(--hud-white);
   animation: fadeInConsoleHeader 500ms ease-out forwards;
+  white-space: nowrap;
+  line-height: 1;
 }
 
-/* ── Shared art / fallback ─────────────────────────────────────── */
+.console-header-count-copy {
+  display: inline-block;
+  color: var(--hud-yellow);
+}
 .library-art {
   width: 100%;
   height: 100%;
@@ -813,6 +831,8 @@ button {
   --case-h: 144px;
   --spine-w: 12px;
   --disc-size: 96px;
+  --media-w: var(--disc-size);
+  --media-h: var(--disc-size);
   --disc-right: -22px;
   --cover-ratio: 0.68;
   --front-w: calc(var(--case-h) * var(--cover-ratio));
@@ -844,7 +864,9 @@ button {
   --case-h: 126px;
   --spine-w: 11px;
   --disc-size: 86px;
-  --disc-right: -18px;
+  --media-w: 68px;
+  --media-h: 86px;
+  --disc-right: -12px;
   --cover-ratio: 0.80;
 }
 
@@ -852,7 +874,7 @@ button {
   --case-h: 116px;
   --spine-w: 9px;
   --disc-size: 82px;
-  --disc-right: -16px;
+  --disc-right: -10px;
   --cover-ratio: 0.85;
 }
 
@@ -860,7 +882,7 @@ button {
   --case-h: 124px;
   --spine-w: 10px;
   --disc-size: 86px;
-  --disc-right: -18px;
+  --disc-right: -12px;
   --cover-ratio: 0.82;
 }
 
@@ -910,8 +932,8 @@ button {
   right: var(--disc-right);
   top: 50%;
   transform: translateY(-50%);
-  width: var(--disc-size);
-  height: var(--disc-size);
+  width: var(--media-w);
+  height: var(--media-h);
   border-radius: 50%;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.08),
@@ -923,9 +945,22 @@ button {
 }
 
 .disc-case-disc--cartridge {
+  --cart-label-top: 6px;
+  --cart-label-side: 6px;
+  --cart-label-bottom: 6px;
   -webkit-mask: none;
   mask: none;
   border-radius: 10px;
+}
+
+.disc-case--nds .disc-case-disc--cartridge,
+.disc-case--3ds .disc-case-disc--cartridge {
+  border-radius: 8px 8px 6px 6px;
+}
+
+.disc-case-disc.disc-shell--3ds .disc-image--cartridge {
+  transform: none;
+  transform-origin: center;
 }
 
 .disc-shell-backing {
@@ -1028,9 +1063,23 @@ button {
 }
 
 .disc-image--cartridge {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 10px;
+  object-position: center;
+  border-radius: inherit;
   padding: 0;
+}
+
+.disc-case-disc--cartridge .disc-image--cartridge {
+  object-fit: fill;
+}
+
+.disc-case--nds .disc-image--cartridge,
+.disc-case--3ds .disc-image--cartridge {
+  border-radius: inherit;
 }
 
 .disc-hole {
@@ -1280,6 +1329,7 @@ button {
 }
 
 .details-screen {
+  position: absolute;
   inset: 8% 7% 14% 7%;
   display: grid;
   grid-template-columns: 40% 1fr;
@@ -1310,6 +1360,26 @@ button {
 .details-left {
   display: grid;
   place-items: center;
+  z-index: 2;
+}
+
+.details-console-logo-bg {
+  position: absolute;
+  left: 20%;
+  top: 50%;
+  width: clamp(280px, 36vw, 500px);
+  max-height: 76%;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+  opacity: 0.11;
+  filter: grayscale(1) brightness(1.85) drop-shadow(0 10px 22px rgba(0, 0, 0, 0.12));
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+.details-right {
+  position: relative;
   z-index: 2;
 }
 
@@ -1375,8 +1445,8 @@ button {
 
 .details-cart-flipper {
   position: relative;
-  width: 140px;
-  height: 160px;
+  width: 170px;
+  height: 190px;
   transform-style: preserve-3d;
 }
 
@@ -1417,24 +1487,39 @@ button {
 }
 
 .details-cartridge {
+  --cart-details-label-top: 8px;
+  --cart-details-label-side: 9px;
+  --cart-details-label-bottom: 6px;
   position: relative;
-  width: 140px;
-  height: 160px;
+  width: 170px;
+  height: 190px;
   margin: 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: 10px;
   overflow: hidden;
   isolation: isolate;
   box-shadow:
-    0 18px 28px rgba(0, 0, 0, 0.42),
-    inset 0 0 0 2px rgba(255, 255, 255, 0.12);
+    0 18px 28px rgba(0, 0, 0, 0.42);
+}
+
+.details-disc-flip-face--front .details-cartridge .disc-shell-backing {
+  display: block;
 }
 
 .details-cartridge.disc-shell--nds,
 .details-cartridge.disc-shell--3ds {
-  width: 134px;
-  height: 156px;
+  --cart-details-label-top: 8px;
+  --cart-details-label-side: 9px;
+  --cart-details-label-bottom: 9px;
+  width: 164px;
+  height: 186px;
+  border-radius: 8px 8px 6px 6px;
+}
+
+.details-cartridge.disc-shell--3ds .details-cartridge-art {
+  transform: scale(1.04);
+  transform-origin: center;
 }
 
 .details-game-disc-art,
@@ -1537,13 +1622,22 @@ button {
 .details-cartridge-art {
   width: 100%;
   height: 100%;
-  border-radius: 12px;
-  object-fit: cover;
+  border-radius: inherit;
+  object-fit: fill;
   object-position: center;
   padding: 0;
   box-sizing: border-box;
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
+}
+
+.details-cartridge-fallback {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  inset: 0;
 }
 
 .details-cartridge--back .details-cartridge-back-panel {
@@ -3077,13 +3171,28 @@ select option {
 
 .admin-row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px;
+  gap: 12px;
+  padding: 10px 14px;
   border-radius: 12px;
   background: linear-gradient(135deg, rgba(45, 55, 75, 0.55), rgba(40, 50, 70, 0.52));
   border: 1px solid rgba(255, 255, 255, 0.08);
   transition: all 200ms ease;
+}
+
+.admin-row-thumb {
+  flex-shrink: 0;
+  width: auto;
+  height: 44px;
+  border-radius: 4px;
+  object-fit: contain;
+  display: block;
+}
+
+.admin-row-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .admin-row:hover {
@@ -3695,7 +3804,7 @@ select option {
   .library-hud-left,
   .library-hud-right,
   .console-header-count {
-    font-size: 1.4rem;
+    font-size: 1.15rem;
   }
 
   .console-header-shell {

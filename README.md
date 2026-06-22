@@ -12,7 +12,13 @@ A personal web application that catalogs my physical media collection in a PlayS
 
 ## ✨ Features
 
-### 🆕 Recent Updates
+### 🆕 Recent Updates (2026-06-22)
+- Fixed console selection page header layout to prevent text wrapping on narrow screens
+- Added fade animation to game count text when hovering over consoles
+- Fixed system logo upload persistence to preserve image MIME types (PNG/JPG/SVG support)
+- Updated library page header to display "# Game(s) in <Console> Library" format
+- Cleaned up deprecated suggestions endpoint and consolidated video asset delivery
+- Moved `ps2-intro.mp4` from suggestions folder to public folder for direct serving
 - Multi-source metadata flow for games: LaunchBox first, with approved keyless fallback metadata when LaunchBox is unavailable
 - LaunchBox art-option picker for Box Art, Spine Art, and Disc/Cart Art directly in Admin
 - Per-system appearance model added (case type + appearance preset + display order) and used by library rendering
@@ -61,7 +67,7 @@ PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Nintendo 3DS, Game Boy
 `id` · `title` · `category` · `platform` · `genre` · `genres` · `release_date` · `year_released` · `rating` · `players` · `cooperative` · `artist` · `publisher` · `format` · `region` · `cover_image` · `spine_image` · `disc_image` · `tags` · `notes`
 
 ### 🔌 Backend Notes
-- FastAPI serves the compiled frontend and suggestions asset directories directly
+- FastAPI serves the compiled frontend from `frontend/build/` and static assets from `frontend/public/`
 - Admin authentication uses a bearer token workflow for protected CRUD operations
 - Startup migration helpers add new columns to existing SQLite databases automatically
 - Game-data endpoint can return persisted cached records when metadata/art is already available
@@ -91,7 +97,7 @@ npm install
 npm run build
 ```
 
-The backend serves the built frontend from `frontend/build/` and the intro video from `frontend/suggestions/ps2-intro.mp4`.
+The backend serves the built frontend from `frontend/build/` and static assets (including `ps2-intro.mp4`) from `frontend/public/`.
 
 ### 🔐 Admin password
 Set `ADMIN_PASSWORD` in `backend/main.py` (default: `foreverandalways`). Change this before exposing the app externally.
