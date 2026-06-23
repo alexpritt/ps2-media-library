@@ -21,7 +21,7 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 DATABASE_PATH = Path(__file__).parent / "media.db"
 FRONTEND_BUILD_DIR = Path(__file__).parent.parent / "frontend" / "build"
 FRONTEND_PUBLIC_DIR = Path(__file__).parent.parent / "frontend" / "public"
-BOOT_VIDEO_PATH = ""
+BOOT_VIDEO_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.mp4"
 BOOT_CAPTIONS_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt"
 FRONTEND_INDEX_PATH = FRONTEND_BUILD_DIR / "index.html"
 
