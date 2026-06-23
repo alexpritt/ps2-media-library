@@ -2245,15 +2245,6 @@ def head_ps2_intro_captions() -> Response:
         },
     )
 
-# SPA catch-all LAST
-@app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
-    # Optional: explicitly block API paths from falling through
-    if full_path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="API route not found")
-    return FileResponse(FRONTEND_INDEX_PATH)
-
-
 if FRONTEND_INDEX_PATH.exists():
     @app.get("/")
     async def frontend_root() -> FileResponse:
@@ -2261,6 +2252,10 @@ if FRONTEND_INDEX_PATH.exists():
 
     @app.get("/{path_name:path}")
     async def frontend(path_name: str) -> FileResponse:
+        # CRITICAL: Block API paths from falling through to the SPA
+        if path_name.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API route not found")
+
         public_path = FRONTEND_PUBLIC_DIR / path_name
         if public_path.exists() and public_path.is_file():
             return FileResponse(public_path, media_type=detect_media_type(public_path))
@@ -2276,4 +2271,6 @@ else:
 
     @app.get("/{path_name:path}")
     async def frontend(path_name: str):
+        if path_name.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API route not found")
         raise HTTPException(status_code=503, detail="Frontend build not found. Run npm run build.")
