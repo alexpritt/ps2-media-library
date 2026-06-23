@@ -21,19 +21,26 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 DATABASE_PATH = Path(__file__).parent / "media.db"
 FRONTEND_BUILD_DIR = Path(__file__).parent.parent / "frontend" / "build"
 FRONTEND_PUBLIC_DIR = Path(__file__).parent.parent / "frontend" / "public"
-BOOT_VIDEO_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.mp4"
+BOOT_VIDEO_PATH = "https://media.theavenoircollection.com/ps2-intro.mp4"
 BOOT_CAPTIONS_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt"
 FRONTEND_INDEX_PATH = FRONTEND_BUILD_DIR / "index.html"
 
 
-def resolve_boot_video_path() -> Optional[Path]:
+def resolve_boot_video_path() -> Optional[str]:
+    # If BOOT_VIDEO_PATH is a remote URL, return it directly
+    if BOOT_VIDEO_PATH and (
+        BOOT_VIDEO_PATH.startswith("http://") or BOOT_VIDEO_PATH.startswith("https://")
+    ):
+        return BOOT_VIDEO_PATH
+
+    # Fall back to local file discovery
     candidates = (
-        FRONTEND_PUBLIC_DIR / "ps2-intro.mp4",
-        FRONTEND_BUILD_DIR / "ps2-intro.mp4",
+        FRONTEND_PUBLIC_DIR / "boot.mp4",
+        FRONTEND_BUILD_DIR / "boot.mp4",
     )
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
-            return candidate
+            return str(candidate)
     return None
 
 
@@ -2208,6 +2215,9 @@ def stream_ps2_intro(request: Request):
     boot_video_path = resolve_boot_video_path()
     if not boot_video_path:
         raise HTTPException(status_code=404, detail="Intro video not found")
+
+    if boot_video_path.startswith("http"):
+        return RedirectResponse(url=boot_video_path)
 
     file_size = boot_video_path.stat().st_size
     raw_headers = {key.decode("latin1").lower(): value.decode("latin1") for key, value in request.scope.get("headers", [])}
