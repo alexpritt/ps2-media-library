@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 import secrets
 import base64
+import hashlib
+import hmac
 import os
 import re
 import time
@@ -11,7 +13,7 @@ from urllib.parse import quote, urljoin
 
 import requests
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from bs4 import BeautifulSoup
 from sqlalchemy import text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
@@ -19,14 +21,39 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 DATABASE_PATH = Path(__file__).parent / "media.db"
 FRONTEND_BUILD_DIR = Path(__file__).parent.parent / "frontend" / "build"
 FRONTEND_PUBLIC_DIR = Path(__file__).parent.parent / "frontend" / "public"
-BOOT_VIDEO_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.mp4"
-BOOT_CAPTIONS_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt"
+# BOOT_VIDEO_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.mp4"
+# BOOT_CAPTIONS_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt"
 FRONTEND_INDEX_PATH = FRONTEND_BUILD_DIR / "index.html"
+
+
+# def resolve_boot_video_path() -> Optional[Path]:
+#     candidates = (
+#         FRONTEND_PUBLIC_DIR / "ps2-intro.mp4",
+#         FRONTEND_BUILD_DIR / "ps2-intro.mp4",
+#     )
+#     for candidate in candidates:
+#         if candidate.exists() and candidate.is_file():
+#             return candidate
+#     return None
+
+
+# def resolve_boot_captions_path() -> Optional[Path]:
+#     candidates = (
+#         FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt",
+#         FRONTEND_BUILD_DIR / "ps2-intro.en.vtt",
+#     )
+#     for candidate in candidates:
+#         if candidate.exists() and candidate.is_file():
+#             return candidate
+#     return None
 
 app = FastAPI(title="PS2 Media Library API")
 
-ADMIN_PASSWORD = "foreverandalways"
-admin_tokens: Dict[str, bool] = {}
+DEFAULT_ADMIN_PASSWORD = "foreverandalways2015"
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
+ADMIN_TOKEN_TTL_SECONDS = 60 * 60 * 12
+admin_tokens: Dict[str, float] = {}
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -46,12 +73,52 @@ def env_float(name: str, default: float) -> float:
         return default
 
 
+def env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
 ENABLE_KEYLESS_METADATA_FALLBACK = env_flag("ENABLE_KEYLESS_METADATA_FALLBACK", default=True)
 LAUNCHBOX_MIN_REQUEST_INTERVAL = env_float("LAUNCHBOX_MIN_REQUEST_INTERVAL", default=1.5)
 DEEZER_MIN_REQUEST_INTERVAL = env_float("DEEZER_MIN_REQUEST_INTERVAL", default=1.5)
+ADMIN_TOKEN_TTL_SECONDS = env_int("ADMIN_TOKEN_TTL_SECONDS", default=60 * 60 * 12)
 DEFAULT_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0"}
 _launchbox_last_request_at = 0.0
 _deezer_last_request_at = 0.0
+
+
+def _b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+
+
+def verify_password_hash(password: str, encoded_hash: str) -> bool:
+    try:
+        algorithm, iterations_raw, salt_raw, digest_raw = encoded_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_raw)
+        salt = _b64url_decode(salt_raw)
+        expected_digest = _b64url_decode(digest_raw)
+        candidate_digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return hmac.compare_digest(candidate_digest, expected_digest)
+    except Exception:
+        return False
+
+
+def verify_admin_password(password: str) -> bool:
+    if ADMIN_PASSWORD_HASH:
+        return verify_password_hash(password, ADMIN_PASSWORD_HASH)
+    return hmac.compare_digest(password, ADMIN_PASSWORD)
 
 
 def detect_media_type(path: Path) -> Optional[str]:
@@ -1399,8 +1466,14 @@ def require_admin(authorization: Optional[str]) -> None:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Admin authorization required")
     token = authorization.removeprefix("Bearer ").strip()
-    if not token or token not in admin_tokens:
+    if not token:
         raise HTTPException(status_code=401, detail="Invalid admin token")
+    expires_at = admin_tokens.get(token)
+    if expires_at is None:
+        raise HTTPException(status_code=401, detail="Invalid admin token")
+    if expires_at <= time.time():
+        del admin_tokens[token]
+        raise HTTPException(status_code=401, detail="Admin token expired")
 
 
 def ensure_systems() -> None:
@@ -1521,10 +1594,10 @@ def read_media_item(item_id: int) -> MediaItem:
 
 @app.post("/api/admin/login")
 def admin_login(payload: AdminLoginRequest) -> dict:
-    if payload.password != ADMIN_PASSWORD:
+    if not verify_admin_password(payload.password):
         raise HTTPException(status_code=401, detail="Invalid password")
     token = secrets.token_urlsafe(32)
-    admin_tokens[token] = True
+    admin_tokens[token] = time.time() + ADMIN_TOKEN_TTL_SECONDS
     return {"token": token}
 
 
@@ -2123,19 +2196,39 @@ def reorder_media_items(payload: dict, authorization: Optional[str] = Header(def
         return {"success": True}
 
 
+_VIDEO_PROXY_HEADERS = {
+    "Cache-Control": "no-store, no-transform",
+    "X-Accel-Buffering": "no",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
 @app.get("/api/boot-video")
 def stream_ps2_intro(request: Request):
-    if not BOOT_VIDEO_PATH.exists():
+    boot_video_path = resolve_boot_video_path()
+    if not boot_video_path:
         raise HTTPException(status_code=404, detail="Intro video not found")
 
-    file_size = BOOT_VIDEO_PATH.stat().st_size
+    file_size = boot_video_path.stat().st_size
     raw_headers = {key.decode("latin1").lower(): value.decode("latin1") for key, value in request.scope.get("headers", [])}
     range_header = raw_headers.get("range") or request.headers.get("range")
 
+    base_headers = {
+        **_VIDEO_PROXY_HEADERS,
+        "Accept-Ranges": "bytes",
+        "Content-Type": "video/mp4",
+    }
+
     if not range_header:
-        response = FileResponse(BOOT_VIDEO_PATH, media_type="video/mp4")
-        response.headers["Accept-Ranges"] = "bytes"
-        return response
+        full_headers = {
+            **base_headers,
+            "Content-Length": str(file_size),
+        }
+        return StreamingResponse(
+            iter_file_range(boot_video_path, 0, file_size - 1),
+            status_code=200,
+            headers=full_headers,
+        )
 
     if not range_header.startswith("bytes="):
         raise HTTPException(status_code=416, detail="Invalid range header")
@@ -2150,20 +2243,53 @@ def stream_ps2_intro(request: Request):
     end = min(end, file_size - 1)
     content_length = end - start + 1
 
-    headers = {
-        "Accept-Ranges": "bytes",
+    range_headers = {
+        **base_headers,
         "Content-Range": f"bytes {start}-{end}/{file_size}",
         "Content-Length": str(content_length),
-        "Content-Type": "video/mp4",
     }
-    return StreamingResponse(iter_file_range(BOOT_VIDEO_PATH, start, end), status_code=206, headers=headers)
+    return StreamingResponse(iter_file_range(boot_video_path, start, end), status_code=206, headers=range_headers)
+
+
+@app.head("/api/boot-video")
+def head_ps2_intro() -> Response:
+    boot_video_path = resolve_boot_video_path()
+    if not boot_video_path:
+        raise HTTPException(status_code=404, detail="Intro video not found")
+
+    file_size = boot_video_path.stat().st_size
+    return Response(
+        status_code=200,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size),
+            "Content-Type": "video/mp4",
+        },
+    )
 
 
 @app.get("/api/boot-captions.vtt")
 def stream_ps2_intro_captions() -> FileResponse:
-    if not BOOT_CAPTIONS_PATH.exists():
+    boot_captions_path = resolve_boot_captions_path()
+    if not boot_captions_path:
         raise HTTPException(status_code=404, detail="Boot captions not found")
-    return FileResponse(BOOT_CAPTIONS_PATH, media_type="text/vtt")
+    return FileResponse(boot_captions_path, media_type="text/vtt")
+
+
+@app.head("/api/boot-captions.vtt")
+def head_ps2_intro_captions() -> Response:
+    boot_captions_path = resolve_boot_captions_path()
+    if not boot_captions_path:
+        raise HTTPException(status_code=404, detail="Boot captions not found")
+
+    file_size = boot_captions_path.stat().st_size
+    return Response(
+        status_code=200,
+        headers={
+            "Content-Length": str(file_size),
+            "Content-Type": "text/vtt",
+        },
+    )
 
 
 if FRONTEND_INDEX_PATH.exists():
