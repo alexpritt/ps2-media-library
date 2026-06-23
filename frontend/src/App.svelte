@@ -319,7 +319,7 @@
     }
   }
   $: detailsConsoleLogo = selectedItem?.category === 'Games'
-    ? availableConsoles.find((item) => item.name === (selectedItem.platform ?? ''))?.logoImage ?? null
+    ? availableConsoles.find((item) => item.name === (selectedItem?.platform ?? ''))?.logoImage ?? null
     : null;
   $: isLibraryContextStage = stage === 'library' || stage === 'details';
   $: showPersistentBackButton = stage !== 'boot';
@@ -540,8 +540,7 @@ async function confirmAction() {
     }
 
     if (mode === 'bulk-delete') {
-      // Only if you have checkboxes/multi-select state
-      if (typeof selectedAdminItemIds !== 'undefined' && selectedAdminItemIds.length > 0) {
+      if (selectedAdminItemIds.size > 0) {
         await deleteAdminItems([...selectedAdminItemIds]);
       }
       return;
@@ -550,6 +549,7 @@ async function confirmAction() {
     if (!item?.id) return;
     await deleteAdminItems([item.id]);
   }
+
 
 
   async function toggleLibrarySearch() {
@@ -690,39 +690,90 @@ async function confirmAction() {
     return 'RP';
   }
 
-  function normalizeGameTitle(title: string) {
-    const cleaned = title.trim().replace(/\s+/g, ' ');
-    if (!cleaned) return '';
-    const lowerWords = new Set(['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'from', 'in', 'into', 'nor', 'of', 'on', 'or', 'over', 'the', 'to', 'up', 'with']);
-    const preserveWords = new Set(['II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'HD', '3D', 'DS', 'PSP', 'VR', 'USA', 'EU', 'USA.']);
-    return cleaned
-      .split(' ')
-      .map((word, index, words) => {
-        const stripped = word.replace(/^["'([{]+|["')\]}.,:;!?]+$/g, '');
-        const punctuationPrefix = word.slice(0, word.indexOf(stripped));
-        const punctuationSuffix = word.slice(word.indexOf(stripped) + stripped.length);
-        const normalizedToken = stripped.includes('-')
-          ? stripped.split('-').map((segment) => segment ? normalizeGameTitle(segment) : segment).join('-')
-          : stripped;
-        const upper = normalizedToken.toUpperCase();
-        if (preserveWords.has(upper)) return `${punctuationPrefix}${upper}${punctuationSuffix}`;
-        if (word.includes(':')) {
-          return `${punctuationPrefix}${normalizedToken.split(':').map((segment, segmentIndex) => {
-            if (segmentIndex === 0 || segmentIndex === words.length - 1) return segment ? normalizeGameTitle(segment) : segment;
-            return segment;
-          }).join(':')}${punctuationSuffix}`;
+function normalizeGameTitle(title: string): string {
+  const cleaned = title.trim().replace(/\s+/g, ' ');
+  if (!cleaned) return '';
+
+  const lowerWords = new Set([
+    'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'from', 'in', 'into',
+    'nor', 'of', 'on', 'or', 'over', 'the', 'to', 'up', 'with'
+  ]);
+  const preserveWords = new Set([
+    'II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII',
+    'XIII', 'XIV', 'XV', 'HD', '3D', 'DS', 'PSP', 'VR', 'USA', 'EU'
+  ]);
+
+  const words = cleaned.split(' ');
+
+  const result = words.map((word, index) => {
+    // Strip leading/trailing punctuation
+    const stripped = word.replace(/^["'([{]+|["')\]}.,:;!?]+$/g, '');
+    if (!stripped) return word;
+
+    // Safely extract prefix/suffix punctuation
+    const startIdx = word.indexOf(stripped);
+    const prefix = startIdx > 0 ? word.slice(0, startIdx) : '';
+    const suffix = startIdx >= 0 ? word.slice(startIdx + stripped.length) : '';
+
+    // Preserve specific words in uppercase
+    const upperStripped = stripped.toUpperCase();
+    if (preserveWords.has(upperStripped)) {
+      return `${prefix}${upperStripped}${suffix}`;
+    }
+
+    // Helper to title-case a simple string
+    const titleCase = (s: string): string => {
+      if (!s) return s;
+      return s[0].toUpperCase() + s.slice(1).toLowerCase();
+    };
+
+    // Handle hyphenated words
+    if (stripped.includes('-')) {
+      const segments = stripped.split('-');
+      const normalized = segments.map((seg, segIdx) => {
+        if (!seg) return seg;
+        if (segIdx === 0 || segIdx === segments.length - 1) {
+          return titleCase(seg);
         }
-        if (index !== 0 && lowerWords.has(normalizedToken.toLowerCase())) return `${punctuationPrefix}${normalizedToken.toLowerCase()}${punctuationSuffix}`;
-        return `${punctuationPrefix}${normalizedToken ? normalizedToken[0].toUpperCase() + normalizedToken.slice(1).toLowerCase() : normalizedToken}${punctuationSuffix}`;
-      })
-      .join(' ')
-      .replace(/\bVii\b/g, 'VII')
-      .replace(/\bVi\b/g, 'VI')
-      .replace(/\bViii\b/g, 'VIII')
-      .replace(/\bIv\b/g, 'IV')
-      .replace(/\bIii\b/g, 'III')
-      .replace(/\bIi\b/g, 'II');
-  }
+        const lower = seg.toLowerCase();
+        return lowerWords.has(lower) ? lower : titleCase(seg);
+      });
+      return `${prefix}${normalized.join('-')}${suffix}`;
+    }
+
+    // Handle colon-separated words
+    if (stripped.includes(':')) {
+      const segments = stripped.split(':');
+      const normalized = segments.map((seg, segIdx) => {
+        if (!seg) return seg;
+        if (segIdx === 0 || segIdx === segments.length - 1) {
+          return titleCase(seg);
+        }
+        return titleCase(seg);
+      });
+      return `${prefix}${normalized.join(':')}${suffix}`;
+    }
+
+    // Lowercase small words unless first word
+    const lower = stripped.toLowerCase();
+    if (index !== 0 && lowerWords.has(lower)) {
+      return `${prefix}${lower}${suffix}`;
+    }
+
+    // Default: title case
+    return `${prefix}${titleCase(stripped)}${suffix}`;
+  });
+
+  return result
+    .join(' ')
+    .replace(/\bVii\b/g, 'VII')
+    .replace(/\bVi\b/g, 'VI')
+    .replace(/\bViii\b/g, 'VIII')
+    .replace(/\bIv\b/g, 'IV')
+    .replace(/\bIii\b/g, 'III')
+    .replace(/\bIi\b/g, 'II');
+}
+
 
   function isCartridgePlatform(platform: string | null | undefined) {
     return getSystemAppearance(platform).caseType === 'cartridge';
@@ -1953,32 +2004,42 @@ async function confirmAction() {
     }
   }
 
-  async function updateSystem(systemId: string, updates: Partial<EditableSystem> & { caseType?: EditableSystem['caseType'] | '' }) {
-    try {
-      const system = editableSystems.find((s) => s.id === systemId);
-      if (!system) return;
-      
-      const response = await fetch(`${API_BASE}/api/systems/${systemId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
-        body: JSON.stringify({
-          name: updates.name || system.name,
-          shortName: updates.shortName || system.shortName,
-          logo: updates.logo || system.logo,
-          logoImageUrl: updates.logoImage || '',
-          caseType: updates.caseType === '' ? 'auto' : (updates.caseType ?? system.caseType ?? undefined),
-        }),
-      });
-      if (response.ok) {
-        await loadSystemsFromAPI();
-      } else {
-        const error = await response.json();
-        systemError = error.detail || 'Failed to update system';
-      }
-    } catch (error) {
-      systemError = `Error updating system: ${error}`;
+async function updateSystem(
+  systemId: string,
+  updates: Omit<Partial<EditableSystem>, 'caseType'> & { caseType?: EditableSystem['caseType'] | '' }
+) {
+  try {
+    const system = editableSystems.find((s) => s.id === systemId);
+    if (!system) return;
+
+    const response = await fetch(`${API_BASE}/api/systems/${systemId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({
+        name: updates.name || system.name,
+        shortName: updates.shortName || system.shortName,
+        logo: updates.logo || system.logo,
+        logoImageUrl: updates.logoImage || '',
+        caseType:
+          updates.caseType === ''
+            ? 'auto'
+            : updates.caseType ?? system.caseType ?? undefined,
+      }),
+    });
+    if (response.ok) {
+      await loadSystemsFromAPI();
+    } else {
+      const error = await response.json();
+      systemError = error.detail || 'Failed to update system';
     }
+  } catch (error) {
+    systemError = `Error updating system: ${error}`;
   }
+}
+
 
   function startEditSystem(systemId: string) {
     const system = editableSystems.find((s) => s.id === systemId);
@@ -2681,35 +2742,40 @@ async function deleteAdminItems(itemIds: number[]) {
     }
   }
 
-  onMount(async () => {
-    const savedToken = localStorage.getItem('ps2-admin-token');
-    if (savedToken) {
-      adminToken = savedToken;
-    }
-    await loadSystemsFromAPI();
+onMount(() => {
+  const savedToken = localStorage.getItem('ps2-admin-token');
+  if (savedToken) {
+    adminToken = savedToken;
+  }
 
+  // Run async setup without blocking the synchronous cleanup return
+  void (async () => {
+    await loadSystemsFromAPI();
     await loadAllMedia();
     history.replaceState(currentHistoryState(), '');
-    window.addEventListener('popstate', handlePopState);
-    window.addEventListener('keydown', handleGlobalBootKeydown);
-    window.addEventListener('keydown', handleGlobalEscapeKeydown);
-    void queueBootStart();
+  })();
 
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('keydown', handleGlobalBootKeydown);
-      window.removeEventListener('keydown', handleGlobalEscapeKeydown);
-      if (bootSoundIndicatorTimeout) {
-        clearTimeout(bootSoundIndicatorTimeout);
-      }
-      if (detailsInertiaFrame !== null) {
-        cancelAnimationFrame(detailsInertiaFrame);
-      }
-      if (detailsSpinPauseTimeout) {
-        clearTimeout(detailsSpinPauseTimeout);
-      }
-    };
-  });
+  window.addEventListener('popstate', handlePopState);
+  window.addEventListener('keydown', handleGlobalBootKeydown);
+  window.addEventListener('keydown', handleGlobalEscapeKeydown);
+  void queueBootStart();
+
+  return () => {
+    window.removeEventListener('popstate', handlePopState);
+    window.removeEventListener('keydown', handleGlobalBootKeydown);
+    window.removeEventListener('keydown', handleGlobalEscapeKeydown);
+    if (bootSoundIndicatorTimeout) {
+      clearTimeout(bootSoundIndicatorTimeout);
+    }
+    if (detailsInertiaFrame !== null) {
+      cancelAnimationFrame(detailsInertiaFrame);
+    }
+    if (detailsSpinPauseTimeout) {
+      clearTimeout(detailsSpinPauseTimeout);
+    }
+  };
+});
+
 
   function handlePopState(event: PopStateEvent) {
     const state = event.state as HistoryState | null;
@@ -3084,6 +3150,7 @@ async function deleteAdminItems(itemIds: number[]) {
     {/if}
 
     {#if stage === 'details' && selectedItem}
+      {@const item = selectedItem}
       <button
         type="button"
         class="details-overlay"
@@ -3120,24 +3187,24 @@ async function deleteAdminItems(itemIds: number[]) {
                   scheduleDetailsSpinResume();
                 }
               }}
-            >
-              {#if selectedItem.category === 'Games'}
-                {#if isCartridgePlatform(selectedItem.platform)}
+            > 
+              {#if item.category === 'Games'}
+                {#if isCartridgePlatform(item.platform)}
                   <div class="details-cart-flipper">
                     <div class="details-disc-flip-face details-disc-flip-face--front">
-                      <div class={`details-cartridge ${discBackingClass(selectedItem)}`}>
+                      <div class={`details-cartridge ${discBackingClass(item)}`}>
                         <span class="disc-shell-backing"></span>
-                        {#if selectedItem.disc_image && !brokenDiscIds.has(selectedItem.id)}
-                          <img src={selectedItem.disc_image} alt={selectedItem.title} class="details-cartridge-art" draggable="false" on:error={() => markDiscBroken(selectedItem.id)} />
-                        {:else if selectedItem.cover_image && !brokenCoverIds.has(selectedItem.id)}
-                          <img src={selectedItem.cover_image} alt={selectedItem.title} class="details-cartridge-art" draggable="false" on:error={() => markCoverBroken(selectedItem.id)} />
+                        {#if item.disc_image && !brokenDiscIds.has(item.id)}
+                          <img src={item.disc_image} alt={item.title} class="details-cartridge-art" draggable="false" on:error={() => markDiscBroken(item.id)} />
+                        {:else if item.cover_image && !brokenCoverIds.has(item.id)}
+                          <img src={item.cover_image} alt={item.title} class="details-cartridge-art" draggable="false" on:error={() => markCoverBroken(item.id)} />
                         {:else}
-                          <div class="details-cartridge-fallback">{iconInitials(selectedItem.title)}</div>
+                          <div class="details-cartridge-fallback">{iconInitials(item.title)}</div>
                         {/if}
                       </div>
                     </div>
                     <div class="details-disc-flip-face details-disc-flip-face--back" aria-hidden="true">
-                      <div class={`details-cartridge details-cartridge--back ${discBackingClass(selectedItem)}`}>
+                      <div class={`details-cartridge details-cartridge--back ${discBackingClass(item)}`}>
                         <span class="disc-shell-backing"></span>
                         <span class="details-cartridge-back-panel"></span>
                         <span class="details-cartridge-contacts"></span>
@@ -3147,19 +3214,19 @@ async function deleteAdminItems(itemIds: number[]) {
                 {:else}
                   <div class="details-disc-flipper">
                     <div class="details-disc-flip-face details-disc-flip-face--front">
-                      <div class={`details-game-disc ${discBackingClass(selectedItem)}`}>
+                      <div class={`details-game-disc ${discBackingClass(item)}`}>
                         <span class="disc-shell-backing"></span>
-                        {#if selectedItem.disc_image && !brokenDiscIds.has(selectedItem.id)}
-                          <img src={selectedItem.disc_image} alt={selectedItem.title} class="details-game-disc-art" draggable="false" on:error={() => markDiscBroken(selectedItem.id)} />
+                        {#if item.disc_image && !brokenDiscIds.has(item.id)}
+                          <img src={item.disc_image} alt={item.title} class="details-game-disc-art" draggable="false" on:error={() => markDiscBroken(item.id)} />
                         {:else}
-                          <div class="details-game-disc-fallback">{iconInitials(selectedItem.title)}</div>
+                          <div class="details-game-disc-fallback">{iconInitials(item.title)}</div>
                         {/if}
                         <span class="disc-hole"></span>
                         <span class="details-game-disc-shine"></span>
                       </div>
                     </div>
                     <div class="details-disc-flip-face details-disc-flip-face--back" aria-hidden="true">
-                      <div class={`details-game-disc ${discBackingClass(selectedItem)}`}>
+                      <div class={`details-game-disc ${discBackingClass(item)}`}>
                         <span class="disc-shell-backing"></span>
                         <span class="disc-hole"></span>
                       </div>
@@ -3170,10 +3237,10 @@ async function deleteAdminItems(itemIds: number[]) {
                 <span class="vinyl-wrap details-vinyl" aria-hidden="true">
                   <span class="vinyl-record"></span>
                   <span class="vinyl-sleeve">
-                    {#if selectedItem.cover_image}
-                      <img src={selectedItem.cover_image} alt={selectedItem.title} class="library-art" draggable="false" />
+                    {#if item.cover_image}
+                      <img src={item.cover_image} alt={item.title} class="library-art" draggable="false" />
                     {:else}
-                      <span class="library-fallback">{iconInitials(selectedItem.title)}</span>
+                      <span class="library-fallback">{iconInitials(item.title)}</span>
                     {/if}
                   </span>
                 </span>
@@ -3202,8 +3269,8 @@ async function deleteAdminItems(itemIds: number[]) {
           <button type="button" class="details-back" on:click={closeDetails}>Back</button>
           {#if isAdmin}
             <div class="details-admin-actions">
-              <button type="button" on:click={() => openEditConfirm(selectedItem, true)}>Edit</button>
-              <button type="button" class="danger" on:click={() => openDeleteConfirm(selectedItem)}>Delete</button>
+              <button type="button" on:click={() => openEditConfirm(item, true)}>Edit</button>
+              <button type="button" class="danger" on:click={() => openDeleteConfirm(item)}>Delete</button>
             </div>
           {/if}
         </div>
@@ -3284,10 +3351,12 @@ async function deleteAdminItems(itemIds: number[]) {
           <p>
             {#if confirmMode === 'bulk-delete'}
               Delete {selectedAdminCount} selected {selectedAdminCount === 1 ? 'entry' : 'entries'} from the library? This cannot be undone.
-            {:else if confirmMode === 'delete'}
-              Delete "{confirmItem.title}" from the library? This cannot be undone.
-            {:else}
-              Open "{confirmItem.title}" in the editor?
+            {:else if confirmItem}
+              {#if confirmMode === 'delete'}
+                Delete "{confirmItem.title}" from the library? This cannot be undone.
+              {:else}
+                Open "{confirmItem.title}" in the editor?
+              {/if}
             {/if}
           </p>
           <div class="confirm-actions">
