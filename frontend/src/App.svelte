@@ -2555,16 +2555,10 @@
     }
   }
 
-  async function deleteAdminItems(itemIds: number[]) {
-    const uniqueIds = [...new Set(itemIds)];
-    if (!uniqueIds.length) return;
-
+  async function deleteAdminItem(item: MediaItem) {
     adminError = '';
     adminMessage = '';
     adminBusy = true;
-    let deletedCount = 0;
-    let failedCount = 0;
-
     try {
       const response = await fetch(`${API_BASE}/api/media/${item.id}`, {
         method: 'DELETE',
@@ -2586,7 +2580,7 @@
       adminMessage = 'Item deleted.';
       await Promise.all([loadAllMedia(), loadMedia()]);
     } catch {
-      adminError = uniqueIds.length === 1 ? 'Could not delete item.' : 'Could not delete selected items.';
+      adminError = 'Could not delete item.';
     } finally {
       adminBusy = false;
     }
