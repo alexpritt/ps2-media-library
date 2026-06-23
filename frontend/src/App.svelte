@@ -528,10 +528,9 @@
     confirmItem = null;
   }
 
-  async function confirmAction() {
+async function confirmAction() {
     const mode = confirmMode;
     const item = confirmItem;
-    const selectedIds = mode === 'bulk-delete' ? [...selectedAdminItemIds] : [];
     closeConfirm();
 
     if (mode === 'edit') {
@@ -541,13 +540,17 @@
     }
 
     if (mode === 'bulk-delete') {
-      await deleteAdminItems(selectedIds);
+      // Only if you have checkboxes/multi-select state
+      if (typeof selectedAdminItemIds !== 'undefined' && selectedAdminItemIds.length > 0) {
+        await deleteAdminItems([...selectedAdminItemIds]);
+      }
       return;
     }
 
-    if (!item) return;
+    if (!item?.id) return;
     await deleteAdminItems([item.id]);
   }
+
 
   async function toggleLibrarySearch() {
     if (librarySearchOpen && !librarySearch.trim()) {
@@ -2555,36 +2558,51 @@
     }
   }
 
-  async function deleteAdminItems(item: MediaItem) {
+async function deleteAdminItems(itemIds: number[]) {
+    const uniqueIds = [...new Set(itemIds)];
+    if (!uniqueIds.length) return;
+
     adminError = '';
     adminMessage = '';
     adminBusy = true;
+    let deletedCount = 0;
+
     try {
-      const response = await fetch(`${API_BASE}/api/media/${item.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${adminToken}` },
-      });
-      if (response.status === 401) {
-        adminToken = '';
-        localStorage.removeItem('ps2-admin-token');
-        adminError = 'Session expired. Log in again.';
-        return;
+      for (const id of uniqueIds) {
+        const response = await fetch(`${API_BASE}/api/media/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        if (response.status === 401) {
+          adminToken = '';
+          localStorage.removeItem('ps2-admin-token');
+          adminError = 'Session expired. Log in again.';
+          return;
+        }
+        if (!response.ok) {
+          continue; // Skip failed deletes but keep trying others
+        }
+        deletedCount++;
+        if (selectedItem?.id === id) {
+          selectedItem = null;
+        }
       }
-      if (!response.ok) {
-        adminError = 'Could not delete item.';
-        return;
+
+      if (deletedCount > 0) {
+        adminMessage = deletedCount === 1 ? 'Item deleted.' : `${deletedCount} items deleted.`;
+        await Promise.all([loadAllMedia(), loadMedia()]);
       }
-      if (selectedItem?.id === item.id) {
-        selectedItem = null;
+      if (deletedCount < uniqueIds.length) {
+        adminError = 'Some items could not be deleted.';
       }
-      adminMessage = 'Item deleted.';
-      await Promise.all([loadAllMedia(), loadMedia()]);
     } catch {
-      adminError = 'Could not delete item.';
+      adminError = 'Could not delete selected items.';
     } finally {
       adminBusy = false;
     }
   }
+
+
 
   function hideLogoOnError(e: Event) {
     const img = e.currentTarget as HTMLImageElement;
