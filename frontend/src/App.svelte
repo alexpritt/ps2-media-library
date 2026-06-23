@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { onMount, tick } from 'svelte';
   import { fade } from 'svelte/transition';
   import type { TransitionConfig } from 'svelte/transition';
@@ -2824,7 +2824,6 @@
       <video
         bind:this={bootVideoRef}
         class="boot-video"
-        src="/api/boot-video"
         preload="auto"
         playsinline
         aria-label="PlayStation 2 boot intro video"
@@ -2852,6 +2851,8 @@
           bootTextVisible = true;
         }}
       >
+        <source src="/api/boot-video" type="video/mp4" />
+        <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
         <track kind="captions" srclang="en" label="English" src="/api/boot-captions.vtt" />
       </video>
     {/if}
