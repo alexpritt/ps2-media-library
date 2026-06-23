@@ -1184,6 +1184,9 @@ def launchbox_disc_section_titles(platform: Optional[str]) -> List[str]:
 def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
     launchbox_throttle()
     search_url = f"https://gamesdb.launchbox-app.com/games/results/{quote(title.strip().lower())}"
+    
+    print(f"LAUNCHBOX SEARCH: {search_url}")
+    
     search_response = requests.get(search_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
     search_response.raise_for_status()
     search_soup = BeautifulSoup(search_response.text, "html.parser")
@@ -1205,7 +1208,12 @@ def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, Beaut
             "href": href,
         })
 
+    print(f"LAUNCHBOX CANDIDATES FOUND: {len(candidates)}")
+    for c in candidates[:5]:
+        print(f"  - {c['title']} | {c['platform']}")
+    
     if not candidates:
+        print(f"LAUNCHBOX RESPONSE PREVIEW: {search_soup.prettify()[:2000]}")
         raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}".')
 
     target_title = normalize_launchbox_key(title)
