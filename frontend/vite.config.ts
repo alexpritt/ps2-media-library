@@ -6,13 +6,13 @@ export default defineConfig({
   plugins: [
     svelte({
       preprocess: sveltePreprocess(),
+      compilerOptions: {
+        css: 'external', // Force CSS extraction instead of injected
+      },
     }),
   ],
-  server: {
-    port: 5173,
-  },
   build: {
-    copyPublicDir: false,
-    emptyOutDir: false,
+    copyPublicDir: true,
+    emptyOutDir: true,
   },
 });
