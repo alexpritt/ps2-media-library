@@ -21,31 +21,31 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 DATABASE_PATH = Path(__file__).parent / "media.db"
 FRONTEND_BUILD_DIR = Path(__file__).parent.parent / "frontend" / "build"
 FRONTEND_PUBLIC_DIR = Path(__file__).parent.parent / "frontend" / "public"
-# BOOT_VIDEO_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.mp4"
-# BOOT_CAPTIONS_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt"
+BOOT_VIDEO_PATH = ""
+BOOT_CAPTIONS_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt"
 FRONTEND_INDEX_PATH = FRONTEND_BUILD_DIR / "index.html"
 
 
-# def resolve_boot_video_path() -> Optional[Path]:
-#     candidates = (
-#         FRONTEND_PUBLIC_DIR / "ps2-intro.mp4",
-#         FRONTEND_BUILD_DIR / "ps2-intro.mp4",
-#     )
-#     for candidate in candidates:
-#         if candidate.exists() and candidate.is_file():
-#             return candidate
-#     return None
+def resolve_boot_video_path() -> Optional[Path]:
+    candidates = (
+        FRONTEND_PUBLIC_DIR / "ps2-intro.mp4",
+        FRONTEND_BUILD_DIR / "ps2-intro.mp4",
+    )
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
 
 
-# def resolve_boot_captions_path() -> Optional[Path]:
-#     candidates = (
-#         FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt",
-#         FRONTEND_BUILD_DIR / "ps2-intro.en.vtt",
-#     )
-#     for candidate in candidates:
-#         if candidate.exists() and candidate.is_file():
-#             return candidate
-#     return None
+def resolve_boot_captions_path() -> Optional[Path]:
+    candidates = (
+        FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt",
+        FRONTEND_BUILD_DIR / "ps2-intro.en.vtt",
+    )
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
 
 app = FastAPI(title="PS2 Media Library API")
 
