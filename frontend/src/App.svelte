@@ -44,6 +44,8 @@
     logoImage?: string;
   };
 
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
   const ZOOM_TRANSITION_MS = 900;
 
   const fallbackConsoles: ConsoleOption[] = [
@@ -856,7 +858,7 @@
     adminMessage = '';
     const lines = bulkText.split('\n').map((l) => l.trim()).filter(Boolean);
     if (!lines.length) { bulkBusy = false; return; }
-    const endpoint = libraryAdminTab === 'games' ? '/api/bulk/games' : '/api/bulk/music';
+    const endpoint = libraryAdminTab === 'games' ? `${API_BASE}/api/bulk/games` : `${API_BASE}/api/bulk/music`;
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -894,7 +896,7 @@
 
     launchboxFetchBusy = true;
     try {
-      const response = await fetch('/api/launchbox/game-data', {
+      const response = await fetch(`${API_BASE}/api/launchbox/game-data`, {
         method: 'POST',
         headers: mediaHeaders(),
         body: JSON.stringify({
@@ -1094,7 +1096,7 @@
   }
 
   async function loadAllMedia() {
-    const response = await fetch('/api/media');
+    const response = await fetch(`${API_BASE}/api/media`);
     if (!response.ok) return;
     allMedia = await response.json();
   }
@@ -1124,7 +1126,7 @@
       params.set('platform', nextConsole);
     }
 
-    const response = await fetch(`/api/media?${params.toString()}`);
+    const response = await fetch(`${API_BASE}/api/media?${params.toString()}`);
     if (requestId !== mediaLoadRequestId) return;
 
     if (!response.ok) {
@@ -1336,7 +1338,7 @@
 
   async function loadSystemsFromAPI() {
     try {
-      const response = await fetch('/api/systems');
+      const response = await fetch(`${API_BASE}/api/systems`);
       if (response.ok) {
         const systems = await response.json();
         editableSystems = systems.map((s: any) => ({
@@ -1400,7 +1402,7 @@
     const id = name.toLowerCase().replace(/\s+/g, '-');
     
     try {
-      const response = await fetch('/api/systems', {
+      const response = await fetch(`${API_BASE}/api/systems`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
         body: JSON.stringify({
@@ -1426,7 +1428,7 @@
 
   async function removeSystem(systemId: string) {
     try {
-      const response = await fetch(`/api/systems/${systemId}`, {
+      const response = await fetch(`${API_BASE}/api/systems/${systemId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${adminToken}` },
       });
@@ -1450,7 +1452,7 @@
       const system = editableSystems.find((s) => s.id === systemId);
       if (!system) return;
       
-      const response = await fetch(`/api/systems/${systemId}`, {
+      const response = await fetch(`${API_BASE}/api/systems/${systemId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
         body: JSON.stringify({
@@ -1592,7 +1594,7 @@
 
     systemLogoFetchBusy = true;
     try {
-      const apiEndpoints = ['/api/logo/system-data', '/api/system-logo-data', '/api/systems/logo-data'];
+      const apiEndpoints = [`${API_BASE}/api/logo/system-data`, `${API_BASE}/api/system-logo-data`, `${API_BASE}/api/systems/logo-data`];
       let logoImage: string | null = null;
       let apiError = '';
 
@@ -1758,7 +1760,7 @@
     adminError = '';
     adminMessage = '';
     try {
-      const response = await fetch('/api/admin/login', {
+      const response = await fetch(`${API_BASE}/api/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: adminPassword }),
@@ -1782,7 +1784,7 @@
 
   async function adminLogout() {
     try {
-      await fetch('/api/admin/logout', {
+      await fetch(`${API_BASE}/api/admin/logout`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${adminToken}` },
       });
@@ -1849,7 +1851,7 @@
     };
 
     try {
-      const response = await fetch(adminForm.id ? `/api/media/${adminForm.id}` : '/api/media', {
+      const response = await fetch(adminForm.id ? `${API_BASE}/api/media/${adminForm.id}` : `${API_BASE}/api/media`, {
         method: adminForm.id ? 'PUT' : 'POST',
         headers: mediaHeaders(),
         body: JSON.stringify(payload),
@@ -1888,7 +1890,7 @@
     adminMessage = '';
     adminBusy = true;
     try {
-      const response = await fetch(`/api/media/${item.id}`, {
+      const response = await fetch(`${API_BASE}/api/media/${item.id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${adminToken}` },
       });
@@ -2024,7 +2026,7 @@
       <video
         bind:this={bootVideoRef}
         class="boot-video"
-        src="/suggestions/ps2-intro.mp4"
+        src="https://media.theavenoircollection.com/ps2-intro.mp4"
         preload="auto"
         playsinline
         on:loadedmetadata={() => {

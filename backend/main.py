@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 import secrets
 import base64
+import os
 import re
 import unicodedata
 from urllib.parse import quote, urljoin
@@ -14,7 +15,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy import text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
-DATABASE_PATH = Path(__file__).parent / "media.db"
+DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(Path(__file__).parent / "media.db")))
 FRONTEND_BUILD_DIR = Path(__file__).parent.parent / "frontend" / "build"
 SUGGESTIONS_DIR = Path(__file__).parent.parent / "frontend" / "suggestions"
 
