@@ -2742,39 +2742,39 @@ async function deleteAdminItems(itemIds: number[]) {
     }
   }
 
-onMount(() => {
-  const savedToken = localStorage.getItem('ps2-admin-token');
-  if (savedToken) {
-    adminToken = savedToken;
-  }
-
-  // Run async setup without blocking the synchronous cleanup return
-  void (async () => {
-    await loadSystemsFromAPI();
-    await loadAllMedia();
-    history.replaceState(currentHistoryState(), '');
-  })();
-
-  window.addEventListener('popstate', handlePopState);
-  window.addEventListener('keydown', handleGlobalBootKeydown);
-  window.addEventListener('keydown', handleGlobalEscapeKeydown);
-  void queueBootStart();
-
-  return () => {
-    window.removeEventListener('popstate', handlePopState);
-    window.removeEventListener('keydown', handleGlobalBootKeydown);
-    window.removeEventListener('keydown', handleGlobalEscapeKeydown);
-    if (bootSoundIndicatorTimeout) {
-      clearTimeout(bootSoundIndicatorTimeout);
+  onMount(() => {
+    const savedToken = localStorage.getItem('ps2-admin-token');
+    if (savedToken) {
+      adminToken = savedToken;
     }
-    if (detailsInertiaFrame !== null) {
-      cancelAnimationFrame(detailsInertiaFrame);
-    }
-    if (detailsSpinPauseTimeout) {
-      clearTimeout(detailsSpinPauseTimeout);
-    }
-  };
-});
+
+    // Run async setup without blocking the synchronous cleanup return
+    void (async () => {
+      await loadSystemsFromAPI();
+      await loadAllMedia();
+      history.replaceState(currentHistoryState(), '');
+    })();
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleGlobalBootKeydown);
+    window.addEventListener('keydown', handleGlobalEscapeKeydown);
+    void queueBootStart();
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleGlobalBootKeydown);
+      window.removeEventListener('keydown', handleGlobalEscapeKeydown);
+      if (bootSoundIndicatorTimeout) {
+        clearTimeout(bootSoundIndicatorTimeout);
+      }
+      if (detailsInertiaFrame !== null) {
+        cancelAnimationFrame(detailsInertiaFrame);
+      }
+      if (detailsSpinPauseTimeout) {
+        clearTimeout(detailsSpinPauseTimeout);
+      }
+    };
+  });
 
 
   function handlePopState(event: PopStateEvent) {
