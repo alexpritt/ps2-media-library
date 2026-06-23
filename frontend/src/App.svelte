@@ -1150,7 +1150,7 @@ function normalizeGameTitle(title: string): string {
     launchboxArtOptions = [];
 
     try {
-      const response = await fetch('/api/launchbox/game-art-options', {
+      const response = await fetch(`${API_BASE}/api/launchbox/game-art-options`, {
         method: 'POST',
         headers: mediaHeaders(),
         body: JSON.stringify({
@@ -1228,7 +1228,7 @@ function normalizeGameTitle(title: string): string {
     deezerArtOptions = [];
 
     try {
-      const response = await fetch('/api/deezer/album-art-options', {
+      const response = await fetch(`${API_BASE}/api/deezer/album-art-options`, {
         method: 'POST',
         headers: mediaHeaders(),
         body: JSON.stringify({
@@ -1423,7 +1423,7 @@ function normalizeGameTitle(title: string): string {
 
     deezerAlbumFetchBusy = true;
     try {
-      const response = await fetch('/api/deezer/album-data', {
+      const response = await fetch(`${API_BASE}/api/deezer/album-data`, {
         method: 'POST',
         headers: mediaHeaders(),
         body: JSON.stringify({
@@ -2120,7 +2120,7 @@ async function updateSystem(
       .map((item) => item.id);
 
     try {
-      const response = await fetch('/api/media/reorder', {
+      const response = await fetch(`${API_BASE}/api/media/reorder`, {
         method: 'PATCH',
         headers: mediaHeaders(),
         body: JSON.stringify({
@@ -2176,7 +2176,7 @@ async function updateSystem(
 
     // Persist new order to backend
     try {
-      await fetch('/api/systems/reorder', {
+      await fetch(`${API_BASE}/api/systems/reorder`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
         body: JSON.stringify({
@@ -2857,9 +2857,9 @@ async function deleteAdminItems(itemIds: number[]) {
           bootTextVisible = true;
         }}
       >
-        <source src="/api/boot-video" type="video/mp4" />
-        <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
-        <track kind="captions" srclang="en" label="English" src="/api/boot-captions.vtt" />
+        <!-- <source src="/api/boot-video" type="video/mp4" /> -->
+        <!-- <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" /> -->
+        <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
       </video>
     {/if}
 
