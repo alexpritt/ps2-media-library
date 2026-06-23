@@ -1234,13 +1234,32 @@
     bulkProgressPercent = 0;
     bulkStatusText = lines.length ? `Starting upload for ${lines.length} item${lines.length === 1 ? '' : 's'}...` : '';
     if (!lines.length) { bulkBusy = false; return; }
+    if (libraryAdminTab === 'games' && (!adminSearchPlatform || adminSearchPlatform === 'All')) {
+      bulkBusy = false;
+      adminError = 'Select a specific platform (not "All") before bulk uploading games.';
+      return;
+    }
     const endpoint = libraryAdminTab === 'games' ? `${API_BASE}/api/bulk/games` : `${API_BASE}/api/bulk/music`;
+
+    // Prevent bulk upload without a specific platform
+    if (libraryAdminTab === 'games' && (!adminSearchPlatform || adminSearchPlatform === 'All')) {
+      bulkBusy = false;
+      adminError = 'Select a specific platform (not "All") before bulk uploading games.';
+      return;
+    }
+
+    const body: any = { items: lines };
+    if (libraryAdminTab === 'games') {
+      body.platform = adminSearchPlatform;
+    }
+
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: mediaHeaders(),
-        body: JSON.stringify({ items: lines }),
+        body: JSON.stringify(body),
       });
+
       if (response.status === 401) {
         adminToken = '';
         localStorage.removeItem('ps2-admin-token');
