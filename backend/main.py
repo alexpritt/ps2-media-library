@@ -42,6 +42,24 @@ def resolve_boot_captions_path() -> Optional[Path]:
 
 app = FastAPI(title="PS2 Media Library API")
 
+from fastapi.middleware.cors import CORSMiddleware
+
+# Allow frontend on Pages to call the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://theavenoircollection.com",
+        "http://localhost:5173",
+        "http://localhost:4173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Use env var for DB path so Fly.io volume works
+DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(Path(__file__).parent / "media.db")))
+
 DEFAULT_ADMIN_PASSWORD = "foreverandalways2015"
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
