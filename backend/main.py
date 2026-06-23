@@ -2201,47 +2201,13 @@ def stream_ps2_intro(request: Request):
     boot_video_path = resolve_boot_video_path()
     if not boot_video_path:
         raise HTTPException(status_code=404, detail="Intro video not found")
+    
+    # Just redirect to the public R2 URL
+    return Response(
+        status_code=302,
+        headers={"Location": boot_video_path}
+    )
 
-    file_size = boot_video_path.stat().st_size
-    raw_headers = {key.decode("latin1").lower(): value.decode("latin1") for key, value in request.scope.get("headers", [])}
-    range_header = raw_headers.get("range") or request.headers.get("range")
-
-    base_headers = {
-        **_VIDEO_PROXY_HEADERS,
-        "Accept-Ranges": "bytes",
-        "Content-Type": "video/mp4",
-    }
-
-    if not range_header:
-        full_headers = {
-            **base_headers,
-            "Content-Length": str(file_size),
-        }
-        return StreamingResponse(
-            iter_file_range(boot_video_path, 0, file_size - 1),
-            status_code=200,
-            headers=full_headers,
-        )
-
-    if not range_header.startswith("bytes="):
-        raise HTTPException(status_code=416, detail="Invalid range header")
-
-    start_str, end_str = range_header.replace("bytes=", "").split("-", 1)
-    start = int(start_str) if start_str else 0
-    end = int(end_str) if end_str else file_size - 1
-
-    if start >= file_size:
-        raise HTTPException(status_code=416, detail="Requested range not satisfiable")
-
-    end = min(end, file_size - 1)
-    content_length = end - start + 1
-
-    range_headers = {
-        **base_headers,
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Content-Length": str(content_length),
-    }
-    return StreamingResponse(iter_file_range(boot_video_path, start, end), status_code=206, headers=range_headers)
 
 
 @app.head("/api/boot-video")
@@ -2283,6 +2249,14 @@ def head_ps2_intro_captions() -> Response:
             "Content-Type": "text/vtt",
         },
     )
+
+# SPA catch-all LAST
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    # Optional: explicitly block API paths from falling through
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API route not found")
+    return FileResponse(FRONTEND_INDEX_PATH)
 
 
 if FRONTEND_INDEX_PATH.exists():
