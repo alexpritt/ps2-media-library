@@ -2211,20 +2211,15 @@ def stream_ps2_intro(request: Request):
 
 
 @app.head("/api/boot-video")
-def head_ps2_intro() -> Response:
+def head_ps2_intro():
     boot_video_path = resolve_boot_video_path()
     if not boot_video_path:
         raise HTTPException(status_code=404, detail="Intro video not found")
-
-    file_size = boot_video_path.stat().st_size
     return Response(
-        status_code=200,
-        headers={
-            "Accept-Ranges": "bytes",
-            "Content-Length": str(file_size),
-            "Content-Type": "video/mp4",
-        },
+        status_code=302,
+        headers={"Location": boot_video_path}
     )
+
 
 
 @app.get("/api/boot-captions.vtt")
