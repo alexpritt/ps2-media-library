@@ -3021,7 +3021,7 @@ async function deleteAdminItems(itemIds: number[]) {
                         <span class="players-filter-num">{libraryPlayersFilter}</span>
                       {/if}
                       <img
-                        src="/controller-icon.svg"
+                        src="/controller-icon.svg?v=2"
                         alt="Players"
                         class="controller-icon"
                         draggable="false"
@@ -3064,7 +3064,7 @@ async function deleteAdminItems(itemIds: number[]) {
             {#if showEmptyGamesState}
               <div class="library-empty-state" aria-live="polite">
                 <div class="memory-card-wrap" aria-hidden="true">
-                  <img src="/memory-card-logo.svg" alt="" class="memory-card-logo" draggable="false" />
+                  <img src="/memory-card-logo.svg?v=2" alt="" class="memory-card-logo" draggable="false" />
                   <span class="memory-card-question">?</span>
                 </div>
                 <p class="library-empty-text">No games found on memory card...</p>
