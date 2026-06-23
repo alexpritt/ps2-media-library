@@ -2555,7 +2555,7 @@
     }
   }
 
-  async function deleteAdminItem(item: MediaItem) {
+  async function deleteAdminItems(item: MediaItem) {
     adminError = '';
     adminMessage = '';
     adminBusy = true;
