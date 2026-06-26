@@ -1419,9 +1419,18 @@
   }
 
   async function loadAllMedia() {
-    const response = await fetch('/api/media');
-    if (!response.ok) return;
-    allMedia = await response.json();
+    try {
+      const response = await fetch('/api/media');
+      if (!response.ok) {
+        allMedia = [];
+        return;
+      }
+
+      const data = await response.json().catch(() => null);
+      allMedia = Array.isArray(data) ? data : [];
+    } catch {
+      allMedia = [];
+    }
   }
 
   async function loadMedia(nextCategory: Category | null = category, nextConsole: string | null = selectedConsole) {
@@ -2517,19 +2526,22 @@
     }
   }
 
-  onMount(async () => {
+  onMount(() => {
     const savedToken = localStorage.getItem('ps2-admin-token');
     if (savedToken) {
       adminToken = savedToken;
     }
-    await loadSystemsFromAPI();
 
-    await loadAllMedia();
     history.replaceState(currentHistoryState(), '');
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleGlobalBootKeydown);
     window.addEventListener('keydown', handleGlobalEscapeKeydown);
     void queueBootStart();
+
+    void (async () => {
+      await loadSystemsFromAPI();
+      await loadAllMedia();
+    })();
 
     return () => {
       window.removeEventListener('popstate', handlePopState);
@@ -2602,7 +2614,9 @@
       <video
         bind:this={bootVideoRef}
         class="boot-video"
+        autoplay
         preload="auto"
+        muted={bootMuted}
         playsinline
         on:loadedmetadata={() => {
           if (bootVideoRef) {
