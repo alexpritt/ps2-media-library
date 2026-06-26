@@ -2159,7 +2159,7 @@
       params.set('platform', nextConsole);
     }
 
-    const response = await fetch(`/api/media?${params.toString()}`);
+    const response = await fetch(apiPath(`/api/media?${params.toString()}`));
     if (requestId !== mediaLoadRequestId) return;
 
     if (!response.ok) {
@@ -3733,87 +3733,6 @@
                   autocomplete="off"
                   spellcheck="false"
                 />
-              </div>
-              {#if category === 'Games'}
-                <div class="players-filter">
-                  <button
-                    type="button"
-                    class="players-filter-btn"
-                    class:is-active={libraryPlayersFilter !== null}
-                    on:click={() => (playersDropdownOpen = !playersDropdownOpen)}
-                    aria-label="Filter by number of players"
-                  >
-                    <span class="players-filter-inner">
-                      {#if libraryPlayersFilter !== null}
-                        <span class="players-filter-num">{libraryPlayersFilter}</span>
-                      {/if}
-                      <img
-                        src="/controller-icon.svg"
-                        alt="Players"
-                        class="controller-icon"
-                        draggable="false"
-                      />
-                    </span>
-                    <span class="players-filter-caret">▾</span>
-                  </button>
-                  {#if playersDropdownOpen}
-                    <button
-                      class="players-dropdown-backdrop"
-                      type="button"
-                      aria-label="Close dropdown"
-                      on:click={() => (playersDropdownOpen = false)}
-                    ></button>
-                    <div class="players-dropdown" role="menu">
-                      <button type="button" role="menuitem"
-                        class:selected={libraryPlayersFilter === null}
-                        on:click={() => { libraryPlayersFilter = null; playersDropdownOpen = false; page = 0; }}
-                      >All</button>
-                      {#each availablePlayerCounts as n}
-                        <button type="button" role="menuitem"
-                          class:selected={libraryPlayersFilter === n}
-                          on:click={() => { libraryPlayersFilter = n; playersDropdownOpen = false; page = 0; }}
-                        >{n}P</button>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-              <div class="star-filter">
-                <button
-                  type="button"
-                  class="star-filter-btn"
-                  class:is-active={libraryStarFilter !== null}
-                  on:click={() => { starDropdownOpen = !starDropdownOpen; playersDropdownOpen = false; }}
-                  aria-label="Filter by star rating"
-                >
-                  <span class="star-filter-inner">
-                    {#if libraryStarFilter !== null}
-                      <span class="star-filter-num">{libraryStarFilter}</span>
-                    {/if}
-                    <span class="star-filter-icon" aria-hidden="true">★</span>
-                  </span>
-                  <span class="players-filter-caret">▾</span>
-                </button>
-                {#if starDropdownOpen}
-                  <button
-                    class="players-dropdown-backdrop"
-                    type="button"
-                    aria-label="Close dropdown"
-                    on:click={() => (starDropdownOpen = false)}
-                  ></button>
-                  <div class="players-dropdown star-dropdown" role="menu">
-                    <button type="button" role="menuitem"
-                      class:selected={libraryStarFilter === null}
-                      on:click={() => { libraryStarFilter = null; starDropdownOpen = false; page = 0; }}
-                    >All</button>
-                    {#each [1, 2, 3, 4, 5] as n}
-                      <button type="button" role="menuitem"
-                        class:selected={libraryStarFilter === n}
-                        on:click={() => { libraryStarFilter = n; starDropdownOpen = false; page = 0; }}
-                      >{'★'.repeat(n)}</button>
-                    {/each}
-                  </div>
-                {/if}
               </div>
             </div>
           {/if}
