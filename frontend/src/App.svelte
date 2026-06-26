@@ -148,6 +148,8 @@
   let bootStarted = false;
   let bootResumeAtSix = false;
   let bootRescueTimeout: ReturnType<typeof setTimeout> | null = null;
+  let bootPlaybackRetryInterval: ReturnType<typeof setInterval> | null = null;
+  let bootRevealAt = 9;
   const BOOT_SKIP_TIME = 6;
   const BOOT_METADATA_TIMEOUT_MS = 3500;
   const BOOT_METADATA_TIMEOUT_MOBILE_MS = 5000;
@@ -1356,10 +1358,12 @@
     page = 0;
     bootStartAt = 0;
     bootResumeAtSix = true;
+    bootRevealAt = 9;
     bootTextVisible = false;
     bootStarted = false;
     bootAudioFadeInMs = 1000;
     clearBootRescueTimer();
+    clearBootPlaybackRetry();
 
     const newState: HistoryState = { stage: 'boot', category: null, console: null, itemId: null, page: 0 };
     history.pushState(newState, '');
@@ -1404,6 +1408,7 @@
     bootTextVisible = stage !== 'boot';
     if (stage !== 'boot') {
       clearBootRescueTimer();
+      clearBootPlaybackRetry();
     }
 
     await tick();
@@ -1492,6 +1497,30 @@
       clearTimeout(bootRescueTimeout);
       bootRescueTimeout = null;
     }
+  }
+
+  function clearBootPlaybackRetry() {
+    if (bootPlaybackRetryInterval) {
+      clearInterval(bootPlaybackRetryInterval);
+      bootPlaybackRetryInterval = null;
+    }
+  }
+
+  function armBootPlaybackRetry() {
+    clearBootPlaybackRetry();
+    bootPlaybackRetryInterval = setInterval(() => {
+      if (stage !== 'boot' || bootError || !bootVideoRef) {
+        clearBootPlaybackRetry();
+        return;
+      }
+
+      if (!bootVideoRef.paused) return;
+      if (bootVideoRef.error || bootVideoRef.readyState < 2) return;
+
+      void bootVideoRef.play().catch(() => {
+        // Ignore transient autoplay-policy failures and retry.
+      });
+    }, 1200);
   }
 
   function isLikelyMobileOrConstrainedBootPath() {
@@ -1586,6 +1615,7 @@
     if (!bootVideoRef || bootStarted) return;
     bootStarted = true;
     armBootRescueTimer();
+    armBootPlaybackRetry();
 
     const video = bootVideoRef;
     try {
@@ -1653,6 +1683,7 @@
 
   async function queueBootStart() {
     armBootRescueTimer();
+    armBootPlaybackRetry();
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await tick();
       if (bootVideoRef) {
@@ -1668,6 +1699,7 @@
       bootStarted = false;
     }
     clearBootRescueTimer();
+    clearBootPlaybackRetry();
   }
 
   async function handleBootPick(categoryName: Category) {
@@ -2557,6 +2589,7 @@
         clearTimeout(detailsSpinPauseTimeout);
       }
       clearBootRescueTimer();
+      clearBootPlaybackRetry();
     };
   });
 
@@ -2587,11 +2620,13 @@
       bootStarted = false;
       bootStartAt = previousStage === 'boot' ? 0 : BOOT_SKIP_TIME;
       bootResumeAtSix = previousStage !== 'boot';
+      bootRevealAt = 9;
       bootError = false;
       bootTextVisible = false;
       void queueBootStart();
     } else {
       clearBootRescueTimer();
+      clearBootPlaybackRetry();
     }
   }
 </script>
@@ -2615,18 +2650,25 @@
         bind:this={bootVideoRef}
         class="boot-video"
         autoplay
+        loop
         preload="auto"
         muted={bootMuted}
         playsinline
+        webkit-playsinline="true"
         on:loadedmetadata={() => {
           if (bootVideoRef) {
             bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
+            if (!bootResumeAtSix) {
+              const duration = Number.isFinite(bootVideoRef.duration) ? bootVideoRef.duration : 9;
+              bootRevealAt = Math.min(9, Math.max(1.8, duration - 0.35));
+            }
             for (const track of Array.from(bootVideoRef.textTracks ?? [])) {
               track.mode = 'disabled';
             }
           }
           if (stage === 'boot' && !bootTextVisible) {
             armBootRescueTimer();
+            armBootPlaybackRetry();
           }
         }}
         on:timeupdate={() => {
@@ -2637,7 +2679,7 @@
               clearBootRescueTimer();
             }
           } else {
-            if (bootVideoRef.currentTime >= 9) {
+            if (bootVideoRef.currentTime >= bootRevealAt) {
               bootTextVisible = true;
               clearBootRescueTimer();
             }
@@ -2675,6 +2717,7 @@
           bootTextVisible = true;
           bootStarted = false;
           clearBootRescueTimer();
+          clearBootPlaybackRetry();
         }}
       >
         <source src="/boot.mp4" type="video/mp4" />
