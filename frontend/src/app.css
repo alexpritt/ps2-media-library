@@ -3081,9 +3081,7 @@ button {
   gap: 16px;
   margin-bottom: 24px;
   padding-bottom: 20px;
-  padding-right: 48px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  position: relative;
 }
 
 .admin-header h2 {
