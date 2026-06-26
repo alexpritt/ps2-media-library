@@ -382,7 +382,7 @@ button {
 
 .console-grid {
   position: absolute;
-  inset: 12.5% 8% 13% 8%;
+  inset: 27% 8% 10% 8%;
   display: grid;
   grid-template-columns: repeat(5, minmax(92px, 1fr));
   gap: 24px 28px;
@@ -1084,11 +1084,6 @@ button {
   padding: 10px 0 10px 20px;
 }
 
-.console-screen .console-header-right {
-  width: clamp(260px, 31vw, 380px);
-  flex: 0 0 clamp(260px, 31vw, 380px);
-}
-
 .console-hover-meta {
   display: grid;
   justify-items: center;
@@ -1096,11 +1091,6 @@ button {
   align-items: center;
   width: auto;
   margin-left: auto;
-}
-
-.console-screen .console-hover-meta {
-  width: 100%;
-  margin-left: 0;
 }
 
 .console-hover-meta .console-header-copy {
@@ -4127,12 +4117,8 @@ select option {
   .console-grid,
   .library-grid {
     grid-template-columns: repeat(4, minmax(84px, 1fr));
-    inset: 24% 5% 15% 5%;
-    gap: 18px 18px;
-  }
-
-  .library-grid {
     inset: 30% 5% 16% 5%;
+    gap: 18px 18px;
   }
 
   .details-screen {
@@ -4207,7 +4193,8 @@ select option {
     flex-wrap: wrap;
   }
 
-  .library-hud {
+  .library-hud,
+  .console-hud {
     flex-wrap: wrap;
     justify-content: center;
   }
@@ -4572,12 +4559,8 @@ select option {
   .console-grid,
   .library-grid {
     grid-template-columns: repeat(3, minmax(86px, 1fr));
-    inset: 34% 4% 21% 4%;
-    gap: 22px 14px;
-  }
-
-  .library-grid {
     inset: 39% 4% 22% 4%;
+    gap: 22px 14px;
   }
 
   .console-card,
@@ -4820,8 +4803,8 @@ select option {
 
   .console-grid {
     grid-template-columns: repeat(2, minmax(104px, 1fr));
-    inset: 35% 5% 23% 5%;
-    gap: 22px 14px;
+    inset: 41% 5% 23% 5%;
+    gap: 24px 14px;
     justify-items: center;
   }
 
