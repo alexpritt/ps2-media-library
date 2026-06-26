@@ -50,11 +50,9 @@ npm run build
 
 - Local dev uses the Vite proxy automatically. To point the dev server at a different backend, set `VITE_API_PROXY_TARGET`.
 - Set admin auth via `ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH`.
-- Optional boot intro source for desktop: `VITE_BOOT_INTRO_SRC`
-- Optional mobile fallback clip: `VITE_BOOT_MOBILE_SRC`
+- Optional boot intro source: `VITE_BOOT_INTRO_SRC`
 
 If `VITE_BOOT_INTRO_SRC` is not set, the frontend falls back to the hosted R2 intro at `https://media.theavenoircollection.com/ps2-intro.mp4`.
-If `VITE_BOOT_MOBILE_SRC` is not set, mobile falls back to the local public asset at `/boot.mp4`.
 
 ## Deploy
 

@@ -158,23 +158,9 @@
   ];
   const cooperativeOptions = ['No', 'Yes'];
   const SITE_LOGO_SRC = '/brand-logo.png';
-  const DESKTOP_BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro.mp4';
-  const MOBILE_BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_MOBILE_SRC || '').trim() || '/boot.mp4';
-
-  function prefersMobileBootPlayback() {
-    if (typeof window === 'undefined') return false;
-    return (
-      window.matchMedia('(pointer: coarse)').matches
-      || navigator.maxTouchPoints > 0
-      || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-    );
-  }
-
-  const BOOT_PREFERS_MOBILE = prefersMobileBootPlayback();
-  const BOOT_VIDEO_SOURCES = [...new Set((BOOT_PREFERS_MOBILE
-    ? [MOBILE_BOOT_VIDEO_SRC, DESKTOP_BOOT_VIDEO_SRC]
-    : [DESKTOP_BOOT_VIDEO_SRC, MOBILE_BOOT_VIDEO_SRC]).filter((source) => source.length > 0))];
-  const BOOT_VIDEO_PRELOAD = BOOT_PREFERS_MOBILE ? 'metadata' : 'auto';
+  const BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro.mp4';
+  const BOOT_VIDEO_SOURCES = [BOOT_VIDEO_SRC];
+  const BOOT_VIDEO_PRELOAD = 'auto';
   const CONSOLE_WISHLIST_KEY = 'ps2-console-wishlist';
   const GAME_WISHLIST_KEY = 'ps2-game-wishlist';
   const MUSIC_WISHLIST_KEY = 'ps2-music-wishlist';
@@ -207,7 +193,7 @@
   let bootPlaybackRetryInterval: ReturnType<typeof setInterval> | null = null;
   let bootHardFailTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootSourceIndex = 0;
-  let bootVideoSource = BOOT_VIDEO_SOURCES[0] ?? '/boot.mp4';
+  let bootVideoSource = BOOT_VIDEO_SOURCES[0] ?? BOOT_VIDEO_SRC;
   let bootRevealAt = 9;
   const BOOT_SKIP_TIME = 6;
   const BOOT_RESCUE_TIMEOUT_MS = 5000;
@@ -3201,7 +3187,7 @@
     if (stage === 'boot') {
       bootStarted = false;
       bootSourceIndex = 0;
-      bootVideoSource = BOOT_VIDEO_SOURCES[0] ?? '/boot.mp4';
+      bootVideoSource = BOOT_VIDEO_SOURCES[0] ?? BOOT_VIDEO_SRC;
       bootStartAt = previousStage === 'boot' ? 0 : BOOT_SKIP_TIME;
       bootResumeAtSix = previousStage !== 'boot';
       bootRevealAt = 9;
