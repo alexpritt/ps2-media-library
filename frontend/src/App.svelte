@@ -70,6 +70,10 @@
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg' },
     { name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg' },
+    { name: 'GameBoy', shortName: 'GB', logo: 'GB',
+      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg' },
+    { name: 'GameCube', shortName: 'GC', logo: 'GC',
+      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg' },
     { name: 'Wii', shortName: 'Wii', logo: 'Wii',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg' },
     { name: 'Xbox', shortName: 'XBX', logo: 'XBX',
@@ -124,6 +128,7 @@
     'Warner Bros. Games',
   ];
   const cooperativeOptions = ['No', 'Yes'];
+  const SITE_LOGO_SRC = '/brand-logo.png';
 
   let stage: Stage = 'boot';
   let category: Category | null = null;
@@ -145,17 +150,9 @@
   let bootResumeAtSix = false;
   let bootRescueTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootPlaybackRetryInterval: ReturnType<typeof setInterval> | null = null;
-  let bootTapPendingTimeout: ReturnType<typeof setTimeout> | null = null;
-  let bootLastTouchTapAt = 0;
-  let bootSuppressClickUntil = 0;
-  let bootTouchHint = false;
   let bootRevealAt = 9;
   const BOOT_SKIP_TIME = 6;
-  const BOOT_DOUBLE_TAP_WINDOW_MS = 320;
-  const BOOT_METADATA_TIMEOUT_MS = 3500;
-  const BOOT_METADATA_TIMEOUT_MOBILE_MS = 5000;
   const BOOT_RESCUE_TIMEOUT_MS = 5000;
-  const BOOT_RESCUE_TIMEOUT_MOBILE_MS = 6500;
 
   let transitionOverlay = false;
   let transitionOpacity = 0;
@@ -172,43 +169,37 @@
   let brokenDiscIds = new Set<number>();
   let hoveredConsoleFadeVisible = false;
   let hoveredConsoleFadeTimeout: ReturnType<typeof setTimeout> | null = null;
-  let prefersReducedMotion = false;
 
   let page = 0;
   let itemsPerPage = 15;
-
-  function reducedMotionTransition(css: (t: number) => string): TransitionConfig {
-    return {
-      duration: prefersReducedMotion ? 0 : 1,
-      easing: cubicOut,
-      css,
-    };
-  }
   let mediaLoadRequestId = 0;
   let libraryLoading = false;
+
   let adminToken = '';
-  let adminBusy = false;
-  let adminError = '';
   let adminOpen = false;
-  let adminMode: 'hub' | 'systems' | 'library' = 'hub';
-  let libraryAdminTab: 'games' | 'music' = 'games';
-  let adminContextItem: MediaItem | null = null;
+    let adminMode: 'hub' | 'systems' | 'library' = 'hub';
+    let libraryAdminTab: 'games' | 'music' = 'games';
+    let adminContextItem: MediaItem | null = null;
   let adminPublisherChoice = '';
   let adminGameGenreChoice = '';
   let adminMusicGenreChoice = '';
+  let detailsEditMode = false;
   let adminEditingId: number | null = null;
   let adminPassword = '';
+  let adminBusy = false;
+  let adminError = '';
   let adminMessage = '';
   let launchboxFetchBusy = false;
   let launchboxFetchError = '';
   let launchboxArtPickerOpen = false;
   let launchboxArtPickerBusy = false;
   let launchboxArtPickerError = '';
-  let launchboxArtOptions: string[] = [];
   let launchboxArtPickerField: GameArtField | null = null;
+  let launchboxArtOptions: string[] = [];
   let bulkOpen = false;
-  let bulkBusy = false;
   let bulkText = '';
+  let bulkBusy = false;
+  let bulkResults: { line: string; status: 'success' | 'error'; message: string }[] = [];
   let bulkTotalCount = 0;
   let bulkProcessedCount = 0;
   let bulkProgressPercent = 0;
@@ -257,14 +248,14 @@
   $: availableConsoles = buildConsoleList(allMedia, editableSystems);
   $: activeConsole = availableConsoles[0] ?? fallbackConsoles[0];
   $: consoleHeaderOption = availableConsoles.find((item) => item.name === hoveredConsole) ?? null;
-  $: if (hoveredConsole) {
+  $: if (stage === 'console' && hoveredConsole) {
     hoveredConsoleFadeVisible = true;
     if (hoveredConsoleFadeTimeout) clearTimeout(hoveredConsoleFadeTimeout);
     hoveredConsoleFadeTimeout = setTimeout(() => {
       hoveredConsole = null;
     }, 4000);
   }
-  $: if (!hoveredConsole) {
+  $: if (stage !== 'console' || !hoveredConsole) {
     hoveredConsoleFadeVisible = false;
     if (hoveredConsoleFadeTimeout) {
       clearTimeout(hoveredConsoleFadeTimeout);
@@ -276,8 +267,8 @@
   $: hoveredConsoleGameCount = hoveredConsole
     ? allMedia.filter((item) => item.category === 'Games' && item.platform === hoveredConsole).length
     : null;
-  $: consoleSubheaderLabel = hoveredConsole && hoveredConsoleGameCount !== null
-    ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Game' : 'Games'} in ${hoveredConsole} Library`
+  $: hoveredConsoleCountLabel = hoveredConsoleGameCount !== null
+    ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Game' : 'Games'} in Library`
     : consoleLibraryCountLabel;
   $: currentItems = pagedItems();
   $: totalPages = Math.ceil(media.length / itemsPerPage);
@@ -537,42 +528,9 @@
   }
 
   function handleBootScreenClick(event: MouseEvent) {
-    if (Date.now() < bootSuppressClickUntil) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('.boot-option')) return;
     toggleBootMute();
-  }
-
-  function clearBootTapPendingTimeout() {
-    if (bootTapPendingTimeout) {
-      clearTimeout(bootTapPendingTimeout);
-      bootTapPendingTimeout = null;
-    }
-  }
-
-  function handleBootPointerUp(event: PointerEvent) {
-    if (event.pointerType !== 'touch') return;
-
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.boot-option')) return;
-
-    const now = Date.now();
-    bootSuppressClickUntil = now + 450;
-
-    if (!bootTextVisible && now - bootLastTouchTapAt <= BOOT_DOUBLE_TAP_WINDOW_MS) {
-      clearBootTapPendingTimeout();
-      bootLastTouchTapAt = 0;
-      unlockBootAudio();
-      skipBootIntro();
-      return;
-    }
-
-    bootLastTouchTapAt = now;
-    clearBootTapPendingTimeout();
-    bootTapPendingTimeout = setTimeout(() => {
-      toggleBootMute();
-      bootTapPendingTimeout = null;
-    }, BOOT_DOUBLE_TAP_WINDOW_MS + 10);
   }
 
 
@@ -622,6 +580,8 @@
     if (value === 'playstation 4') return 'ps4';
     if (value === 'nintendo ds') return 'nds';
     if (value === 'nintendo 3ds') return '3ds';
+    if (value === 'gameboy') return 'gb';
+    if (value === 'gamecube') return 'gamecube';
     if (value === 'wii') return 'wii';
     if (value === 'xbox') return 'xbox';
     if (value === 'xbox 360') return 'xbox360';
@@ -630,15 +590,15 @@
 
   function inferAppearancePreset(platform: string | null | undefined) {
     const key = normalizeConsoleKey(platform);
-    if (key === 'nds' || key === '3ds') return key;
-    if (key === 'ps2' || key === 'ps3' || key === 'ps4' || key === 'wii' || key === 'xbox' || key === 'xbox360') return key;
+    if (key === 'nds' || key === '3ds' || key === 'gb') return key;
+    if (key === 'ps2' || key === 'ps3' || key === 'ps4' || key === 'gamecube' || key === 'wii' || key === 'xbox' || key === 'xbox360') return key;
     return 'generic-disc';
   }
 
   function getSystemAppearance(platform: string | null | undefined) {
     const system = availableConsoles.find((entry) => entry.name === (platform ?? ''));
     const preset = (system?.appearancePreset ?? inferAppearancePreset(platform) ?? 'generic-disc').toLowerCase();
-    const inferredCartridge = preset === 'nds' || preset === '3ds';
+    const inferredCartridge = preset === 'nds' || preset === '3ds' || preset === 'gb';
     const caseType = inferredCartridge ? 'cartridge' : (system?.caseType ?? 'disc');
     return { caseType, preset } as const;
   }
@@ -702,11 +662,13 @@
     if (caseType === 'cartridge') {
       if (preset === 'nds') return ' disc-case--nds';
       if (preset === '3ds') return ' disc-case--3ds';
+      if (preset === 'gb') return ' disc-case--gb';
       return ' disc-case--cart-generic';
     }
     if (preset === 'ps2') return ' disc-case--ps2';
     if (preset === 'ps3') return ' disc-case--ps3';
     if (preset === 'ps4') return ' disc-case--ps4';
+    if (preset === 'gamecube') return ' disc-case--gamecube';
     if (preset === 'wii') return ' disc-case--wii';
     if (preset === 'xbox') return ' disc-case--xbox';
     if (preset === 'xbox360') return ' disc-case--xbox360';
@@ -718,11 +680,13 @@
     if (caseType === 'cartridge') {
       if (preset === 'nds') return 'disc-shell--nds';
       if (preset === '3ds') return 'disc-shell--3ds';
+      if (preset === 'gb') return 'disc-shell--gb';
       return 'disc-shell--cart-generic';
     }
     if (preset === 'ps2') return 'disc-shell--ps2';
     if (preset === 'ps3') return 'disc-shell--ps3';
     if (preset === 'ps4') return 'disc-shell--ps4';
+    if (preset === 'gamecube') return 'disc-shell--gamecube';
     if (preset === 'wii') return 'disc-shell--wii';
     if (preset === 'xbox') return 'disc-shell--xbox';
     if (preset === 'xbox360') return 'disc-shell--xbox360';
@@ -734,45 +698,21 @@
   }
 
   function popupOverlayTransition(_node: Element): TransitionConfig {
-    if (prefersReducedMotion) {
-      return reducedMotionTransition((t) => `opacity: ${t};`);
-    }
-
     return {
-      duration: 210,
+      duration: 190,
       easing: cubicOut,
       css: (t) => `opacity: ${t};`,
     };
   }
 
   function popupPanelTransition(_node: Element): TransitionConfig {
-    if (prefersReducedMotion) {
-      return reducedMotionTransition((t) => `opacity: ${t};`);
-    }
-
     return {
-      duration: 280,
+      duration: 220,
       easing: cubicOut,
       css: (t) => {
-        const scale = 0.94 + (0.06 * t);
-        const y = (1 - t) * 18;
+        const scale = 0.97 + (0.03 * t);
+        const y = (1 - t) * 10;
         return `opacity: ${t}; transform: translateY(${y}px) scale(${scale});`;
-      },
-    };
-  }
-
-  function popupDropdownTransition(_node: Element): TransitionConfig {
-    if (prefersReducedMotion) {
-      return reducedMotionTransition((t) => `opacity: ${t};`);
-    }
-
-    return {
-      duration: 160,
-      easing: cubicOut,
-      css: (t) => {
-        const scale = 0.985 + (0.015 * t);
-        const y = (1 - t) * 6;
-        return `opacity: ${t}; transform: translateY(${y}px) scale(${scale}); transform-origin: top center;`;
       },
     };
   }
@@ -1482,18 +1422,9 @@
   }
 
   async function loadAllMedia() {
-    try {
-      const response = await fetch('/api/media');
-      if (!response.ok) {
-        allMedia = [];
-        return;
-      }
-
-      const data = await response.json().catch(() => null);
-      allMedia = Array.isArray(data) ? data : [];
-    } catch {
-      allMedia = [];
-    }
+    const response = await fetch('/api/media');
+    if (!response.ok) return;
+    allMedia = await response.json();
   }
 
   async function loadMedia(nextCategory: Category | null = category, nextConsole: string | null = selectedConsole) {
@@ -1564,62 +1495,6 @@
     }
   }
 
-  function armBootPlaybackRetry() {
-    clearBootPlaybackRetry();
-    bootPlaybackRetryInterval = setInterval(() => {
-      if (stage !== 'boot' || bootError || bootTextVisible || !bootVideoRef) {
-        clearBootPlaybackRetry();
-        return;
-      }
-
-      if (!bootVideoRef.paused) return;
-      if (bootVideoRef.error || bootVideoRef.readyState < 2) return;
-
-      if (bootVideoRef.ended) {
-        bootVideoRef.currentTime = bootResumeAtSix || bootTextVisible ? BOOT_SKIP_TIME : Math.max(0, bootStartAt);
-      }
-
-      void bootVideoRef.play().catch(() => {
-        // Ignore transient autoplay-policy failures and retry.
-      });
-    }, 1200);
-  }
-
-  function isLikelyMobileOrConstrainedBootPath() {
-    if (typeof window === 'undefined') return false;
-
-    const touchLikely =
-      window.matchMedia('(pointer: coarse)').matches
-      || (navigator.maxTouchPoints ?? 0) > 0;
-
-    const conn = (navigator as Navigator & {
-      connection?: {
-        saveData?: boolean;
-        effectiveType?: string;
-      };
-    }).connection;
-
-    const constrainedNetwork =
-      !!conn?.saveData
-      || conn?.effectiveType === 'slow-2g'
-      || conn?.effectiveType === '2g'
-      || conn?.effectiveType === '3g';
-
-    return touchLikely || constrainedNetwork;
-  }
-
-  function getBootMetadataTimeoutMs() {
-    return isLikelyMobileOrConstrainedBootPath()
-      ? BOOT_METADATA_TIMEOUT_MOBILE_MS
-      : BOOT_METADATA_TIMEOUT_MS;
-  }
-
-  function getBootRescueTimeoutMs() {
-    return isLikelyMobileOrConstrainedBootPath()
-      ? BOOT_RESCUE_TIMEOUT_MOBILE_MS
-      : BOOT_RESCUE_TIMEOUT_MS;
-  }
-
   function armBootRescueTimer() {
     clearBootRescueTimer();
     const observedTime = bootVideoRef?.currentTime ?? 0;
@@ -1636,41 +1511,28 @@
         return;
       }
 
-      // Fail open to options if playback stalls.
       bootError = !bootVideoRef || bootVideoRef.readyState < 1;
       bootTextVisible = true;
       bootStarted = false;
-    }, getBootRescueTimeoutMs());
+      clearBootPlaybackRetry();
+    }, BOOT_RESCUE_TIMEOUT_MS);
   }
 
-  async function waitForBootMetadata(video: HTMLVideoElement) {
-    if (video.readyState >= 1) return;
+  function armBootPlaybackRetry() {
+    clearBootPlaybackRetry();
+    bootPlaybackRetryInterval = setInterval(() => {
+      if (stage !== 'boot' || bootError || bootTextVisible || !bootVideoRef) {
+        clearBootPlaybackRetry();
+        return;
+      }
 
-    await new Promise<void>((resolve, reject) => {
-      const onLoaded = () => {
-        cleanup();
-        resolve();
-      };
+      if (!bootVideoRef.paused) return;
+      if (bootVideoRef.error || bootVideoRef.readyState < 2) return;
 
-      const onError = () => {
-        cleanup();
-        reject(new Error('Boot metadata failed to load'));
-      };
-
-      const timeoutId = setTimeout(() => {
-        cleanup();
-        reject(new Error('Boot metadata load timed out'));
-      }, getBootMetadataTimeoutMs());
-
-      const cleanup = () => {
-        clearTimeout(timeoutId);
-        video.removeEventListener('loadedmetadata', onLoaded);
-        video.removeEventListener('error', onError);
-      };
-
-      video.addEventListener('loadedmetadata', onLoaded, { once: true });
-      video.addEventListener('error', onError, { once: true });
-    });
+      void bootVideoRef.play().catch(() => {
+        // Ignore transient autoplay-policy or buffering failures and retry.
+      });
+    }, 1200);
   }
 
   async function startBoot() {
@@ -1682,7 +1544,11 @@
     const video = bootVideoRef;
     try {
       bootError = false;
-      await waitForBootMetadata(video);
+      if (video.readyState < 1) {
+        await new Promise<void>((resolve) => {
+          video.addEventListener('loadedmetadata', () => resolve(), { once: true });
+        });
+      }
 
       const startAt = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
       video.currentTime = Math.max(video.currentTime, startAt);
@@ -1703,17 +1569,14 @@
       }
 
       bootAudioFadeInMs = 0;
-      if (bootTextVisible) {
-        clearBootRescueTimer();
-      }
 
       bootResumeAtSix = false;
     } catch {
-      // Autoplay rejection should still allow options over the loaded frame.
-      bootError = !video || video.readyState < 1 || !!video.error;
+      bootError = true;
       bootTextVisible = true;
       bootStarted = false;
       clearBootRescueTimer();
+      clearBootPlaybackRetry();
     }
   }
 
@@ -1726,12 +1589,15 @@
 
     if (!bootVideoRef) {
       bootTextVisible = true;
+      clearBootRescueTimer();
+      clearBootPlaybackRetry();
       return;
     }
 
     bootVideoRef.currentTime = BOOT_SKIP_TIME;
     bootTextVisible = true;
     clearBootRescueTimer();
+    clearBootPlaybackRetry();
 
     if (bootVideoRef.paused) {
       void bootVideoRef.play().catch(() => {
@@ -1739,6 +1605,7 @@
         bootTextVisible = true;
         bootStarted = false;
         clearBootRescueTimer();
+        clearBootPlaybackRetry();
       });
     }
   }
@@ -1909,6 +1776,10 @@
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg', caseType: 'cartridge', appearancePreset: 'nds' },
       { id: '3ds', name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg', caseType: 'cartridge', appearancePreset: '3ds' },
+      { id: 'gb', name: 'GameBoy', shortName: 'GB', logo: 'GB',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg', caseType: 'cartridge', appearancePreset: 'gb' },
+      { id: 'gc', name: 'GameCube', shortName: 'GC', logo: 'GC',
+        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg', caseType: 'disc', appearancePreset: 'gamecube' },
       { id: 'wii', name: 'Wii', shortName: 'Wii', logo: 'Wii',
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg', caseType: 'disc', appearancePreset: 'wii' },
       { id: 'xbox', name: 'Xbox', shortName: 'XBX', logo: 'XBX',
@@ -2168,6 +2039,10 @@
       nintendods: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg',
       '3ds': 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg',
       nintendo3ds: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg',
+      gb: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg',
+      gameboy: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg',
+      gc: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg',
+      gamecube: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg',
       wii: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg',
       xbox: 'https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg',
       xbox360: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg',
@@ -2540,6 +2415,15 @@
     if (img) img.hidden = true;
   }
 
+  function normalizeConsoleLogoScale(e: Event) {
+    const img = e.currentTarget as HTMLImageElement;
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+    const ratio = img.naturalWidth / img.naturalHeight;
+    // Slightly scale down medium-wide wordmarks to keep icon sizes visually even.
+    const scale = ratio >= 2.3 ? 0.92 : ratio >= 1.9 ? 0.95 : ratio >= 1.5 ? 0.98 : 1;
+    img.style.setProperty('--logo-optical-scale', String(scale));
+  }
+
   function markCoverBroken(itemId: number) {
     const next = new Set(brokenCoverIds);
     next.add(itemId);
@@ -2612,54 +2496,35 @@
     }
   }
 
-  onMount(() => {
-    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const syncReducedMotionPreference = () => {
-      prefersReducedMotion = reducedMotionQuery.matches;
-    };
-
-    syncReducedMotionPreference();
-
-    bootTouchHint = typeof window !== 'undefined'
-      && (
-        window.matchMedia('(pointer: coarse)').matches
-        || (navigator.maxTouchPoints ?? 0) > 0
-      );
-
+  onMount(async () => {
     const savedToken = localStorage.getItem('ps2-admin-token');
     if (savedToken) {
       adminToken = savedToken;
     }
+    await loadSystemsFromAPI();
 
+    await loadAllMedia();
     history.replaceState(currentHistoryState(), '');
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleGlobalBootKeydown);
     window.addEventListener('keydown', handleGlobalEscapeKeydown);
-    reducedMotionQuery.addEventListener('change', syncReducedMotionPreference);
     void queueBootStart();
-
-    void (async () => {
-      await loadSystemsFromAPI();
-      await loadAllMedia();
-    })();
 
     return () => {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleGlobalBootKeydown);
       window.removeEventListener('keydown', handleGlobalEscapeKeydown);
-      reducedMotionQuery.removeEventListener('change', syncReducedMotionPreference);
+      clearBootRescueTimer();
+      clearBootPlaybackRetry();
       if (bootSoundIndicatorTimeout) {
         clearTimeout(bootSoundIndicatorTimeout);
       }
-      clearBootTapPendingTimeout();
       if (detailsInertiaFrame !== null) {
         cancelAnimationFrame(detailsInertiaFrame);
       }
       if (detailsSpinPauseTimeout) {
         clearTimeout(detailsSpinPauseTimeout);
       }
-      clearBootRescueTimer();
-      clearBootPlaybackRetry();
     };
   });
 
@@ -2687,9 +2552,6 @@
     }
 
     if (stage === 'boot') {
-      clearBootTapPendingTimeout();
-      bootLastTouchTapAt = 0;
-      bootSuppressClickUntil = 0;
       bootStarted = false;
       bootStartAt = previousStage === 'boot' ? 0 : BOOT_SKIP_TIME;
       bootResumeAtSix = previousStage !== 'boot';
@@ -2711,7 +2573,6 @@
     tabindex="0"
     aria-label="Toggle boot audio mute"
     on:click={handleBootScreenClick}
-    on:pointerup={handleBootPointerUp}
     on:keydown={(event) => {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
@@ -2719,86 +2580,80 @@
       }
     }}
   >
-    <video
-      bind:this={bootVideoRef}
-      class="boot-video"
-      autoplay
-      preload="auto"
-      muted={bootMuted}
-      playsinline
-      webkit-playsinline="true"
-      on:loadedmetadata={() => {
-        if (bootVideoRef) {
-          bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
-          if (!bootResumeAtSix) {
-            const duration = Number.isFinite(bootVideoRef.duration) ? bootVideoRef.duration : 9;
-            bootRevealAt = Math.min(9, Math.max(1.8, duration - 0.35));
+    {#if !bootError}
+      <video
+        bind:this={bootVideoRef}
+        class="boot-video"
+        autoplay
+        preload="auto"
+        muted={bootMuted}
+        playsinline
+        webkit-playsinline="true"
+        on:loadedmetadata={() => {
+          if (bootVideoRef) {
+            bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
+            if (!bootResumeAtSix) {
+              const duration = Number.isFinite(bootVideoRef.duration) ? bootVideoRef.duration : 9;
+              bootRevealAt = Math.min(9, Math.max(1.8, duration - 0.35));
+            }
           }
-          for (const track of Array.from(bootVideoRef.textTracks ?? [])) {
-            track.mode = 'disabled';
+          if (stage === 'boot' && !bootTextVisible) {
+            armBootRescueTimer();
+            armBootPlaybackRetry();
           }
-        }
-        if (stage === 'boot' && !bootTextVisible) {
+        }}
+        on:timeupdate={() => {
+          if (!bootVideoRef) return;
+          if (bootResumeAtSix) {
+            if (bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
+              bootTextVisible = true;
+              clearBootRescueTimer();
+              clearBootPlaybackRetry();
+            }
+          } else {
+            if (bootVideoRef.currentTime >= bootRevealAt) {
+              bootTextVisible = true;
+              clearBootRescueTimer();
+              clearBootPlaybackRetry();
+            }
+          }
+        }}
+        on:playing={() => {
+          if (stage !== 'boot') return;
           armBootRescueTimer();
-          armBootPlaybackRetry();
-        }
-      }}
-      on:timeupdate={() => {
-        if (!bootVideoRef) return;
-        if (bootResumeAtSix) {
-          if (bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
-            bootTextVisible = true;
-            clearBootRescueTimer();
-            clearBootPlaybackRetry();
+        }}
+        on:waiting={() => {
+          if (stage === 'boot' && !bootTextVisible) {
+            armBootRescueTimer();
           }
-        } else {
-          if (bootVideoRef.currentTime >= bootRevealAt) {
-            bootTextVisible = true;
-            clearBootRescueTimer();
-            clearBootPlaybackRetry();
+        }}
+        on:stalled={() => {
+          if (stage === 'boot' && !bootTextVisible) {
+            armBootRescueTimer();
           }
-        }
-      }}
-      on:playing={() => {
-        if (stage !== 'boot') return;
-        armBootRescueTimer();
-        if (bootResumeAtSix && bootVideoRef && bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
+        }}
+        on:suspend={() => {
+          if (stage === 'boot' && !bootTextVisible) {
+            armBootRescueTimer();
+          }
+        }}
+        on:ended={() => {
           bootTextVisible = true;
           clearBootRescueTimer();
-        }
-      }}
-      on:waiting={() => {
-        if (stage === 'boot' && !bootTextVisible) {
-          armBootRescueTimer();
-        }
-      }}
-      on:stalled={() => {
-        if (stage === 'boot' && !bootTextVisible) {
-          armBootRescueTimer();
-        }
-      }}
-      on:suspend={() => {
-        if (stage === 'boot' && !bootTextVisible) {
-          armBootRescueTimer();
-        }
-      }}
-      on:ended={() => {
-        bootTextVisible = true;
-        clearBootRescueTimer();
-        clearBootPlaybackRetry();
-      }}
-      on:error={() => {
-        bootError = true;
-        bootTextVisible = true;
-        bootStarted = false;
-        clearBootRescueTimer();
-        clearBootPlaybackRetry();
-      }}
-    >
-      <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
-      <source src="/boot.mp4" type="video/mp4" />
-      <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
-    </video>
+          clearBootPlaybackRetry();
+        }}
+        on:error={() => {
+          bootError = true;
+          bootTextVisible = true;
+          bootStarted = false;
+          clearBootRescueTimer();
+          clearBootPlaybackRetry();
+        }}
+      >
+        <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
+        <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
+      </video>
+    {/if}
 
     <div class="boot-vignette"></div>
     {#if transitionOverlay}
@@ -2811,12 +2666,15 @@
 
     {#if !bootTextVisible}
       <div class="boot-skip-hint" transition:fade={{ duration: 600 }}>
-        <div>{bootTouchHint ? 'Double-tap to skip intro' : 'Press spacebar to skip intro'}</div>
-        <div class="boot-mute-hint">{bootTouchHint ? (bootMuted ? 'Tap once to enable audio' : 'Tap once to mute') : (bootMuted ? 'Click to enable audio' : 'Click to mute')}</div>
+        <div>Press spacebar to skip intro</div>
+        <div class="boot-mute-hint">{bootMuted ? 'Click to enable audio' : 'Click to mute'}</div>
       </div>
     {/if}
 
     {#if bootTextVisible}
+      <div class="boot-brand" transition:fade={{ duration: 500 }}>
+        <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--boot" draggable="false" />
+      </div>
       <div class="boot-options" transition:fade={{ duration: 500 }}>
         <button type="button" class="boot-option" on:mouseenter={() => (bootHover = 'Games')} on:click={() => handleBootPick('Games')}>
           <span class="boot-option-main">Games</span>
@@ -2828,7 +2686,11 @@
     {/if}
 
     <div class="footer">
-      <p>&copy; 2026 ALEX PRITT</p>
+      <p class="footer-content">
+        <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="footer-brand-logo" draggable="false" />
+        <span class="footer-delimiter">|</span>
+        <span>&copy; 2026 ALEX PRITT</span>
+      </p>
     </div>
   </div>
 {:else}
@@ -2842,21 +2704,24 @@
       <section class="console-screen">
         <div class="console-hud">
           <div class="hud-left console-header-shell">
-            {#if consoleHeaderOption?.logoImage && hoveredConsoleFadeVisible}
-              <img
-                src={consoleHeaderOption.logoImage}
-                alt={consoleHeaderOption.name}
-                class="console-header-logo"
-                draggable="false"
-              />
-            {:else}
-              <span class="console-header-copy">Console Library</span>
-            {/if}
+            <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
           </div>
-          <div class="hud-right console-header-count">
-            {#key hoveredConsole ? consoleSubheaderLabel : consoleLibraryCountLabel}
-              <span class="console-header-copy console-header-count-copy">{hoveredConsole ? consoleSubheaderLabel : consoleLibraryCountLabel}</span>
-            {/key}
+          <div class="hud-right console-header-count console-header-right">
+            {#if consoleHeaderOption?.logoImage && hoveredConsoleFadeVisible}
+              <div class="console-hover-meta">
+                <img
+                  src={consoleHeaderOption.logoImage}
+                  alt={consoleHeaderOption.name}
+                  class="console-header-logo console-header-logo--hover"
+                  draggable="false"
+                />
+                <span class="console-header-copy console-header-count-copy console-header-subcopy">{hoveredConsoleCountLabel}</span>
+              </div>
+            {:else}
+              <div class="console-header-static-copy">
+                <span class="console-header-copy console-header-count-copy">{consoleLibraryCountLabel}</span>
+              </div>
+            {/if}
           </div>
         </div>
         <div class="console-grid">
@@ -2882,6 +2747,7 @@
                   alt={console.name}
                   class="console-logo-img"
                   draggable="false"
+                  on:load={normalizeConsoleLogoScale}
                   on:error={hideLogoOnError}
                 />
               {:else}
@@ -2899,16 +2765,7 @@
       <section class="library-screen">
         <div class="library-hud">
           <div class="library-hud-left">
-            {#if category === 'Games' && selectedLibraryConsole?.logoImage}
-              <img
-                src={selectedLibraryConsole.logoImage}
-                alt={libraryHeaderLeft}
-                class="library-console-logo"
-                draggable="false"
-              />
-            {:else}
-              <div>{libraryHeaderLeft}</div>
-            {/if}
+            <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
           </div>
 
           {#if stage === 'library'}
@@ -2971,10 +2828,9 @@
                       class="players-dropdown-backdrop"
                       type="button"
                       aria-label="Close dropdown"
-                      transition:fade={{ duration: prefersReducedMotion ? 0 : 120 }}
                       on:click={() => (playersDropdownOpen = false)}
                     ></button>
-                    <div class="players-dropdown" role="menu" transition:popupDropdownTransition>
+                    <div class="players-dropdown" role="menu">
                       <button type="button" role="menuitem"
                         class:selected={libraryPlayersFilter === null}
                         on:click={() => { libraryPlayersFilter = null; playersDropdownOpen = false; page = 0; }}
@@ -2992,8 +2848,15 @@
             </div>
           {/if}
 
-          {#if libraryHeaderRight}
-            <div class="library-hud-right">{libraryHeaderRight}</div>
+          {#if stage === 'library' && category === 'Games' && selectedLibraryConsole?.logoImage}
+            <div class="library-hud-right console-header-right">
+              <div class="console-hover-meta">
+                <img src={selectedLibraryConsole.logoImage} alt={selectedLibraryConsole.name} class="console-header-logo" draggable="false" />
+                <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryHeaderRight}</span>
+              </div>
+            </div>
+          {:else if libraryHeaderRight}
+            <div class="library-hud-right library-header-right-text">{libraryHeaderRight}</div>
           {/if}
         </div>
 
@@ -3873,7 +3736,11 @@
 
 
     <div class="footer">
-      <p>&copy; 2026 ALEX PRITT</p>
+      <p class="footer-content">
+        <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="footer-brand-logo" draggable="false" />
+        <span class="footer-delimiter">|</span>
+        <span>&copy; 2026 ALEX PRITT</span>
+      </p>
     </div>
   </div>
 {/if}

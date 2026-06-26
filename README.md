@@ -17,6 +17,7 @@ A personal web application that catalogs a physical media collection in a PlaySt
 - Boot intro is streamed from a range-enabled backend endpoint so skip/resume seek behavior is consistent
 - Console selection grid for Games; direct library for Music
 - Library grid with per-page animations, search bar (collapsible), and player-count filter
+- Library header refinements: search/player filters are right-aligned beside the console header panel, search expands with blue hover fade, and controller icon tint animates on hover
 - Details popup with rotating disc (Games) or vinyl sleeve (Music), full release date, genre, description, and scrollable notes
 - Smooth fade transitions between all stages; fade-to-black when returning to boot screen
 - Empty-state memory card graphic when a console has no games
