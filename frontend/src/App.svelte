@@ -1717,25 +1717,31 @@
       for (const line of lines) {
         try {
           let response: Response | null = null;
-          for (let endpointIndex = 0; endpointIndex < endpointCandidates.length; endpointIndex += 1) {
-            const endpoint = endpointCandidates[endpointIndex];
-            const platformAliases = launchboxPlatformCandidates(bulkPlatform);
-            const attemptedPlatform = libraryAdminTab === 'games'
-              ? (platformAliases.length > 1 ? platformAliases[1] : (platformAliases[0] ?? bulkPlatform))
-              : '';
-            const nextResponse = await fetch(endpoint, {
-              method: 'POST',
-              headers: mediaHeaders(),
-              body: JSON.stringify(
-                libraryAdminTab === 'games'
-                  ? { items: [line], platform: attemptedPlatform }
-                  : { items: [line] }
-              ),
-            });
+          const platformCandidates = libraryAdminTab === 'games'
+            ? (() => {
+              const aliases = launchboxPlatformCandidates(bulkPlatform);
+              return aliases.length ? aliases : [bulkPlatform];
+            })()
+            : [''];
 
-            response = nextResponse;
-            if (nextResponse.status !== 404 && nextResponse.status !== 405) {
-              break;
+          endpointLoop: for (let endpointIndex = 0; endpointIndex < endpointCandidates.length; endpointIndex += 1) {
+            const endpoint = endpointCandidates[endpointIndex];
+            for (const attemptedPlatform of platformCandidates) {
+              const nextResponse = await fetch(endpoint, {
+                method: 'POST',
+                headers: mediaHeaders(),
+                body: JSON.stringify(
+                  libraryAdminTab === 'games'
+                    ? { items: [line], platform: attemptedPlatform }
+                    : { items: [line] }
+                ),
+              });
+
+              response = nextResponse;
+              // Retry legacy routes and platform aliases only for likely route/match issues.
+              if (![404, 405, 409].includes(nextResponse.status)) {
+                break endpointLoop;
+              }
             }
           }
 
@@ -2556,6 +2562,14 @@
     return `data:${inferImageMimeTypeFromBase64(logoImage)};base64,${logoImage}`;
   }
 
+  function normalizeSystemId(name: string) {
+    return name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
   async function addSystem() {
     systemError = '';
     const name = newSystemName.trim();
@@ -2568,7 +2582,11 @@
       systemError = 'System already exists.';
       return;
     }
-    const id = name.toLowerCase().replace(/\s+/g, '-');
+    const id = normalizeSystemId(name);
+    if (!id) {
+      systemError = 'System name must contain letters or numbers.';
+      return;
+    }
     
     try {
       const response = await fetch('/api/systems', {
@@ -2600,7 +2618,7 @@
   async function removeSystem(systemId: string) {
     const removedSystem = editableSystems.find((s) => s.id === systemId);
     try {
-      const response = await fetch(`/api/systems/${systemId}`, {
+      const response = await fetch(`/api/systems/${encodeURIComponent(systemId)}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${adminToken}` },
       });
@@ -2629,7 +2647,7 @@
       const system = editableSystems.find((s) => s.id === systemId);
       if (!system) return;
       
-      const response = await fetch(`/api/systems/${systemId}`, {
+      const response = await fetch(`/api/systems/${encodeURIComponent(systemId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
         body: JSON.stringify({

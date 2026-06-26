@@ -1093,10 +1093,10 @@ def section_images_by_region(detail_soup: BeautifulSoup, section_title: str, reg
             heading = item
             break
     if not heading:
-        return None
+        return []
     article = heading.find_parent("article")
     if not article:
-        return None
+        return []
     images = []
     for image in article.find_all("img"):
         image_url = image.get("src")
@@ -1127,6 +1127,8 @@ def section_images_from_titles(detail_soup: BeautifulSoup, titles: List[str], re
     collected: List[str] = []
     for title in titles:
         image_urls = section_images_by_region(detail_soup, title, region)
+        if not image_urls:
+            continue
         for image_url in image_urls:
             if image_url and image_url not in collected:
                 collected.append(image_url)
