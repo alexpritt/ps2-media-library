@@ -2506,8 +2506,11 @@
         }
         await loadSystemsFromAPI();
       } else {
-        const error = await response.json();
-        systemError = error.detail || 'Failed to delete system';
+        const error = await response.json().catch(() => null);
+        const detail = typeof error?.detail === 'string' && error.detail.trim()
+          ? error.detail
+          : response.statusText || `Request failed (${response.status})`;
+        systemError = detail;
       }
     } catch (error) {
       systemError = `Error deleting system: ${error}`;
