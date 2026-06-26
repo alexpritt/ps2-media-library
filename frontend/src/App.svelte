@@ -1881,7 +1881,7 @@
       const title = (adminForm.title ?? '').trim();
       const requestedPlatform = ((adminForm.platform ?? '').trim() || (selectedConsole ?? '').trim());
       const platformCandidates = launchboxPlatformCandidates(requestedPlatform);
-      const endpointCandidates = ['/api/launchbox/game-data', '/api/game-data'];
+      const endpointCandidates = ['/api/launchbox/game-data'];
 
       let response: Response | null = null;
       let data: any = null;

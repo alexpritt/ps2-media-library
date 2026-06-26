@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
+from difflib import SequenceMatcher
 import secrets
 import base64
 import os
@@ -1227,40 +1228,19 @@ def launchbox_disc_section_titles(platform: Optional[str]) -> List[str]:
     return ["Disc"]
 
 
-def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
-    search_url = f"https://gamesdb.launchbox-app.com/games/results/{quote(title.strip().lower())}"
-    search_response = requests.get(search_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-    search_response.raise_for_status()
-    search_soup = BeautifulSoup(search_response.text, "html.parser")
+def choose_launchbox_candidate(candidates: list, title: str, platform: str) -> dict:
+    """Select the best matching candidate from LaunchBox search results.
 
-    candidates = []
-    for link in search_soup.find_all("a", href=True):
-        href = link.get("href", "")
-        if not href.startswith("/games/details/"):
-            continue
-        heading = link.find("h3")
-        if not heading:
-            continue
-        candidate_title = heading.get_text(" ", strip=True)
-        platform_block = link.find("p")
-        candidate_platform = platform_block.get_text(" ", strip=True) if platform_block else ""
-        candidates.append({
-            "title": candidate_title,
-            "platform": candidate_platform,
-            "href": href,
-        })
-
-    if not candidates:
-        raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}".')
-
+    Raises HTTPException 404 if no candidate meets the confidence threshold.
+    Raises HTTPException 409 if multiple candidates are too close to disambiguate.
+    Returns the best matching candidate dict.
+    """
     target_title = normalize_launchbox_key(title)
     target_title_loose = normalize_title_for_match(title)
     target_tokens = set(title_tokens(title))
     target_platform = normalize_launchbox_key(platform)
 
     def score(candidate: dict) -> int:
-        from difflib import SequenceMatcher
-
         candidate_title = normalize_launchbox_key(candidate["title"])
         candidate_title_loose = normalize_title_for_match(candidate["title"])
         candidate_tokens = set(title_tokens(candidate["title"]))
@@ -1288,10 +1268,55 @@ def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, Beaut
             candidate_score += 10
         return candidate_score
 
-    best_match = max(candidates, key=score)
+    sorted_candidates = sorted(candidates, key=score, reverse=True)
+    best_match = sorted_candidates[0]
     best_score = score(best_match)
-    if best_score < 50:
+
+    # 55 is the minimum meaningful score: a platform-only match tops out at ~45,
+    # so a score ≥ 55 requires at least some title relevance.
+    if best_score < 55:
         raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}" for {platform}.')
+
+    if len(sorted_candidates) > 1:
+        second_score = score(sorted_candidates[1])
+        # A gap < 30 points between the top two candidates means neither stands out
+        # clearly enough to auto-select; surface a 409 so the caller can disambiguate.
+        if second_score >= 55 and (best_score - second_score) < 30:
+            raise HTTPException(
+                status_code=409,
+                detail=f'LaunchBox found multiple close matches for "{title}". Please be more specific.',
+            )
+
+    return best_match
+
+
+def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
+    search_url = f"https://gamesdb.launchbox-app.com/games/results?search={quote(title.strip().lower())}"
+    search_response = requests.get(search_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+    search_response.raise_for_status()
+    search_soup = BeautifulSoup(search_response.text, "html.parser")
+
+    candidates = []
+    for link in search_soup.find_all("a", href=True):
+        href = link.get("href", "")
+        if not href.startswith("/games/details/"):
+            continue
+        heading = link.find("h3")
+        if not heading:
+            continue
+        candidate_title = heading.get_text(" ", strip=True)
+        platform_block = link.find("p")
+        candidate_platform = platform_block.get_text(" ", strip=True) if platform_block else ""
+        candidates.append({
+            "title": candidate_title,
+            "platform": candidate_platform,
+            "href": href,
+        })
+
+    if not candidates:
+        raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}".')
+
+    best_match = choose_launchbox_candidate(candidates, title, platform)
 
     detail_url = urljoin("https://gamesdb.launchbox-app.com", best_match["href"])
     detail_response = requests.get(detail_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
