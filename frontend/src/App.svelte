@@ -359,7 +359,8 @@
   $: activeWishlistConsole = activeConsoleSource[0] ?? null;
   $: detailItem = selectedWishlistItem ?? selectedItem;
   $: detailIsWishlist = selectedWishlistItem !== null;
-  $: consoleHeaderOption = availableConsoles.find((item) => item.name === hoveredConsole) ?? null;
+  $: consoleHeaderSelection = hoveredConsole ?? (stage === 'console' ? selectedConsole : null);
+  $: consoleHeaderOption = availableConsoles.find((item) => item.name === consoleHeaderSelection) ?? null;
   $: if (stage === 'console' && hoveredConsole) {
     hoveredConsoleFadeVisible = true;
     if (hoveredConsoleFadeTimeout) clearTimeout(hoveredConsoleFadeTimeout);
@@ -383,7 +384,11 @@
     ? (libraryView === 'wishlist'
       ? gameWishlist.filter((item) => item.platform === hoveredConsole).length
       : allMedia.filter((item) => item.category === 'Games' && item.platform === hoveredConsole).length)
-    : null;
+    : stage === 'console' && selectedConsole
+      ? (libraryView === 'wishlist'
+        ? gameWishlist.filter((item) => item.platform === selectedConsole).length
+        : allMedia.filter((item) => item.category === 'Games' && item.platform === selectedConsole).length)
+      : null;
   $: hoveredConsoleCountLabel = hoveredConsoleGameCount !== null
     ? libraryView === 'wishlist'
       ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Item' : 'Items'} ON WISH LIST`
@@ -2402,8 +2407,8 @@
   }
 
   function onConsoleSelect(consoleName: string) {
+    selectedConsole = consoleName;
     if (libraryView === 'wishlist') {
-      selectedConsole = consoleName;
       void loadMedia('Games', consoleName);
       return;
     }
