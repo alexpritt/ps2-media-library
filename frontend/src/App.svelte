@@ -150,7 +150,9 @@
   let bootRescueTimeout: ReturnType<typeof setTimeout> | null = null;
   const BOOT_SKIP_TIME = 6;
   const BOOT_METADATA_TIMEOUT_MS = 3500;
+  const BOOT_METADATA_TIMEOUT_MOBILE_MS = 5000;
   const BOOT_RESCUE_TIMEOUT_MS = 5000;
+  const BOOT_RESCUE_TIMEOUT_MOBILE_MS = 6500;
 
   let transitionOverlay = false;
   let transitionOpacity = 0;
@@ -1483,6 +1485,41 @@
     }
   }
 
+  function isLikelyMobileOrConstrainedBootPath() {
+    if (typeof window === 'undefined') return false;
+
+    const touchLikely =
+      window.matchMedia('(pointer: coarse)').matches
+      || (navigator.maxTouchPoints ?? 0) > 0;
+
+    const conn = (navigator as Navigator & {
+      connection?: {
+        saveData?: boolean;
+        effectiveType?: string;
+      };
+    }).connection;
+
+    const constrainedNetwork =
+      !!conn?.saveData
+      || conn?.effectiveType === 'slow-2g'
+      || conn?.effectiveType === '2g'
+      || conn?.effectiveType === '3g';
+
+    return touchLikely || constrainedNetwork;
+  }
+
+  function getBootMetadataTimeoutMs() {
+    return isLikelyMobileOrConstrainedBootPath()
+      ? BOOT_METADATA_TIMEOUT_MOBILE_MS
+      : BOOT_METADATA_TIMEOUT_MS;
+  }
+
+  function getBootRescueTimeoutMs() {
+    return isLikelyMobileOrConstrainedBootPath()
+      ? BOOT_RESCUE_TIMEOUT_MOBILE_MS
+      : BOOT_RESCUE_TIMEOUT_MS;
+  }
+
   function armBootRescueTimer() {
     clearBootRescueTimer();
     const observedTime = bootVideoRef?.currentTime ?? 0;
@@ -1503,7 +1540,7 @@
       bootError = !bootVideoRef || bootVideoRef.readyState < 1;
       bootTextVisible = true;
       bootStarted = false;
-    }, BOOT_RESCUE_TIMEOUT_MS);
+    }, getBootRescueTimeoutMs());
   }
 
   async function waitForBootMetadata(video: HTMLVideoElement) {
@@ -1523,7 +1560,7 @@
       const timeoutId = setTimeout(() => {
         cleanup();
         reject(new Error('Boot metadata load timed out'));
-      }, BOOT_METADATA_TIMEOUT_MS);
+      }, getBootMetadataTimeoutMs());
 
       const cleanup = () => {
         clearTimeout(timeoutId);
