@@ -787,7 +787,8 @@ def fetch_music_album_data(album: str, artist: str) -> dict:
             cover_image = None
 
     genres = []
-    detail_genres = album_details.get("genres", {}).get("data", []) if isinstance(album_details.get("genres"), dict) else []
+    detail_genres_root = album_details.get("genres")
+    detail_genres = detail_genres_root.get("data", []) if isinstance(detail_genres_root, dict) else []
     for entry in detail_genres:
         if isinstance(entry, dict):
             genre_name = str(entry.get("name") or "").strip()
@@ -803,13 +804,14 @@ def fetch_music_album_data(album: str, artist: str) -> dict:
 
     detail_artist = album_details.get("artist")
     best_artist = best.get("artist")
+    resolved_artist = artist
+    if isinstance(detail_artist, dict):
+        resolved_artist = detail_artist.get("name", artist)
+    elif isinstance(best_artist, dict):
+        resolved_artist = best_artist.get("name", artist)
     return {
         "title": album_details.get("title") or best.get("title", album),
-        "artist": (
-            detail_artist.get("name", artist)
-            if isinstance(detail_artist, dict)
-            else (best_artist.get("name", artist) if isinstance(best_artist, dict) else artist)
-        ),
+        "artist": resolved_artist,
         "genre": genres[0] if genres else "",
         "release_date": release_date,
         "year_released": year_released,
