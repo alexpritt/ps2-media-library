@@ -100,6 +100,47 @@ npm run build
 
 Set `VITE_API_BASE_URL` in your Pages environment to your Fly.io backend URL.
 
+## Mobile QA Checklist
+
+Run this before shipping UI changes:
+
+- Devices: iPhone SE/12/15, Pixel 5/8, and one small tablet
+- Orientation: verify portrait and landscape on phones
+- Console view: no clipped headers, no hidden controls, and no horizontal scroll
+- Library view: search toggle, players filter, card grid, and pager all usable by touch
+- Details view: title/tags/notes readable, actions reachable, no clipping, and smooth scroll
+- Admin view: panel, forms, tabs, list actions, and upload pickers fit without overflow
+- Touch targets: primary controls (Back/Admin/Pager/Edit/Delete) are comfortably tappable (44px+)
+- Final check: `cd frontend && npm run build` succeeds
+
+### Mobile QA Results Template
+
+Use this table after each mobile QA run:
+
+| Date | Build/Commit | Tester | Notes |
+|---|---|---|---|
+| YYYY-MM-DD | `<hash or build id>` | `<name>` | `<overall summary>` |
+
+| Device | OS/Browser | Orientation | Console | Library | Details | Admin | Touch Targets | Result |
+|---|---|---|---|---|---|---|---|---|
+| iPhone SE | iOS / Safari | Portrait | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail |
+| iPhone SE | iOS / Safari | Landscape | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail |
+| iPhone 12/15 | iOS / Safari | Portrait | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail |
+| iPhone 12/15 | iOS / Safari | Landscape | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail |
+| Pixel 5/8 | Android / Chrome | Portrait | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail |
+| Pixel 5/8 | Android / Chrome | Landscape | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail |
+| Small tablet | iPadOS or Android | Portrait | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail |
+| Small tablet | iPadOS or Android | Landscape | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail | ☐ Pass ☐ Fail |
+
+Use this section for failures and follow-ups:
+
+- Issue:
+- Device/Orientation:
+- Steps to reproduce:
+- Expected:
+- Actual:
+- Fix PR/Commit:
+
 ### 🔐 Admin password
 Set `ADMIN_PASSWORD` (or `ADMIN_PASSWORD_HASH`) as an environment variable for Fly.io. Change this before exposing the app externally.
 
