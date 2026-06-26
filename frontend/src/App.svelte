@@ -3645,9 +3645,9 @@
 
         {#if consoleTotalPages > 1}
           <div class="pager">
-            <button type="button" on:click={() => setPage(page - 1)} disabled={page === 0}>Back</button>
-            <div class="pager-info">Page {page + 1} / {consoleTotalPages}</div>
-            <button type="button" on:click={() => setPage(page + 1)} disabled={page >= consoleTotalPages - 1}>Next</button>
+            <button type="button" on:click={() => setPage(page - 1)} disabled={page === 0} aria-label="Previous page">←</button>
+            <div class="pager-info">{page + 1} / {consoleTotalPages}</div>
+            <button type="button" on:click={() => setPage(page + 1)} disabled={page >= consoleTotalPages - 1} aria-label="Next page">→</button>
           </div>
         {/if}
       </section>
@@ -3831,9 +3831,9 @@
 
         {#if filteredTotalPages > 1}
           <div class="pager">
-            <button type="button" on:click={() => setPage(page - 1)} disabled={page === 0}>Back</button>
-            <div class="pager-info">Page {page + 1} / {filteredTotalPages}</div>
-            <button type="button" on:click={() => setPage(page + 1)} disabled={page >= filteredTotalPages - 1}>Next</button>
+            <button type="button" on:click={() => setPage(page - 1)} disabled={page === 0} aria-label="Previous page">←</button>
+            <div class="pager-info">{page + 1} / {filteredTotalPages}</div>
+            <button type="button" on:click={() => setPage(page + 1)} disabled={page >= filteredTotalPages - 1} aria-label="Next page">→</button>
           </div>
         {/if}
       </section>
@@ -4427,9 +4427,9 @@
 
               {#if adminActiveTotalPages > 1}
                 <div class="admin-list-pager">
-                  <button type="button" on:click={() => (adminListPage = Math.max(0, adminListPage - 1))} disabled={adminListPage === 0}>Back</button>
-                  <div class="admin-pager-info">Page {adminListPage + 1} / {adminActiveTotalPages}</div>
-                  <button type="button" on:click={() => (adminListPage = Math.min(adminActiveTotalPages - 1, adminListPage + 1))} disabled={adminListPage >= adminActiveTotalPages - 1}>Next</button>
+                  <button type="button" on:click={() => (adminListPage = Math.max(0, adminListPage - 1))} disabled={adminListPage === 0} aria-label="Previous page">←</button>
+                  <div class="admin-pager-info">{adminListPage + 1} / {adminActiveTotalPages}</div>
+                  <button type="button" on:click={() => (adminListPage = Math.min(adminActiveTotalPages - 1, adminListPage + 1))} disabled={adminListPage >= adminActiveTotalPages - 1} aria-label="Next page">→</button>
                 </div>
               {/if}
 
@@ -4982,4 +4982,3 @@
     </div>
   </div>
 {/if}
-
