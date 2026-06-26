@@ -145,6 +145,11 @@ class LaunchboxGameArtOptionsRequest(SQLModel):
     art_type: str
 
 
+class DeezerMusicDataRequest(SQLModel):
+    title: str
+    artist: str
+
+
 class BulkGamesRequest(SQLModel):
     items: List[str]
     platform: Optional[str] = None
@@ -739,7 +744,7 @@ def score_music_match(item: dict, artist: str, album: str) -> int:
 
 
 def fetch_music_album_data(album: str, artist: str) -> dict:
-    """Fetch album cover art from Deezer API."""
+    """Fetch album metadata and cover art from Deezer API."""
     url = f"https://api.deezer.com/search/album?q={quote(artist + ' ' + album)}&limit=25"
     response = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
     response.raise_for_status()
@@ -749,16 +754,67 @@ def fetch_music_album_data(album: str, artist: str) -> dict:
 
     ranked = sorted(items, key=lambda i: score_music_match(i, artist, album), reverse=True)
     best = ranked[0]
-    cover_url = best.get("cover_xl") or best.get("cover_big") or best.get("cover_medium") or ""
+    album_details: dict = {}
+    album_id = best.get("id")
+    if album_id:
+        try:
+            detail_response = requests.get(
+                f"https://api.deezer.com/album/{album_id}",
+                timeout=20,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            detail_response.raise_for_status()
+            detail_payload = detail_response.json()
+            if isinstance(detail_payload, dict):
+                album_details = detail_payload
+        except Exception:
+            album_details = {}
+
+    cover_url = (
+        album_details.get("cover_xl")
+        or album_details.get("cover_big")
+        or album_details.get("cover_medium")
+        or best.get("cover_xl")
+        or best.get("cover_big")
+        or best.get("cover_medium")
+        or ""
+    )
     cover_image = None
     if cover_url:
         try:
             cover_image = fetch_image_data_uri(cover_url)
         except Exception:
             cover_image = None
+
+    genres = []
+    detail_genres_root = album_details.get("genres")
+    detail_genres = detail_genres_root.get("data", []) if isinstance(detail_genres_root, dict) else []
+    for entry in detail_genres:
+        if isinstance(entry, dict):
+            genre_name = str(entry.get("name") or "").strip()
+            if genre_name:
+                genres.append(genre_name)
+
+    release_date = str(album_details.get("release_date") or "").strip() or None
+    year_released = None
+    if release_date:
+        year_match = re.match(r"^(\d{4})", release_date)
+        if year_match:
+            year_released = int(year_match.group(1))
+
+    detail_artist = album_details.get("artist")
+    best_artist = best.get("artist")
+    resolved_artist = artist
+    if isinstance(detail_artist, dict):
+        resolved_artist = detail_artist.get("name", artist)
+    elif isinstance(best_artist, dict):
+        resolved_artist = best_artist.get("name", artist)
     return {
-        "title": best.get("title", album),
-        "artist": best.get("artist", {}).get("name", artist) if isinstance(best.get("artist"), dict) else artist,
+        "title": album_details.get("title") or best.get("title", album),
+        "artist": resolved_artist,
+        "genre": genres[0] if genres else "",
+        "release_date": release_date,
+        "year_released": year_released,
         "coverImage": cover_image,
     }
 
@@ -1888,6 +1944,22 @@ def fetch_game_art_options(payload: LaunchboxGameArtOptionsRequest, authorizatio
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Could not fetch art options: {exc}") from exc
+
+
+@app.post("/api/deezer/music-data")
+def fetch_music_data(payload: DeezerMusicDataRequest, authorization: Optional[str] = Header(default=None)) -> dict:
+    require_admin(authorization)
+    title = payload.title.strip()
+    artist = payload.artist.strip()
+    if not title or not artist:
+        raise HTTPException(status_code=400, detail="Album title and artist are required.")
+
+    try:
+        return fetch_music_album_data(title, artist)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not fetch music data: {exc}") from exc
 
 
 @app.post("/api/bulk/games")
