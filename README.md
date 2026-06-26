@@ -38,6 +38,8 @@ npm install
 npm run dev
 ```
 
+The Vite dev server now proxies `/api/*` to `http://127.0.0.1:8000` by default, so running the backend on port `8000` is enough for local end-to-end testing.
+
 Optional production build check:
 
 ```bash
@@ -46,13 +48,11 @@ npm run build
 
 ## Environment Notes
 
-- Set `VITE_API_BASE_URL` for the frontend to point at your backend.
+- Local dev uses the Vite proxy automatically. To point the dev server at a different backend, set `VITE_API_PROXY_TARGET`.
 - Set admin auth via `ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH`.
-- Optional boot video sources:
-  - `VITE_BOOT_INTRO_SRC`
-  - `VITE_BOOT_LOOP_SRC`
+- Optional boot intro source: `VITE_BOOT_INTRO_SRC`
 
-If intro/loop values are not provided, the app falls back to the legacy single boot-video source behavior.
+If `VITE_BOOT_INTRO_SRC` is not set, the frontend falls back to the local public asset at `/boot.mp4`.
 
 ## Deploy
 

@@ -8,6 +8,22 @@
   type Stage = 'boot' | 'console' | 'library' | 'details';
   type Category = 'Games' | 'Music';
   type GameRating = 'RP' | 'E' | 'E10+' | 'T' | 'M' | 'AO';
+  type LibraryView = 'owned' | 'wishlist';
+  type AdminLibraryTab = 'games' | 'music' | 'wishlists';
+
+  type WishlistKind = 'console' | 'games' | 'music';
+
+  type WishlistMediaItem = MediaItem & {
+    wishlistId: string;
+    wishlistKind: 'games' | 'music';
+  };
+
+  type WishlistSystemItem = EditableSystem & {
+    wishlistId: string;
+    wishlistKind: 'console';
+  };
+
+  type WishlistAdminSection = 'console' | 'games' | 'music';
 
   type HistoryState = {
     stage: Stage;
@@ -35,6 +51,19 @@
     spine_image: string | null;
     disc_image: string | null;
     notes: string;
+    gameplayRating: number | null;
+    plotRating: number | null;
+    starRating: number | null;
+  };
+
+  type WishlistSystemForm = {
+    id: string | null;
+    name: string;
+    shortName: string;
+    logo: string;
+    logoImage: string | null;
+    caseType: '' | 'disc' | 'cartridge' | 'hybrid';
+    appearancePreset: string;
   };
 
   type GameArtField = 'cover_image' | 'spine_image' | 'disc_image';
@@ -129,13 +158,23 @@
   ];
   const cooperativeOptions = ['No', 'Yes'];
   const SITE_LOGO_SRC = '/brand-logo.png';
+  const BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || '/boot.mp4';
+  const CONSOLE_WISHLIST_KEY = 'ps2-console-wishlist';
+  const GAME_WISHLIST_KEY = 'ps2-game-wishlist';
+  const MUSIC_WISHLIST_KEY = 'ps2-music-wishlist';
 
   let stage: Stage = 'boot';
   let category: Category | null = null;
   let selectedConsole: string | null = null;
+  let libraryView: LibraryView = 'owned';
   let media: MediaItem[] = [];
   let allMedia: MediaItem[] = [];
   let selectedItem: MediaItem | null = null;
+  let selectedWishlistItem: WishlistMediaItem | null = null;
+  let selectedWishlistConsole: WishlistSystemItem | null = null;
+  let consoleWishlist: WishlistSystemItem[] = [];
+  let gameWishlist: WishlistMediaItem[] = [];
+  let musicWishlist: WishlistMediaItem[] = [];
 
   let bootVideoRef: HTMLVideoElement | null = null;
   let bootMuted = true;  // true = muted until first user interaction
@@ -181,8 +220,19 @@
   let adminToken = '';
   let adminOpen = false;
     let adminMode: 'hub' | 'systems' | 'library' = 'hub';
-    let libraryAdminTab: 'games' | 'music' = 'games';
+    let libraryAdminTab: AdminLibraryTab = 'games';
     let adminContextItem: MediaItem | null = null;
+  let wishlistAdminSection: WishlistAdminSection = 'console';
+  let wishlistSystemForm: WishlistSystemForm = {
+    id: null,
+    name: '',
+    shortName: '',
+    logo: '',
+    logoImage: null,
+    caseType: '',
+    appearancePreset: '',
+  };
+  let wishlistEditingId: string | null = null;
   let adminPublisherChoice = '';
   let adminGameGenreChoice = '';
   let adminMusicGenreChoice = '';
@@ -231,6 +281,8 @@
   let librarySearchInput: HTMLInputElement | null = null;
   let libraryPlayersFilter: number | null = null;
   let playersDropdownOpen = false;
+  let libraryStarFilter: number | null = null;
+  let starDropdownOpen = false;
   let detailsManualRotateY = 0;
   let detailsDragActive = false;
   let detailsDragStartX = 0;
@@ -246,10 +298,27 @@
   let confirmOpen = false;
   let confirmMode: 'edit' | 'delete' = 'delete';
   let confirmItem: MediaItem | null = null;
+  let confirmWishlistKind: WishlistKind | null = null;
+
+  function combinedStarRating(item: MediaItem): number | null {
+    if (item.category === 'Games') {
+      const gameplayRating = item.gameplay_rating;
+      const plotRating = item.plot_rating;
+      if (gameplayRating != null && plotRating != null) return Math.round((gameplayRating + plotRating) / 2);
+      if (gameplayRating != null) return gameplayRating;
+      if (plotRating != null) return plotRating;
+      return null;
+    }
+    return item.star_rating ?? null;
+  }
 
   $: isAdmin = adminToken.length > 0;
   $: availableConsoles = buildConsoleList(allMedia, editableSystems);
+  $: activeConsoleSource = libraryView === 'wishlist' ? consoleWishlist : availableConsoles;
   $: activeConsole = availableConsoles[0] ?? fallbackConsoles[0];
+  $: activeWishlistConsole = activeConsoleSource[0] ?? null;
+  $: detailItem = selectedWishlistItem ?? selectedItem;
+  $: detailIsWishlist = selectedWishlistItem !== null;
   $: consoleHeaderOption = availableConsoles.find((item) => item.name === hoveredConsole) ?? null;
   $: if (stage === 'console' && hoveredConsole) {
     hoveredConsoleFadeVisible = true;
@@ -266,18 +335,23 @@
     }
   }
   $: totalGameLibraryCount = allMedia.filter((item) => item.category === 'Games').length;
-  $: consoleLibraryCountLabel = `${totalGameLibraryCount} ${totalGameLibraryCount === 1 ? 'Game' : 'Games'} in Library`;
+  $: totalConsoleWishlistCount = consoleWishlist.length;
+  $: consoleLibraryCountLabel = libraryView === 'wishlist'
+    ? `${totalConsoleWishlistCount} ${totalConsoleWishlistCount === 1 ? 'Console' : 'Consoles'} on Wish List`
+    : `${totalGameLibraryCount} ${totalGameLibraryCount === 1 ? 'Game' : 'Games'} in Library`;
   $: hoveredConsoleGameCount = hoveredConsole
-    ? allMedia.filter((item) => item.category === 'Games' && item.platform === hoveredConsole).length
+    ? (libraryView === 'wishlist'
+      ? gameWishlist.filter((item) => item.platform === hoveredConsole).length
+      : allMedia.filter((item) => item.category === 'Games' && item.platform === hoveredConsole).length)
     : null;
   $: hoveredConsoleCountLabel = hoveredConsoleGameCount !== null
-    ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Game' : 'Games'} in Library`
+    ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? (libraryView === 'wishlist' ? 'Item' : 'Game') : 'Items'} ${libraryView === 'wishlist' ? 'on Wish List' : 'in Library'}`
     : consoleLibraryCountLabel;
   $: currentItems = pagedItems();
   $: totalPages = Math.ceil(media.length / itemsPerPage);
   $: libraryCountLabel = category === 'Music'
-    ? `${media.length} ${media.length === 1 ? 'Album' : 'Albums'} in Library`
-    : `${media.length} ${media.length === 1 ? 'Game' : 'Games'} in ${selectedConsole ?? activeConsole.name} Library`;
+    ? `${media.length} ${media.length === 1 ? 'Album' : 'Albums'} ${libraryView === 'wishlist' ? 'on Wish List' : 'in Library'}`
+    : `${media.length} ${media.length === 1 ? 'Game' : 'Games'} ${libraryView === 'wishlist' ? 'on' : 'in'} ${(selectedConsole ?? activeConsole.name)} ${libraryView === 'wishlist' ? 'Wish List' : 'Library'}`;
   $: adminConsoleOptions = availableConsoles.map((item) => item.name);
   $: adminGameGenreOptions = buildGameGenreOptions(allMedia);
   $: adminMusicGenreOptions = buildMusicGenreOptions(allMedia);
@@ -289,20 +363,50 @@
     if (adminSearchPlatform !== 'All' && item.platform !== adminSearchPlatform) return false;
     return true;
   });
+  $: adminWishlistGameItems = gameWishlist.filter((item) => {
+    if (adminSearchQuery.trim() && !item.title.toLowerCase().includes(adminSearchQuery.toLowerCase().trim())) return false;
+    if (adminSearchPlatform !== 'All' && item.platform !== adminSearchPlatform) return false;
+    return true;
+  });
+  $: adminWishlistMusicItems = musicWishlist.filter((item) => {
+    if (adminSearchQuery.trim() && !item.title.toLowerCase().includes(adminSearchQuery.toLowerCase().trim())) return false;
+    return true;
+  });
+  $: adminWishlistConsoleItems = consoleWishlist.filter((item) => {
+    if (adminSearchQuery.trim() && !item.name.toLowerCase().includes(adminSearchQuery.toLowerCase().trim())) return false;
+    return true;
+  });
+  $: activeAdminWishlistItems = wishlistAdminSection === 'console'
+    ? adminWishlistConsoleItems
+    : wishlistAdminSection === 'games'
+      ? adminWishlistGameItems
+      : adminWishlistMusicItems;
+  $: adminActiveTotalPages = libraryAdminTab === 'wishlists'
+    ? Math.ceil(Math.max(1, activeAdminWishlistItems.length) / adminListItemsPerPage)
+    : adminListTotalPages;
+  $: if (adminListPage >= adminActiveTotalPages) adminListPage = Math.max(0, adminActiveTotalPages - 1);
+  $: activeAdminWishlistPageItems = activeAdminWishlistItems.slice(
+    adminListPage * adminListItemsPerPage,
+    (adminListPage + 1) * adminListItemsPerPage,
+  );
   $: adminListTotalPages = Math.ceil(Math.max(1, adminFilteredMedia.length) / adminListItemsPerPage);
   $: if (adminListPage >= adminListTotalPages) adminListPage = Math.max(0, adminListTotalPages - 1);
   $: adminPagedMedia = adminFilteredMedia.slice(
     adminListPage * adminListItemsPerPage,
     (adminListPage + 1) * adminListItemsPerPage
   );
-  $: detailsConsoleLogo = selectedItem?.category === 'Games'
-    ? availableConsoles.find((item) => item.name === (selectedItem.platform ?? ''))?.logoImage ?? null
+  $: detailsConsoleLogo = detailItem?.category === 'Games'
+    ? availableConsoles.find((item) => item.name === (detailItem.platform ?? ''))?.logoImage ?? null
     : null;
 
-  $: selectedLibraryConsole = availableConsoles.find((item) => item.name === (selectedConsole ?? activeConsole.name)) ?? activeConsole;
-  $: libraryHeaderLeft = category === 'Music' ? 'Music Library' : selectedConsole ?? activeConsole.name;
+  $: selectedLibraryConsole = (libraryView === 'wishlist'
+    ? consoleWishlist.find((item) => item.name === (selectedConsole ?? activeWishlistConsole?.name ?? ''))
+    : availableConsoles.find((item) => item.name === (selectedConsole ?? activeConsole.name))) ?? activeConsole;
+  $: libraryHeaderLeft = category === 'Music'
+    ? `Music ${libraryView === 'wishlist' ? 'Wish List' : 'Library'}`
+    : selectedConsole ?? activeConsole.name;
   $: libraryHeaderRight = libraryCountLabel;
-  $: libraryGridKey = `${category ?? ''}-${selectedConsole ?? ''}-${librarySearch.trim().toLowerCase()}-${libraryPlayersFilter ?? 'all'}-${page}`;
+  $: libraryGridKey = `${libraryView}-${category ?? ''}-${selectedConsole ?? ''}-${librarySearch.trim().toLowerCase()}-${libraryPlayersFilter ?? 'all'}-${libraryStarFilter ?? 'all'}-${page}`;
   $: showEmptyGamesState = category === 'Games' && !libraryLoading && media.length === 0;
   $: selectedCategory = { category: category ?? 'Games', platform: selectedConsole ?? activeConsole.name };
   $: filteredMedia = (() => {
@@ -313,6 +417,12 @@
     }
     if (libraryPlayersFilter !== null) {
       result = result.filter((item) => (item.players ?? 0) >= libraryPlayersFilter!);
+    }
+    if (libraryStarFilter !== null) {
+      result = result.filter((item) => {
+        const combined = combinedStarRating(item);
+        return combined !== null && combined >= libraryStarFilter!;
+      });
     }
     return result;
   })();
@@ -498,6 +608,390 @@
     }
   }
 
+  function emptyWishlistSystemForm(): WishlistSystemForm {
+    return {
+      id: null,
+      name: '',
+      shortName: '',
+      logo: '',
+      logoImage: null,
+      caseType: '',
+      appearancePreset: '',
+    };
+  }
+
+  function createWishlistId(prefix: WishlistKind) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function loadWishlistItems<T>(storageKey: string, fallback: T[]): T[] {
+    const stored = localStorage.getItem(storageKey);
+    if (!stored) return fallback;
+    try {
+      return JSON.parse(stored) as T[];
+    } catch {
+      return fallback;
+    }
+  }
+
+  function persistConsoleWishlist() {
+    localStorage.setItem(CONSOLE_WISHLIST_KEY, JSON.stringify(consoleWishlist));
+  }
+
+  function persistGameWishlist() {
+    localStorage.setItem(GAME_WISHLIST_KEY, JSON.stringify(gameWishlist));
+  }
+
+  function persistMusicWishlist() {
+    localStorage.setItem(MUSIC_WISHLIST_KEY, JSON.stringify(musicWishlist));
+  }
+
+  function loadWishlistsFromStorage() {
+    consoleWishlist = loadWishlistItems<WishlistSystemItem>(CONSOLE_WISHLIST_KEY, []);
+    gameWishlist = loadWishlistItems<WishlistMediaItem>(GAME_WISHLIST_KEY, []);
+    musicWishlist = loadWishlistItems<WishlistMediaItem>(MUSIC_WISHLIST_KEY, []);
+  }
+
+  function resetWishlistSystemForm() {
+    wishlistEditingId = null;
+    wishlistSystemForm = emptyWishlistSystemForm();
+  }
+
+  function isWishlistMediaItem(item: MediaItem | null): item is WishlistMediaItem {
+    return Boolean(item && 'wishlistId' in item && (item as WishlistMediaItem).wishlistKind);
+  }
+
+  function wishlistIconLabel() {
+    if (stage === 'console') return libraryView === 'wishlist' ? 'Show Console Library' : 'Show Console Wish List';
+    if (category === 'Music') return libraryView === 'wishlist' ? 'Show Music Library' : 'Show Music Wish List';
+    return libraryView === 'wishlist' ? 'Show Game Library' : 'Show Game Wish List';
+  }
+
+  function switchLibraryView(nextView: LibraryView) {
+    if (libraryView === nextView) return;
+    libraryView = nextView;
+    page = 0;
+    librarySearch = '';
+    librarySearchOpen = false;
+    libraryPlayersFilter = null;
+    playersDropdownOpen = false;
+    libraryStarFilter = null;
+    starDropdownOpen = false;
+    selectedWishlistItem = null;
+    selectedWishlistConsole = null;
+
+    if (stage === 'library') {
+      void loadMedia(category, selectedConsole);
+    }
+  }
+
+  function toggleWishlistView() {
+    switchLibraryView(libraryView === 'owned' ? 'wishlist' : 'owned');
+  }
+
+  function currentWishlistCollection(kind: WishlistKind) {
+    if (kind === 'console') return consoleWishlist;
+    if (kind === 'games') return gameWishlist;
+    return musicWishlist;
+  }
+
+  function removeWishlistItemById(kind: WishlistKind, wishlistId: string) {
+    if (kind === 'console') {
+      consoleWishlist = consoleWishlist.filter((item) => item.wishlistId !== wishlistId);
+      persistConsoleWishlist();
+      if (selectedWishlistConsole?.wishlistId === wishlistId) selectedWishlistConsole = null;
+      return;
+    }
+    if (kind === 'games') {
+      gameWishlist = gameWishlist.filter((item) => item.wishlistId !== wishlistId);
+      persistGameWishlist();
+    } else {
+      musicWishlist = musicWishlist.filter((item) => item.wishlistId !== wishlistId);
+      persistMusicWishlist();
+    }
+    if (selectedWishlistItem?.wishlistId === wishlistId) {
+      selectedWishlistItem = null;
+      selectedItem = null;
+    }
+  }
+
+  function populateAdminFormFromWishlistItem(item: WishlistMediaItem) {
+    adminContextItem = item;
+    adminForm = {
+      id: item.id,
+      title: item.title,
+      category: item.category === 'Music' ? 'Music' : 'Games',
+      platform: item.platform ?? '',
+      publishers: item.category === 'Games' ? splitDelimitedValues(item.publisher) : [],
+      gameGenres: item.category === 'Games' ? splitDelimitedValues(item.genres ?? item.genre) : [],
+      release_date: normalizeDateForInput(item.release_date) || (item.year_released ? `${item.year_released}-01-01` : ''),
+      year_released: item.year_released ? String(item.year_released) : '',
+      rating: normalizeGameRating(item.rating),
+      players: item.players ? String(item.players) : '',
+      cooperative: item.category === 'Games' ? (item.cooperative ?? 'No') : 'No',
+      artist: item.artist ?? '',
+      musicGenre: item.category === 'Music' ? item.genre : '',
+      cover_image: item.cover_image ?? null,
+      spine_image: item.spine_image ?? null,
+      disc_image: item.disc_image ?? null,
+      notes: item.notes ?? '',
+      gameplayRating: item.gameplay_rating ?? null,
+      plotRating: item.plot_rating ?? null,
+      starRating: item.star_rating ?? null,
+    };
+    adminPublisherChoice = '';
+    adminGameGenreChoice = '';
+    adminMusicGenreChoice = item.category === 'Music' ? item.genre : '';
+  }
+
+  function openWishlistConsoleDetails(item: WishlistSystemItem) {
+    selectedWishlistConsole = item;
+    selectedWishlistItem = null;
+    selectedItem = null;
+  }
+
+  function closeWishlistConsoleDetails() {
+    selectedWishlistConsole = null;
+  }
+
+  function startEditWishlistMedia(item: WishlistMediaItem) {
+    adminOpen = true;
+    adminMode = 'library';
+    libraryAdminTab = 'wishlists';
+    wishlistAdminSection = item.wishlistKind;
+    wishlistEditingId = item.wishlistId;
+    populateAdminFormFromWishlistItem(item);
+  }
+
+  function startEditWishlistConsole(item: WishlistSystemItem) {
+    adminOpen = true;
+    adminMode = 'library';
+    libraryAdminTab = 'wishlists';
+    wishlistAdminSection = 'console';
+    wishlistEditingId = item.wishlistId;
+    wishlistSystemForm = {
+      id: item.id,
+      name: item.name,
+      shortName: item.shortName,
+      logo: item.logo,
+      logoImage: item.logoImage ?? null,
+      caseType: (item.caseType as '' | 'disc' | 'cartridge' | 'hybrid') ?? '',
+      appearancePreset: item.appearancePreset ?? '',
+    };
+  }
+
+  function createWishlistMediaPayload(kind: 'games' | 'music'): WishlistMediaItem {
+    const isGames = kind === 'games';
+    const releaseDate = adminForm.release_date ? adminForm.release_date.trim() : '';
+    const releaseYear = releaseDate ? Number(releaseDate.slice(0, 4)) : (adminForm.year_released ? Number(adminForm.year_released) : null);
+    const gameGenres = isGames ? normalizeSelectionValues(adminForm.gameGenres) : [];
+    const publishers = isGames ? normalizeSelectionValues(adminForm.publishers) : [];
+    return {
+      id: adminForm.id ?? -1,
+      wishlistId: wishlistEditingId ?? createWishlistId(kind),
+      wishlistKind: kind,
+      title: (isGames ? normalizeGameTitle(adminForm.title) : adminForm.title).trim(),
+      category: isGames ? 'Games' : 'Music',
+      platform: isGames ? adminForm.platform.trim() || null : null,
+      genre: isGames ? (gameGenres[0] ?? '') : adminForm.musicGenre.trim(),
+      genres: isGames ? combineSelectionValues(gameGenres) : null,
+      year_released: releaseYear,
+      release_date: releaseDate || null,
+      rating: isGames ? normalizeGameRating(adminForm.rating) : null,
+      players: isGames && adminForm.players ? Number(adminForm.players) : null,
+      cooperative: isGames ? adminForm.cooperative : null,
+      artist: isGames ? null : adminForm.artist.trim() || null,
+      publisher: isGames ? combineSelectionValues(publishers) : null,
+      format: null,
+      region: null,
+      cover_image: adminForm.cover_image ?? null,
+      spine_image: adminForm.spine_image ?? null,
+      disc_image: adminForm.disc_image ?? null,
+      tags: null,
+      notes: adminForm.notes.trim() || null,
+      star_rating: isGames ? null : adminForm.starRating,
+      gameplay_rating: isGames ? adminForm.gameplayRating : null,
+      plot_rating: isGames ? adminForm.plotRating : null,
+    };
+  }
+
+  function saveWishlistMediaItem(kind: 'games' | 'music') {
+    const isEditingExisting = Boolean(wishlistEditingId);
+    const nextItem = createWishlistMediaPayload(kind);
+    if (kind === 'games') {
+      gameWishlist = [nextItem, ...gameWishlist.filter((item) => item.wishlistId !== nextItem.wishlistId)];
+      persistGameWishlist();
+    } else {
+      musicWishlist = [nextItem, ...musicWishlist.filter((item) => item.wishlistId !== nextItem.wishlistId)];
+      persistMusicWishlist();
+    }
+    wishlistEditingId = null;
+    adminMessage = isEditingExisting ? 'Wish list item updated.' : 'Wish list item added.';
+    resetAdminForm(kind === 'music' ? 'Music' : 'Games');
+    if (libraryView === 'wishlist') {
+      void loadMedia(category, selectedConsole);
+    }
+  }
+
+  function saveWishlistConsoleItem() {
+    const name = wishlistSystemForm.name.trim();
+    if (!name) {
+      adminError = 'System name is required.';
+      return;
+    }
+    const nextItem: WishlistSystemItem = {
+      id: wishlistSystemForm.id ?? name.toLowerCase().replace(/\s+/g, '-'),
+      wishlistId: wishlistEditingId ?? createWishlistId('console'),
+      wishlistKind: 'console',
+      name,
+      shortName: (wishlistSystemForm.shortName.trim() || name.slice(0, 3)).toUpperCase(),
+      logo: (wishlistSystemForm.logo.trim() || name.slice(0, 3)).toUpperCase(),
+      logoImage: wishlistSystemForm.logoImage ?? null,
+      caseType: wishlistSystemForm.caseType || undefined,
+      appearancePreset: wishlistSystemForm.appearancePreset.trim() || null,
+    };
+    consoleWishlist = [nextItem, ...consoleWishlist.filter((item) => item.wishlistId !== nextItem.wishlistId)];
+    persistConsoleWishlist();
+    wishlistEditingId = null;
+    resetWishlistSystemForm();
+    adminMessage = 'Console wish list item saved.';
+  }
+
+  async function saveWishlistItem() {
+    adminError = '';
+    adminMessage = '';
+    if (wishlistAdminSection === 'console') {
+      saveWishlistConsoleItem();
+      return;
+    }
+    const isGames = wishlistAdminSection === 'games';
+    if (!adminForm.title.trim()) {
+      adminError = 'Title is required.';
+      return;
+    }
+    if (isGames && !adminForm.platform.trim()) {
+      adminError = 'Platform is required.';
+      return;
+    }
+    if (isGames && adminForm.gameGenres.length === 0) {
+      adminError = 'Select at least one genre for the game.';
+      return;
+    }
+    if (!isGames && !adminForm.musicGenre.trim()) {
+      adminError = 'Select a genre for the album.';
+      return;
+    }
+    saveWishlistMediaItem(isGames ? 'games' : 'music');
+  }
+
+  async function addWishlistMediaToLibrary(item: WishlistMediaItem) {
+    if (!adminToken) {
+      adminError = 'Login required.';
+      return;
+    }
+
+    adminBusy = true;
+    adminError = '';
+    adminMessage = '';
+    try {
+      const response = await fetch('/api/media', {
+        method: 'POST',
+        headers: mediaHeaders(),
+        body: JSON.stringify({
+          title: item.title,
+          category: item.category,
+          platform: item.category === 'Games' ? item.platform : null,
+          genre: item.genre,
+          genres: item.genres,
+          release_date: item.release_date,
+          year_released: item.year_released,
+          rating: item.category === 'Games' ? normalizeGameRating(item.rating) : null,
+          players: item.players,
+          cooperative: item.cooperative,
+          artist: item.artist,
+          publisher: item.publisher,
+          format: item.format,
+          region: item.region,
+          cover_image: item.cover_image,
+          spine_image: item.spine_image,
+          disc_image: item.disc_image,
+          tags: item.tags,
+          notes: item.notes,
+        }),
+      });
+      if (response.status === 401) {
+        adminToken = '';
+        localStorage.removeItem('ps2-admin-token');
+        adminError = 'Session expired. Log in again.';
+        return;
+      }
+      if (!response.ok) {
+        adminError = 'Could not add wish list item to the library.';
+        return;
+      }
+      removeWishlistItemById(item.wishlistKind, item.wishlistId);
+      selectedWishlistItem = null;
+      selectedItem = null;
+      adminMessage = `${item.category === 'Music' ? 'Album' : 'Game'} added to the library.`;
+      await Promise.all([loadAllMedia(), loadMedia(category, selectedConsole)]);
+    } catch {
+      adminError = 'Could not add wish list item to the library.';
+    } finally {
+      adminBusy = false;
+    }
+  }
+
+  async function addWishlistConsoleToLibrary(item: WishlistSystemItem) {
+    if (!adminToken) {
+      adminError = 'Login required.';
+      return;
+    }
+
+    adminBusy = true;
+    adminError = '';
+    adminMessage = '';
+    try {
+      const response = await fetch('/api/systems', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({
+          id: item.id,
+          name: item.name,
+          shortName: item.shortName,
+          logo: item.logo,
+          logoImageUrl: item.logoImage ?? '',
+          caseType: item.caseType ?? undefined,
+        }),
+      });
+      if (response.status === 401) {
+        adminToken = '';
+        localStorage.removeItem('ps2-admin-token');
+        adminError = 'Session expired. Log in again.';
+        return;
+      }
+      if (!response.ok) {
+        adminError = 'Could not add console to the library.';
+        return;
+      }
+      removeWishlistItemById('console', item.wishlistId);
+      selectedWishlistConsole = null;
+      adminMessage = 'Console added to the library.';
+      await loadSystemsFromAPI();
+    } catch {
+      adminError = 'Could not add console to the library.';
+    } finally {
+      adminBusy = false;
+    }
+  }
+
+  function deleteWishlistSelection(kind: WishlistKind, wishlistId: string) {
+    removeWishlistItemById(kind, wishlistId);
+    if (libraryView === 'wishlist' && stage === 'library') {
+      void loadMedia(category, selectedConsole);
+    }
+    adminMessage = 'Wish list item deleted.';
+  }
+
   function showBootSoundIndicator(isMuted: boolean) {
     bootSoundIndicator = isMuted ? '🔇 Muted' : '🔊 Sound On';
     bootSoundIndicatorVisible = true;
@@ -556,6 +1050,9 @@
       spine_image: null,
       disc_image: null,
       notes: '',
+      gameplayRating: null,
+      plotRating: null,
+      starRating: null,
     };
   }
 
@@ -622,24 +1119,24 @@
     return 'RP';
   }
 
-  function normalizeGameTitle(title: string) {
+  function normalizeGameTitle(title: string): string {
     const cleaned = title.trim().replace(/\s+/g, ' ');
     if (!cleaned) return '';
     const lowerWords = new Set(['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'from', 'in', 'into', 'nor', 'of', 'on', 'or', 'over', 'the', 'to', 'up', 'with']);
     const preserveWords = new Set(['II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'HD', '3D', 'DS', 'PSP', 'VR', 'USA', 'EU', 'USA.']);
     return cleaned
       .split(' ')
-      .map((word, index, words) => {
+      .map((word: string, index: number, words: string[]) => {
         const stripped = word.replace(/^["'([{]+|["')\]}.,:;!?]+$/g, '');
         const punctuationPrefix = word.slice(0, word.indexOf(stripped));
         const punctuationSuffix = word.slice(word.indexOf(stripped) + stripped.length);
-        const normalizedToken = stripped.includes('-')
-          ? stripped.split('-').map((segment) => segment ? normalizeGameTitle(segment) : segment).join('-')
+        const normalizedToken: string = stripped.includes('-')
+          ? stripped.split('-').map((segment: string) => segment ? normalizeGameTitle(segment) : segment).join('-')
           : stripped;
-        const upper = normalizedToken.toUpperCase();
+        const upper: string = normalizedToken.toUpperCase();
         if (preserveWords.has(upper)) return `${punctuationPrefix}${upper}${punctuationSuffix}`;
         if (word.includes(':')) {
-          return `${punctuationPrefix}${normalizedToken.split(':').map((segment, segmentIndex) => {
+          return `${punctuationPrefix}${normalizedToken.split(':').map((segment: string, segmentIndex: number) => {
             if (segmentIndex === 0 || segmentIndex === words.length - 1) return segment ? normalizeGameTitle(segment) : segment;
             return segment;
           }).join(':')}${punctuationSuffix}`;
@@ -888,6 +1385,12 @@
     return tokens.some((token) => token.includes(query));
   }
 
+  function renderStars(value: number | null, max = 5): string {
+    if (value == null) return '';
+    const filled = Math.max(0, Math.min(max, Math.round(value)));
+    return '★'.repeat(filled) + '☆'.repeat(max - filled);
+  }
+
   function addTag(tags: DetailTag[], seen: Set<string>, label: string, query: string, tone: DetailTagTone) {
     const normalizedLabel = label.trim();
     const normalizedQuery = query.trim();
@@ -943,6 +1446,7 @@
     librarySearch = normalizedQuery;
     librarySearchOpen = true;
     playersDropdownOpen = false;
+    starDropdownOpen = false;
     page = 0;
     closeDetails();
   }
@@ -1449,6 +1953,21 @@
     brokenSpineIds = new Set();
     brokenDiscIds = new Set();
 
+    if (libraryView === 'wishlist') {
+      media = nextCategory === 'Music'
+        ? [...musicWishlist]
+        : gameWishlist.filter((item) => item.platform === nextConsole);
+      libraryLoading = false;
+      page = 0;
+      librarySearch = '';
+      librarySearchOpen = false;
+      libraryPlayersFilter = null;
+      playersDropdownOpen = false;
+      libraryStarFilter = null;
+      starDropdownOpen = false;
+      return;
+    }
+
     const params = new URLSearchParams();
     params.set('category', nextCategory);
     if (nextCategory === 'Games' && nextConsole) {
@@ -1474,6 +1993,8 @@
     librarySearchOpen = false;
     libraryPlayersFilter = null;
     playersDropdownOpen = false;
+    libraryStarFilter = null;
+    starDropdownOpen = false;
   }
 
   function unlockBootAudio() {
@@ -1507,15 +2028,26 @@
     }
   }
 
+  function revealBootOptions(options: { markError?: boolean; resetStarted?: boolean } = {}) {
+    if (options.markError) {
+      bootError = true;
+    }
+    if (options.resetStarted) {
+      bootStarted = false;
+    }
+    bootTextVisible = true;
+    bootResumeAtSix = false;
+    clearBootRescueTimer();
+    clearBootPlaybackRetry();
+    clearBootHardFailTimer();
+  }
+
   function armBootHardFailTimer() {
     clearBootHardFailTimer();
     bootHardFailTimeout = setTimeout(() => {
       if (stage !== 'boot' || bootTextVisible) return;
       bootError = !bootVideoRef || bootVideoRef.readyState < 1;
-      bootTextVisible = true;
-      bootStarted = false;
-      clearBootRescueTimer();
-      clearBootPlaybackRetry();
+      revealBootOptions({ resetStarted: true });
     }, BOOT_HARD_FAIL_OPEN_MS);
   }
 
@@ -1536,9 +2068,7 @@
       }
 
       bootError = !bootVideoRef || bootVideoRef.readyState < 1;
-      bootTextVisible = true;
-      bootStarted = false;
-      clearBootPlaybackRetry();
+      revealBootOptions({ resetStarted: true });
     }, BOOT_RESCUE_TIMEOUT_MS);
   }
 
@@ -1614,27 +2144,16 @@
     bootStartAt = BOOT_SKIP_TIME;
 
     if (!bootVideoRef) {
-      bootTextVisible = true;
-      clearBootRescueTimer();
-      clearBootPlaybackRetry();
-      clearBootHardFailTimer();
+      revealBootOptions();
       return;
     }
 
     bootVideoRef.currentTime = BOOT_SKIP_TIME;
-    bootTextVisible = true;
-    clearBootRescueTimer();
-    clearBootPlaybackRetry();
-    clearBootHardFailTimer();
+    revealBootOptions();
 
     if (bootVideoRef.paused) {
       void bootVideoRef.play().catch(() => {
-        bootError = true;
-        bootTextVisible = true;
-        bootStarted = false;
-        clearBootRescueTimer();
-        clearBootPlaybackRetry();
-        clearBootHardFailTimer();
+        revealBootOptions({ markError: true, resetStarted: true });
       });
     }
   }
@@ -1653,13 +2172,8 @@
     }
 
     if (stage === 'boot') {
-      bootError = true;
-      bootTextVisible = true;
-      bootStarted = false;
+      revealBootOptions({ markError: true, resetStarted: true });
     }
-    clearBootRescueTimer();
-    clearBootPlaybackRetry();
-    clearBootHardFailTimer();
   }
 
   function isBootSpaceKey(event: KeyboardEvent) {
@@ -1669,6 +2183,9 @@
   async function handleBootPick(categoryName: Category) {
     bootHover = categoryName;
     unlockBootAudio();
+    libraryView = 'owned';
+    selectedWishlistConsole = null;
+    selectedWishlistItem = null;
 
     if (categoryName === 'Games') {
       await transitionTo({ stage: 'console', category: 'Games', console: null, itemId: null, page: 0 }, { fadeMs: ZOOM_TRANSITION_MS, audioFadeMs: ZOOM_TRANSITION_MS });
@@ -1683,6 +2200,12 @@
   }
 
   function onConsoleSelect(consoleName: string) {
+    if (libraryView === 'wishlist') {
+      selectedConsole = consoleName;
+      void loadMedia('Games', consoleName);
+      return;
+    }
+
     launchConsoleName = consoleName;
 
     // Start loading next console's library during transition.
@@ -1698,6 +2221,8 @@
     detailsManualRotateY = 0;
     detailsSpinPaused = false;
     detailsDragActive = false;
+    selectedWishlistItem = isWishlistMediaItem(item) ? item : null;
+    selectedItem = item;
     launchItemId = item.id;
     void transitionTo(
       { stage: 'details', category, console: selectedConsole, itemId: item.id, page },
@@ -1707,6 +2232,7 @@
 
   function closeDetails() {
     closeConfirm();
+    selectedWishlistItem = null;
     if (detailsInertiaFrame !== null) {
       cancelAnimationFrame(detailsInertiaFrame);
       detailsInertiaFrame = null;
@@ -1720,6 +2246,11 @@
   }
 
   function backAction() {
+    if (selectedWishlistConsole) {
+      closeWishlistConsoleDetails();
+      return;
+    }
+
     if (stage === 'console') {
       void returnToBootSmooth();
       return;
@@ -1758,6 +2289,7 @@
     adminGameGenreChoice = '';
     adminMusicGenreChoice = '';
     adminForm = emptyAdminForm(category);
+    wishlistEditingId = null;
   }
 
   function loadSystemsFromStorage() {
@@ -1928,7 +2460,7 @@
           shortName: updates.shortName || system.shortName,
           logo: updates.logo || system.logo,
           logoImageUrl: updates.logoImage || '',
-          caseType: updates.caseType === '' ? 'auto' : (updates.caseType ?? system.caseType ?? undefined),
+          caseType: updates.caseType ? updates.caseType : 'auto',
         }),
       });
       if (response.ok) {
@@ -2033,7 +2565,7 @@
     updateSystem(editingSystemId, {
       name,
       logoImage: editingSystemIcon.trim() || null,
-      caseType: editingSystemCaseType,
+      caseType: editingSystemCaseType || undefined,
     });
     cancelEditSystem();
     systemError = '';
@@ -2207,17 +2739,27 @@
     adminMode = 'library';
     detailsEditMode = false;
     adminContextItem = null;
-    libraryAdminTab = category === 'Music' ? 'music' : 'games';
+    libraryAdminTab = libraryView === 'wishlist' ? 'wishlists' : (category === 'Music' ? 'music' : 'games');
+    wishlistAdminSection = stage === 'console' ? 'console' : category === 'Music' ? 'music' : 'games';
     adminSearchCategory = category === 'Music' ? 'Music' : 'Games';
     adminSearchPlatform = category === 'Games' ? (selectedConsole ?? 'All') : 'All';
     adminListPage = 0;
+    if (libraryAdminTab === 'wishlists' && wishlistAdminSection === 'console') {
+      resetWishlistSystemForm();
+      wishlistEditingId = 'new';
+      return;
+    }
+
     resetAdminForm(category === 'Music' ? 'Music' : 'Games');
     adminForm = {
       ...adminForm,
       platform: category === 'Music' ? '' : (selectedConsole ?? 'PlayStation 2'),
     };
-    // Open directly in create mode so adding can start immediately.
-    adminEditingId = -1;
+    if (libraryAdminTab === 'wishlists') {
+      wishlistEditingId = 'new';
+    } else {
+      adminEditingId = -1;
+    }
   }
 
   function toggleAdminPanel() {
@@ -2226,18 +2768,22 @@
       adminSearchPlatform = (category === 'Games' && selectedConsole) ? selectedConsole : 'All';
       adminListPage = 0;
     }
-      adminMode = 'hub';
-      adminContextItem = null;
+    adminMode = 'hub';
+    adminContextItem = null;
     adminOpen = !adminOpen;
   }
 
-  function openAdminMode(mode: 'systems' | 'library', tab?: 'games' | 'music', contextItem?: MediaItem) {
+  function openAdminMode(mode: 'systems' | 'library', tab?: AdminLibraryTab, contextItem?: MediaItem) {
     adminOpen = true;
     adminMode = mode;
     if (tab) libraryAdminTab = tab;
 
     if (mode === 'library' && contextItem) {
-      startEditItem(contextItem);
+      if (tab === 'wishlists' && isWishlistMediaItem(contextItem)) {
+        startEditWishlistMedia(contextItem);
+      } else {
+        startEditItem(contextItem);
+      }
       return;
     }
 
@@ -2278,10 +2824,14 @@
       spine_image: item.spine_image ?? null,
       disc_image: item.disc_image ?? null,
       notes: item.notes ?? '',
+      gameplayRating: item.gameplay_rating ?? null,
+      plotRating: item.plot_rating ?? null,
+      starRating: item.star_rating ?? null,
     };
     adminPublisherChoice = '';
     adminGameGenreChoice = '';
     adminMusicGenreChoice = item.category === 'Music' ? item.genre : '';
+    wishlistEditingId = null;
   }
 
   async function adminLogin() {
@@ -2329,6 +2879,11 @@
   }
 
   async function saveAdminItem() {
+    if (libraryAdminTab === 'wishlists') {
+      await saveWishlistItem();
+      return;
+    }
+
     adminError = '';
     adminMessage = '';
     if (!adminToken) {
@@ -2377,6 +2932,9 @@
       disc_image: isGames ? adminForm.disc_image ?? existingItem?.disc_image ?? null : existingItem?.disc_image ?? null,
       tags: existingItem?.tags ?? null,
       notes: adminForm.notes.trim() || null,
+      gameplay_rating: isGames ? adminForm.gameplayRating : null,
+      plot_rating: isGames ? adminForm.plotRating : null,
+      star_rating: isGames ? null : adminForm.starRating,
     };
 
     try {
@@ -2507,6 +3065,12 @@
       return;
     }
 
+    if (starDropdownOpen) {
+      event.preventDefault();
+      starDropdownOpen = false;
+      return;
+    }
+
     if (librarySearchOpen && !librarySearch.trim()) {
       event.preventDefault();
       librarySearchOpen = false;
@@ -2531,19 +3095,22 @@
     }
   }
 
-  onMount(async () => {
+  onMount(() => {
+    void (async () => {
     const savedToken = localStorage.getItem('ps2-admin-token');
     if (savedToken) {
       adminToken = savedToken;
     }
-    await loadSystemsFromAPI();
+      loadWishlistsFromStorage();
+      await loadSystemsFromAPI();
 
-    await loadAllMedia();
-    history.replaceState(currentHistoryState(), '');
-    window.addEventListener('popstate', handlePopState);
-    window.addEventListener('keydown', handleGlobalBootKeydown);
-    window.addEventListener('keydown', handleGlobalEscapeKeydown);
-    void queueBootStart();
+      await loadAllMedia();
+      history.replaceState(currentHistoryState(), '');
+      window.addEventListener('popstate', handlePopState);
+      window.addEventListener('keydown', handleGlobalBootKeydown);
+      window.addEventListener('keydown', handleGlobalEscapeKeydown);
+      void queueBootStart();
+    })();
 
     return () => {
       window.removeEventListener('popstate', handlePopState);
@@ -2573,6 +3140,8 @@
     category = state.category;
     selectedConsole = state.console;
     selectedItem = state.itemId ? allMedia.find((item) => item.id === state.itemId) ?? null : null;
+    selectedWishlistItem = null;
+    selectedWishlistConsole = null;
     page = state.page;
 
     transitionOverlay = false;
@@ -2631,7 +3200,6 @@
         preload="auto"
         muted={bootMuted}
         playsinline
-        webkit-playsinline="true"
         on:loadedmetadata={() => {
           if (bootVideoRef) {
             bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
@@ -2659,17 +3227,11 @@
 
           if (bootResumeAtSix) {
             if (bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
-              bootTextVisible = true;
-              clearBootRescueTimer();
-              clearBootPlaybackRetry();
-              clearBootHardFailTimer();
+              revealBootOptions();
             }
           } else {
             if (bootVideoRef.currentTime >= bootRevealAt) {
-              bootTextVisible = true;
-              clearBootRescueTimer();
-              clearBootPlaybackRetry();
-              clearBootHardFailTimer();
+              revealBootOptions();
             }
           }
         }}
@@ -2693,21 +3255,13 @@
           }
         }}
         on:ended={() => {
-          bootTextVisible = true;
-          clearBootRescueTimer();
-          clearBootPlaybackRetry();
-          clearBootHardFailTimer();
+          revealBootOptions();
         }}
         on:error={() => {
-          bootError = true;
-          bootTextVisible = true;
-          bootStarted = false;
-          clearBootRescueTimer();
-          clearBootPlaybackRetry();
-          clearBootHardFailTimer();
+          revealBootOptions({ markError: true, resetStarted: true });
         }}
       >
-        <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
+        <source src={BOOT_VIDEO_SRC} type="video/mp4" />
         <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
       </video>
     {/if}
@@ -2762,6 +3316,17 @@
         <div class="console-hud">
           <div class="hud-left console-header-shell">
             <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
+            <button
+              type="button"
+              class="wishlist-toggle wishlist-toggle--console"
+              class:is-active={libraryView === 'wishlist'}
+              on:click={toggleWishlistView}
+              aria-label={wishlistIconLabel()}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z" fill="currentColor"></path>
+              </svg>
+            </button>
           </div>
           <div class="hud-right console-header-count console-header-right">
             {#if consoleHeaderOption?.logoImage && hoveredConsoleFadeVisible}
@@ -2782,7 +3347,7 @@
           </div>
         </div>
         <div class="console-grid">
-          {#each availableConsoles as console, index}
+          {#each activeConsoleSource as console, index}
             <button
               type="button"
               class="console-card"
@@ -2794,7 +3359,7 @@
                 hoveredConsole = null;
                 clearIconFollow(event);
               }}
-              on:click={() => onConsoleSelect(console.name)}
+              on:click={() => libraryView === 'wishlist' ? openWishlistConsoleDetails(console as WishlistSystemItem) : onConsoleSelect(console.name)}
               aria-label={`Select ${console.name}`}
             >
               <span class="hover-burst"></span>
@@ -2827,6 +3392,17 @@
 
           {#if stage === 'library'}
             <div class="library-toolbar">
+              <button
+                type="button"
+                class="wishlist-toggle wishlist-toggle--library"
+                class:is-active={libraryView === 'wishlist'}
+                on:click={toggleWishlistView}
+                aria-label={wishlistIconLabel()}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z" fill="currentColor"></path>
+                </svg>
+              </button>
               <div class="library-search-shell" class:is-open={librarySearchOpen}>
                 <button
                   type="button"
@@ -2902,6 +3478,43 @@
                   {/if}
                 </div>
               {/if}
+              <div class="star-filter">
+                <button
+                  type="button"
+                  class="star-filter-btn"
+                  class:is-active={libraryStarFilter !== null}
+                  on:click={() => { starDropdownOpen = !starDropdownOpen; playersDropdownOpen = false; }}
+                  aria-label="Filter by star rating"
+                >
+                  <span class="star-filter-inner">
+                    {#if libraryStarFilter !== null}
+                      <span class="star-filter-num">{libraryStarFilter}</span>
+                    {/if}
+                    <span class="star-filter-icon" aria-hidden="true">★</span>
+                  </span>
+                  <span class="players-filter-caret">▾</span>
+                </button>
+                {#if starDropdownOpen}
+                  <button
+                    class="players-dropdown-backdrop"
+                    type="button"
+                    aria-label="Close dropdown"
+                    on:click={() => (starDropdownOpen = false)}
+                  ></button>
+                  <div class="players-dropdown star-dropdown" role="menu">
+                    <button type="button" role="menuitem"
+                      class:selected={libraryStarFilter === null}
+                      on:click={() => { libraryStarFilter = null; starDropdownOpen = false; page = 0; }}
+                    >All</button>
+                    {#each [1, 2, 3, 4, 5] as n}
+                      <button type="button" role="menuitem"
+                        class:selected={libraryStarFilter === n}
+                        on:click={() => { libraryStarFilter = n; starDropdownOpen = false; page = 0; }}
+                      >{'★'.repeat(n)}</button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
             </div>
           {/if}
 
@@ -2925,7 +3538,7 @@
                   <img src="/memory-card-logo.svg" alt="" class="memory-card-logo" draggable="false" />
                   <span class="memory-card-question">?</span>
                 </div>
-                <p class="library-empty-text">No games found on memory card...</p>
+                <p class="library-empty-text">{libraryView === 'wishlist' ? 'No games on this wish list yet...' : 'No games found on memory card...'}</p>
               </div>
             {:else}
               {#each filteredMedia.slice(page * itemsPerPage, page * itemsPerPage + itemsPerPage) as item, index}
@@ -3007,7 +3620,7 @@
       </section>
     {/if}
 
-    {#if stage === 'details' && selectedItem}
+    {#if stage === 'details' && detailItem}
       <button
         type="button"
         class="details-overlay"
@@ -3046,23 +3659,23 @@
                 }
               }}
             >
-              {#if selectedItem.category === 'Games'}
-                {#if isCartridgePlatform(selectedItem.platform)}
+              {#if detailItem.category === 'Games'}
+                {#if isCartridgePlatform(detailItem.platform)}
                   <div class="details-cart-flipper">
                     <div class="details-disc-flip-face details-disc-flip-face--front">
-                      <div class={`details-cartridge ${discBackingClass(selectedItem)}`}>
+                      <div class={`details-cartridge ${discBackingClass(detailItem)}`}>
                         <span class="disc-shell-backing"></span>
-                        {#if selectedItem.disc_image && !brokenDiscIds.has(selectedItem.id)}
-                          <img src={selectedItem.disc_image} alt={selectedItem.title} class="details-cartridge-art" draggable="false" on:error={() => markDiscBroken(selectedItem.id)} />
-                        {:else if selectedItem.cover_image && !brokenCoverIds.has(selectedItem.id)}
-                          <img src={selectedItem.cover_image} alt={selectedItem.title} class="details-cartridge-art" draggable="false" on:error={() => markCoverBroken(selectedItem.id)} />
+                        {#if detailItem.disc_image && !brokenDiscIds.has(detailItem.id)}
+                          <img src={detailItem.disc_image} alt={detailItem.title} class="details-cartridge-art" draggable="false" on:error={() => markDiscBroken(detailItem.id)} />
+                        {:else if detailItem.cover_image && !brokenCoverIds.has(detailItem.id)}
+                          <img src={detailItem.cover_image} alt={detailItem.title} class="details-cartridge-art" draggable="false" on:error={() => markCoverBroken(detailItem.id)} />
                         {:else}
-                          <div class="details-cartridge-fallback">{iconInitials(selectedItem.title)}</div>
+                          <div class="details-cartridge-fallback">{iconInitials(detailItem.title)}</div>
                         {/if}
                       </div>
                     </div>
                     <div class="details-disc-flip-face details-disc-flip-face--back" aria-hidden="true">
-                      <div class={`details-cartridge details-cartridge--back ${discBackingClass(selectedItem)}`}>
+                      <div class={`details-cartridge details-cartridge--back ${discBackingClass(detailItem)}`}>
                         <span class="disc-shell-backing"></span>
                         <span class="details-cartridge-back-panel"></span>
                         <span class="details-cartridge-contacts"></span>
@@ -3072,19 +3685,19 @@
                 {:else}
                   <div class="details-disc-flipper">
                     <div class="details-disc-flip-face details-disc-flip-face--front">
-                      <div class={`details-game-disc ${discBackingClass(selectedItem)}`}>
+                      <div class={`details-game-disc ${discBackingClass(detailItem)}`}>
                         <span class="disc-shell-backing"></span>
-                        {#if selectedItem.disc_image && !brokenDiscIds.has(selectedItem.id)}
-                          <img src={selectedItem.disc_image} alt={selectedItem.title} class="details-game-disc-art" draggable="false" on:error={() => markDiscBroken(selectedItem.id)} />
+                        {#if detailItem.disc_image && !brokenDiscIds.has(detailItem.id)}
+                          <img src={detailItem.disc_image} alt={detailItem.title} class="details-game-disc-art" draggable="false" on:error={() => markDiscBroken(detailItem.id)} />
                         {:else}
-                          <div class="details-game-disc-fallback">{iconInitials(selectedItem.title)}</div>
+                          <div class="details-game-disc-fallback">{iconInitials(detailItem.title)}</div>
                         {/if}
                         <span class="disc-hole"></span>
                         <span class="details-game-disc-shine"></span>
                       </div>
                     </div>
                     <div class="details-disc-flip-face details-disc-flip-face--back" aria-hidden="true">
-                      <div class={`details-game-disc ${discBackingClass(selectedItem)}`}>
+                      <div class={`details-game-disc ${discBackingClass(detailItem)}`}>
                         <span class="disc-shell-backing"></span>
                         <span class="disc-hole"></span>
                       </div>
@@ -3095,10 +3708,10 @@
                 <span class="vinyl-wrap details-vinyl" aria-hidden="true">
                   <span class="vinyl-record"></span>
                   <span class="vinyl-sleeve">
-                    {#if selectedItem.cover_image}
-                      <img src={selectedItem.cover_image} alt={selectedItem.title} class="library-art" draggable="false" />
+                    {#if detailItem.cover_image}
+                      <img src={detailItem.cover_image} alt={detailItem.title} class="library-art" draggable="false" />
                     {:else}
-                      <span class="library-fallback">{iconInitials(selectedItem.title)}</span>
+                      <span class="library-fallback">{iconInitials(detailItem.title)}</span>
                     {/if}
                   </span>
                 </span>
@@ -3108,9 +3721,9 @@
         </div>
 
         <div class="details-right">
-          <p class="details-line-2">{selectedItem.title}</p>
+          <p class="details-line-2">{detailItem.title}</p>
           <div class="details-tags" aria-label="Details tags">
-            {#each detailTags(selectedItem) as tag}
+            {#each detailTags(detailItem) as tag}
               <button
                 type="button"
                 class={`details-tag details-tag--${tag.tone}`}
@@ -3120,15 +3733,74 @@
               </button>
             {/each}
           </div>
-          <p class="details-line-5">{selectedItem.notes?.trim() || 'No description available.'}</p>
+          {#if detailItem.category === 'Games' && (detailItem.gameplay_rating != null || detailItem.plot_rating != null)}
+            <div class="details-star-ratings" aria-label="Star ratings">
+              {#if detailItem.gameplay_rating != null}
+                <div class="details-star-row">
+                  <span class="details-star-label">Gameplay</span>
+                  <span class="details-stars" aria-label="{detailItem.gameplay_rating} out of 5 stars">{renderStars(detailItem.gameplay_rating)}</span>
+                </div>
+              {/if}
+              {#if detailItem.plot_rating != null}
+                <div class="details-star-row">
+                  <span class="details-star-label">Plot</span>
+                  <span class="details-stars" aria-label="{detailItem.plot_rating} out of 5 stars">{renderStars(detailItem.plot_rating)}</span>
+                </div>
+              {/if}
+            </div>
+          {:else if detailItem.category === 'Music' && detailItem.star_rating != null}
+            <div class="details-star-ratings" aria-label="Star rating">
+              <div class="details-star-row">
+                <span class="details-star-label">Rating</span>
+                <span class="details-stars" aria-label="{detailItem.star_rating} out of 5 stars">{renderStars(detailItem.star_rating)}</span>
+              </div>
+            </div>
+          {/if}
+          <p class="details-line-5">{detailItem.notes?.trim() || 'No description available.'}</p>
         </div>
 
         <div class="details-actions">
           <button type="button" class="details-back" on:click={closeDetails}>Back</button>
           {#if isAdmin}
             <div class="details-admin-actions">
-              <button type="button" on:click={() => openEditConfirm(selectedItem, true)}>Edit</button>
-              <button type="button" class="danger" on:click={() => openDeleteConfirm(selectedItem)}>Delete</button>
+              {#if detailIsWishlist && selectedWishlistItem}
+                <button type="button" on:click={() => selectedWishlistItem && addWishlistMediaToLibrary(selectedWishlistItem)}>Add to Library</button>
+                <button type="button" on:click={() => selectedWishlistItem && startEditWishlistMedia(selectedWishlistItem)}>Edit</button>
+                <button type="button" class="danger" on:click={() => selectedWishlistItem && deleteWishlistSelection(selectedWishlistItem.wishlistKind, selectedWishlistItem.wishlistId)}>Delete</button>
+              {:else}
+                <button type="button" on:click={() => openEditConfirm(detailItem, true)}>Edit</button>
+                <button type="button" class="danger" on:click={() => openDeleteConfirm(detailItem)}>Delete</button>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      </section>
+    {/if}
+
+    {#if stage === 'console' && selectedWishlistConsole}
+      <button type="button" class="details-overlay" aria-label="Close console details" on:click={closeWishlistConsoleDetails}></button>
+      <section class="details-screen details-screen--console-wishlist">
+        <button type="button" class="popup-close details-close" aria-label="Close console details" on:click={closeWishlistConsoleDetails}>×</button>
+        <div class="details-left details-left--console-wishlist">
+          <div class="systems-logo-container systems-logo-container--detail">
+            {#if selectedWishlistConsole.logoImage}
+              <img src={selectedWishlistConsole.logoImage} alt={selectedWishlistConsole.name} class="systems-logo" draggable="false" />
+            {:else}
+              <span class="systems-fallback">{selectedWishlistConsole.shortName}</span>
+            {/if}
+          </div>
+        </div>
+        <div class="details-right">
+          <p class="details-line-2">{selectedWishlistConsole.name}</p>
+          <p class="details-line-5">{selectedWishlistConsole.caseType ? `${selectedWishlistConsole.caseType[0].toUpperCase()}${selectedWishlistConsole.caseType.slice(1)} system` : 'Wish list console'}</p>
+        </div>
+        <div class="details-actions">
+          <button type="button" class="details-back" on:click={closeWishlistConsoleDetails}>Back</button>
+          {#if isAdmin}
+            <div class="details-admin-actions">
+              <button type="button" on:click={() => selectedWishlistConsole && addWishlistConsoleToLibrary(selectedWishlistConsole)}>Add to Library</button>
+              <button type="button" on:click={() => selectedWishlistConsole && startEditWishlistConsole(selectedWishlistConsole)}>Edit</button>
+              <button type="button" class="danger" on:click={() => selectedWishlistConsole && deleteWishlistSelection('console', selectedWishlistConsole.wishlistId)}>Delete</button>
             </div>
           {/if}
         </div>
@@ -3428,14 +4100,29 @@
             >
               Music
             </button>
+            <button
+              type="button"
+              class:active={libraryAdminTab === 'wishlists'}
+              on:click={() => { libraryAdminTab = 'wishlists'; wishlistAdminSection = 'console'; adminListPage = 0; resetWishlistSystemForm(); }}
+            >
+              Wish Lists
+            </button>
           </div>
+
+          {#if libraryAdminTab === 'wishlists'}
+            <div class="admin-tabs admin-subtabs">
+              <button type="button" class:active={wishlistAdminSection === 'console'} on:click={() => { wishlistAdminSection = 'console'; adminListPage = 0; resetWishlistSystemForm(); }}>Consoles</button>
+              <button type="button" class:active={wishlistAdminSection === 'games'} on:click={() => { wishlistAdminSection = 'games'; adminListPage = 0; resetAdminForm('Games'); wishlistEditingId = null; }}>Games</button>
+              <button type="button" class:active={wishlistAdminSection === 'music'} on:click={() => { wishlistAdminSection = 'music'; adminListPage = 0; resetAdminForm('Music'); wishlistEditingId = null; }}>Music</button>
+            </div>
+          {/if}
 
           <div class="admin-layout">
             <!-- Library List (Left) -->
             <div class="admin-list-pane">
               <div class="admin-list-filters">
-                <input type="search" class="search-input-unified" bind:value={adminSearchQuery} placeholder="Search by title..." />
-                {#if libraryAdminTab === 'games'}
+                <input type="search" class="search-input-unified" bind:value={adminSearchQuery} placeholder={libraryAdminTab === 'wishlists' && wishlistAdminSection === 'console' ? 'Search by console...' : 'Search by title...'} />
+                {#if libraryAdminTab === 'games' || (libraryAdminTab === 'wishlists' && wishlistAdminSection === 'games')}
                   <select bind:value={adminSearchPlatform} on:change={() => (adminListPage = 0)}>
                     <option value="All">All Platforms</option>
                     {#each adminConsoleOptions as platform}
@@ -3446,46 +4133,89 @@
               </div>
 
               <div class="admin-list">
-                {#each adminPagedMedia as item}
-                  {#if item.category === (libraryAdminTab === 'games' ? 'Games' : 'Music')}
+                {#if libraryAdminTab === 'wishlists'}
+                  {#each activeAdminWishlistPageItems as item}
                     <div
                       class="admin-row"
-                      class:active={adminEditingId === item.id}
+                      class:active={wishlistEditingId === item.wishlistId}
                       role="button"
                       tabindex="0"
-                      on:click={() => openAdminMode('library', libraryAdminTab, item)}
+                      on:click={() => wishlistAdminSection === 'console' ? startEditWishlistConsole(item as WishlistSystemItem) : startEditWishlistMedia(item as WishlistMediaItem)}
                       on:keydown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          openAdminMode('library', libraryAdminTab, item);
+                          if (wishlistAdminSection === 'console') {
+                            startEditWishlistConsole(item as WishlistSystemItem);
+                          } else {
+                            startEditWishlistMedia(item as WishlistMediaItem);
+                          }
                         }
                       }}
                     >
-                      {#if item.cover_image}
-                        <img src={item.cover_image} alt="" class="admin-row-thumb" draggable="false" />
+                      {#if wishlistAdminSection === 'console' && (item as WishlistSystemItem).logoImage}
+                        <img src={(item as WishlistSystemItem).logoImage ?? ''} alt="" class="admin-row-thumb" draggable="false" />
+                      {:else if wishlistAdminSection !== 'console' && (item as WishlistMediaItem).cover_image}
+                        <img src={(item as WishlistMediaItem).cover_image ?? ''} alt="" class="admin-row-thumb" draggable="false" />
                       {/if}
                       <div class="admin-row-content">
-                        <strong>{item.title}</strong>
-                        <small>{item.platform ?? item.format ?? item.artist ?? 'Unknown'}</small>
+                        <strong>{wishlistAdminSection === 'console' ? (item as WishlistSystemItem).name : (item as WishlistMediaItem).title}</strong>
+                        <small>
+                          {#if wishlistAdminSection === 'console'}
+                            {(item as WishlistSystemItem).shortName}
+                          {:else}
+                            {(item as WishlistMediaItem).platform ?? (item as WishlistMediaItem).artist ?? 'Unknown'}
+                          {/if}
+                        </small>
                       </div>
                       <div class="admin-row-actions">
-                        <button type="button" on:click|stopPropagation={() => openAdminMode('library', libraryAdminTab, item)}>Edit</button>
-                        <button type="button" class="danger" on:click|stopPropagation={() => openDeleteConfirm(item)}>Delete</button>
+                        <button type="button" on:click|stopPropagation={() => wishlistAdminSection === 'console' ? startEditWishlistConsole(item as WishlistSystemItem) : startEditWishlistMedia(item as WishlistMediaItem)}>Edit</button>
+                        <button type="button" class="danger" on:click|stopPropagation={() => deleteWishlistSelection(wishlistAdminSection === 'console' ? 'console' : wishlistAdminSection, item.wishlistId)}>Delete</button>
                       </div>
                     </div>
-                  {/if}
-                {/each}
+                  {/each}
+                {:else}
+                  {#each adminPagedMedia as item}
+                    {#if item.category === (libraryAdminTab === 'games' ? 'Games' : 'Music')}
+                      <div
+                        class="admin-row"
+                        class:active={adminEditingId === item.id}
+                        role="button"
+                        tabindex="0"
+                        on:click={() => openAdminMode('library', libraryAdminTab, item)}
+                        on:keydown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            openAdminMode('library', libraryAdminTab, item);
+                          }
+                        }}
+                      >
+                        {#if item.cover_image}
+                          <img src={item.cover_image} alt="" class="admin-row-thumb" draggable="false" />
+                        {/if}
+                        <div class="admin-row-content">
+                          <strong>{item.title}</strong>
+                          <small>{item.platform ?? item.format ?? item.artist ?? 'Unknown'}</small>
+                        </div>
+                        <div class="admin-row-actions">
+                          <button type="button" on:click|stopPropagation={() => openAdminMode('library', libraryAdminTab, item)}>Edit</button>
+                          <button type="button" class="danger" on:click|stopPropagation={() => openDeleteConfirm(item)}>Delete</button>
+                        </div>
+                      </div>
+                    {/if}
+                  {/each}
+                {/if}
               </div>
 
-              {#if adminListTotalPages > 1}
+              {#if adminActiveTotalPages > 1}
                 <div class="admin-list-pager">
                   <button type="button" on:click={() => (adminListPage = Math.max(0, adminListPage - 1))} disabled={adminListPage === 0}>Back</button>
-                  <div class="admin-pager-info">Page {adminListPage + 1} / {adminListTotalPages}</div>
-                  <button type="button" on:click={() => (adminListPage = Math.min(adminListTotalPages - 1, adminListPage + 1))} disabled={adminListPage >= adminListTotalPages - 1}>Next</button>
+                  <div class="admin-pager-info">Page {adminListPage + 1} / {adminActiveTotalPages}</div>
+                  <button type="button" on:click={() => (adminListPage = Math.min(adminActiveTotalPages - 1, adminListPage + 1))} disabled={adminListPage >= adminActiveTotalPages - 1}>Next</button>
                 </div>
               {/if}
 
               <!-- Bulk Upload -->
+              {#if libraryAdminTab !== 'wishlists'}
               <div class="bulk-upload-section">
                 <button
                   type="button"
@@ -3553,11 +4283,172 @@
                   {/if}
                 </div>
               </div>
+              {/if}
             </div>
 
             <!-- Library Editor (Right) -->
             <div class="admin-form-pane">
-              {#if adminEditingId !== null}
+              {#if libraryAdminTab === 'wishlists' && wishlistAdminSection === 'console' && wishlistEditingId !== null}
+                <form class="admin-form" on:submit|preventDefault={saveWishlistItem}>
+                  <h3>{wishlistSystemForm.name || 'Edit Console Wish List Item'}</h3>
+                  <div class="form-field">
+                    <label for="wishlist-console-name">System Name</label>
+                    <input id="wishlist-console-name" type="text" bind:value={wishlistSystemForm.name} placeholder="System name" required />
+                  </div>
+                  <div class="form-field">
+                    <label for="wishlist-console-short-name">Short Name</label>
+                    <input id="wishlist-console-short-name" type="text" bind:value={wishlistSystemForm.shortName} placeholder="PS5" />
+                  </div>
+                  <div class="form-field">
+                    <label for="wishlist-console-logo">Logo Text</label>
+                    <input id="wishlist-console-logo" type="text" bind:value={wishlistSystemForm.logo} placeholder="PS5" />
+                  </div>
+                  <div class="form-field">
+                    <label for="wishlist-console-case">Case Type</label>
+                    <select id="wishlist-console-case" bind:value={wishlistSystemForm.caseType}>
+                      <option value="">Auto-detect</option>
+                      <option value="cartridge">Cartridge</option>
+                      <option value="disc">Disc</option>
+                      <option value="hybrid">Hybrid</option>
+                    </select>
+                  </div>
+                  <div class="form-field">
+                    <label for="wishlist-console-logo-image">Logo Image URL</label>
+                    <input id="wishlist-console-logo-image" type="text" bind:value={wishlistSystemForm.logoImage} placeholder="https://..." />
+                  </div>
+                  <div class="form-actions">
+                    <button type="submit">Save Wish List Item</button>
+                    <button type="button" on:click={resetWishlistSystemForm}>Clear</button>
+                  </div>
+                </form>
+              {:else if libraryAdminTab === 'wishlists' && wishlistAdminSection !== 'console' && wishlistEditingId !== null}
+                <form class="admin-form" on:submit|preventDefault={saveWishlistItem}>
+                  <h3>{adminForm.title || 'Edit Wish List Item'}</h3>
+                  <div class="form-field">
+                    <label for="admin-item-title">Title</label>
+                    <input id="admin-item-title" type="text" bind:value={adminForm.title} placeholder="Title" required />
+                  </div>
+
+                  {#if wishlistAdminSection === 'games'}
+                    <div class="form-field">
+                      <label for="admin-platform">Platform</label>
+                      <select id="admin-platform" bind:value={adminForm.platform} required>
+                        <option value="">Select console</option>
+                        {#each adminConsoleOptions as consoleName}
+                          <option value={consoleName}>{consoleName}</option>
+                        {/each}
+                      </select>
+                    </div>
+                    <div class="admin-field-group">
+                      <label class="admin-field-label" for="admin-publishers">Publisher(s)</label>
+                      <div class="admin-chip-row">
+                        <select id="admin-publishers" bind:value={adminPublisherChoice} on:change={() => {
+                          if (adminPublisherChoice) {
+                            updateAdminSelection('publishers', adminPublisherChoice, 'add');
+                            adminPublisherChoice = '';
+                          }
+                        }}>
+                          <option value="">Select publisher</option>
+                          {#each adminPublisherOptions as publisherName}
+                            <option value={publisherName} disabled={adminForm.publishers.includes(publisherName)}>{publisherName}</option>
+                          {/each}
+                        </select>
+                      </div>
+                      {#if adminForm.publishers.length}
+                        <div class="admin-chip-list">
+                          {#each adminForm.publishers as publisherName}
+                            <button type="button" class="admin-chip" on:click={() => updateAdminSelection('publishers', publisherName, 'remove')}>
+                              {publisherName}
+                              <span aria-hidden="true">×</span>
+                            </button>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                    <div class="admin-field-group">
+                      <label class="admin-field-label" for="admin-game-genres">Genre(s)</label>
+                      <div class="admin-chip-row">
+                        <select id="admin-game-genres" bind:value={adminGameGenreChoice} on:change={() => {
+                          if (adminGameGenreChoice) {
+                            updateAdminSelection('gameGenres', adminGameGenreChoice, 'add');
+                            adminGameGenreChoice = '';
+                          }
+                        }}>
+                          <option value="">Select genre</option>
+                          {#each adminGameGenreOptions as genreName}
+                            <option value={genreName} disabled={adminForm.gameGenres.includes(genreName)}>{genreName}</option>
+                          {/each}
+                        </select>
+                      </div>
+                      {#if adminForm.gameGenres.length}
+                        <div class="admin-chip-list">
+                          {#each adminForm.gameGenres as genreName}
+                            <button type="button" class="admin-chip" on:click={() => updateAdminSelection('gameGenres', genreName, 'remove')}>
+                              {genreName}
+                              <span aria-hidden="true">×</span>
+                            </button>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                    <div class="form-field">
+                      <label for="admin-release-date">Release Date</label>
+                      <input id="admin-release-date" type="date" bind:value={adminForm.release_date} placeholder="Release date" />
+                    </div>
+                    <div class="form-field">
+                      <label for="admin-players">Players</label>
+                      <select id="admin-players" bind:value={adminForm.players}>
+                        <option value="">Number of players</option>
+                        {#each adminPlayerOptions as playerCount}
+                          <option value={String(playerCount)}>{playerCount}</option>
+                        {/each}
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label for="admin-cooperative">Cooperative</label>
+                      <select id="admin-cooperative" bind:value={adminForm.cooperative}>
+                        {#each cooperativeOptions as cooperativeOption}
+                          <option value={cooperativeOption}>{cooperativeOption}</option>
+                        {/each}
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label for="admin-rating">Rating</label>
+                      <select id="admin-rating" bind:value={adminForm.rating}>
+                        {#each gameRatingOptions as ratingOption}
+                          <option value={ratingOption}>{ratingOption}</option>
+                        {/each}
+                      </select>
+                    </div>
+                  {:else}
+                    <div class="form-field">
+                      <label for="admin-artist">Artist</label>
+                      <input id="admin-artist" type="text" bind:value={adminForm.artist} placeholder="Artist" />
+                    </div>
+                    <div class="form-field">
+                      <label for="admin-music-genre">Genre</label>
+                      <select id="admin-music-genre" bind:value={adminMusicGenreChoice} required on:change={() => { adminForm = { ...adminForm, musicGenre: adminMusicGenreChoice }; }}>
+                        <option value="">Select genre</option>
+                        {#each adminMusicGenreOptions as genreName}
+                          <option value={genreName}>{genreName}</option>
+                        {/each}
+                      </select>
+                    </div>
+                    <div class="form-field">
+                      <label for="admin-music-release-date">Release Date</label>
+                      <input id="admin-music-release-date" type="date" bind:value={adminForm.release_date} placeholder="Release date" />
+                    </div>
+                  {/if}
+                  <div class="form-field">
+                    <label for="admin-notes">Overview</label>
+                    <textarea id="admin-notes" bind:value={adminForm.notes} rows="3" placeholder="Overview"></textarea>
+                  </div>
+                  <div class="form-actions">
+                    <button type="submit">Save Wish List Item</button>
+                    <button type="button" on:click={() => { wishlistEditingId = null; adminContextItem = null; }}>Clear</button>
+                  </div>
+                </form>
+              {:else if adminEditingId !== null}
                 <form class="admin-form" on:submit|preventDefault={saveAdminItem}>
                   <h3>{adminContextItem?.title ?? 'Edit Item'}</h3>
                   {#if libraryAdminTab === 'games'}
@@ -3741,6 +4632,40 @@
                         {/each}
                       </select>
                     </div>
+                    <div class="form-field">
+                      <span class="star-field-label">Gameplay Rating</span>
+                      <div class="star-picker" role="group" aria-label="Gameplay rating out of 5">
+                        {#each [1, 2, 3, 4, 5] as n}
+                          <button
+                            type="button"
+                            class="star-btn"
+                            class:filled={adminForm.gameplayRating !== null && n <= adminForm.gameplayRating}
+                            aria-label="{n} star{n !== 1 ? 's' : ''}"
+                            on:click={() => { adminForm = { ...adminForm, gameplayRating: adminForm.gameplayRating === n ? null : n }; }}
+                          >★</button>
+                        {/each}
+                        {#if adminForm.gameplayRating !== null}
+                          <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, gameplayRating: null }; }} aria-label="Clear gameplay rating">×</button>
+                        {/if}
+                      </div>
+                    </div>
+                    <div class="form-field">
+                      <span class="star-field-label">Plot Rating</span>
+                      <div class="star-picker" role="group" aria-label="Plot rating out of 5">
+                        {#each [1, 2, 3, 4, 5] as n}
+                          <button
+                            type="button"
+                            class="star-btn"
+                            class:filled={adminForm.plotRating !== null && n <= adminForm.plotRating}
+                            aria-label="{n} star{n !== 1 ? 's' : ''}"
+                            on:click={() => { adminForm = { ...adminForm, plotRating: adminForm.plotRating === n ? null : n }; }}
+                          >★</button>
+                        {/each}
+                        {#if adminForm.plotRating !== null}
+                          <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, plotRating: null }; }} aria-label="Clear plot rating">×</button>
+                        {/if}
+                      </div>
+                    </div>
                   {:else}
                     <div class="form-field">
                       <label for="admin-artist">Artist</label>
@@ -3761,6 +4686,23 @@
                       <label for="admin-music-release-date">Release Date</label>
                       <input id="admin-music-release-date" type="date" bind:value={adminForm.release_date} placeholder="Release date" />
                     </div>
+                    <div class="form-field">
+                      <span class="star-field-label">Star Rating</span>
+                      <div class="star-picker" role="group" aria-label="Album star rating out of 5">
+                        {#each [1, 2, 3, 4, 5] as n}
+                          <button
+                            type="button"
+                            class="star-btn"
+                            class:filled={adminForm.starRating !== null && n <= adminForm.starRating}
+                            aria-label="{n} star{n !== 1 ? 's' : ''}"
+                            on:click={() => { adminForm = { ...adminForm, starRating: adminForm.starRating === n ? null : n }; }}
+                          >★</button>
+                        {/each}
+                        {#if adminForm.starRating !== null}
+                          <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, starRating: null }; }} aria-label="Clear star rating">×</button>
+                        {/if}
+                      </div>
+                    </div>
                   {/if}
                   <div class="form-field">
                     <label for="admin-notes">Overview</label>
@@ -3774,8 +4716,26 @@
                 </form>
               {:else}
                 <div class="admin-form-empty">
-                  <p>Select an item from the list to edit, or click the button below to create a new one.</p>
-                  <button type="button" on:click={() => { resetAdminForm(libraryAdminTab === 'music' ? 'Music' : 'Games'); adminEditingId = -1; }}>Create New {libraryAdminTab === 'games' ? 'Game' : 'Album'}</button>
+                  <p>
+                    {#if libraryAdminTab === 'wishlists'}
+                      Select a wish list item to edit, or create a new one.
+                    {:else}
+                      Select an item from the list to edit, or click the button below to create a new one.
+                    {/if}
+                  </p>
+                  <button type="button" on:click={() => {
+                    if (libraryAdminTab === 'wishlists') {
+                      if (wishlistAdminSection === 'console') {
+                        resetWishlistSystemForm();
+                      } else {
+                        resetAdminForm(wishlistAdminSection === 'music' ? 'Music' : 'Games');
+                      }
+                      wishlistEditingId = 'new';
+                      return;
+                    }
+                    resetAdminForm(libraryAdminTab === 'music' ? 'Music' : 'Games');
+                    adminEditingId = -1;
+                  }}>Create New {libraryAdminTab === 'wishlists' ? (wishlistAdminSection === 'console' ? 'Console' : wishlistAdminSection === 'games' ? 'Game' : 'Album') : libraryAdminTab === 'games' ? 'Game' : 'Album'}</button>
                 </div>
               {/if}
             </div>

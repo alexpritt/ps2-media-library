@@ -19,6 +19,9 @@ export interface MediaItem {
   disc_image: string | null;
   tags: string | null;
   notes: string | null;
+  star_rating: number | null;
+  gameplay_rating: number | null;
+  plot_rating: number | null;
 }
 
 export interface EditableSystem {

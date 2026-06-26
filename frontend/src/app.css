@@ -6,6 +6,18 @@
   --hud-yellow: #d8da44;
   --hud-blue: #41c8ff;
   --shadow: rgba(0, 0, 0, 0.78);
+  --stage-top-pad: 16px;
+  --stage-side-pad: 38px;
+  --stage-bottom-pad: 18px;
+  --details-action-side-pad: 24px;
+  --details-action-bottom-pad: 18px;
+  --toolbar-float-gap: 56px;
+  --popup-surface-bg:
+    radial-gradient(circle at 14% 88%, rgba(53, 84, 255, 0.2), transparent 30%),
+    radial-gradient(circle at 92% 9%, rgba(86, 219, 117, 0.14), transparent 26%),
+    linear-gradient(135deg, rgba(84, 88, 110, 0.92), rgba(62, 66, 88, 0.94));
+  --popup-surface-border: 1px solid rgba(255, 255, 255, 0.24);
+  --popup-surface-shadow: 0 24px 42px rgba(0, 0, 0, 0.48);
 }
 
 * {
@@ -315,9 +327,9 @@ button {
 
 .console-hud {
   position: absolute;
-  top: 16px;
-  left: 38px;
-  right: 38px;
+  top: var(--stage-top-pad);
+  left: var(--stage-side-pad);
+  right: var(--stage-side-pad);
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
@@ -437,9 +449,9 @@ button {
 /* ── Library toolbar (search + players filter) ─────────────────── */
 .library-hud {
   position: absolute;
-  top: 16px;
-  left: 38px;
-  right: 38px;
+  top: var(--stage-top-pad);
+  left: var(--stage-side-pad);
+  right: var(--stage-side-pad);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -454,6 +466,40 @@ button {
   margin-left: auto;
   margin-right: 12px;
   justify-content: flex-end;
+}
+
+.wishlist-toggle {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--hud-white);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 220ms ease, transform 180ms ease;
+}
+
+.wishlist-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.wishlist-toggle:hover,
+.wishlist-toggle:focus-visible,
+.wishlist-toggle.is-active {
+  color: #ffd86c;
+  transform: translateY(-1px);
+}
+
+.wishlist-toggle--console {
+  margin-left: 12px;
+}
+
+.wishlist-toggle--library {
+  margin-right: 12px;
 }
 
 .library-search-shell {
@@ -698,6 +744,183 @@ button {
 .players-dropdown button + button {
   border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
+
+/* ── Star filter ───────────────────────────────────────────────── */
+.star-filter {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.star-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--hud-white);
+  padding: 8px 0;
+  cursor: pointer;
+  transition: color 180ms ease;
+  letter-spacing: 0.04em;
+  min-width: 44px;
+  box-shadow: none;
+  text-decoration: none;
+}
+
+.star-filter-btn:hover {
+  background: transparent;
+}
+
+.star-filter-btn.is-active {
+  background: transparent;
+  color: #fff;
+}
+
+.star-filter-inner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.star-filter-num {
+  font-size: clamp(0.78rem, 1vw, 0.9rem);
+  letter-spacing: 0.04em;
+  color: var(--hud-white);
+  font-weight: 600;
+}
+
+.star-filter-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+  opacity: 0.86;
+  color: rgba(226, 190, 80, 0.9);
+  transition: opacity 220ms ease, color 220ms ease;
+}
+
+.star-filter-btn:hover .star-filter-icon {
+  opacity: 1;
+  color: #f0d060;
+}
+
+.star-filter-btn.is-active .star-filter-icon {
+  opacity: 1;
+  color: #f5c800;
+}
+
+.star-filter-btn:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.star-dropdown button {
+  font-size: 0.9rem;
+  letter-spacing: 0;
+  color: rgba(240, 200, 70, 0.95);
+}
+
+.star-dropdown button.selected {
+  color: #f5c800;
+}
+
+/* ── Star picker (admin form) ──────────────────────────────────── */
+.star-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.star-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: rgba(200, 200, 220, 0.35);
+  cursor: pointer;
+  padding: 2px 3px;
+  transition: color 130ms ease, transform 130ms ease;
+  box-shadow: none;
+  text-shadow: none;
+  border-radius: 4px;
+  opacity: 1;
+  text-decoration: none;
+}
+
+.star-btn::after {
+  display: none;
+}
+
+.star-btn:hover,
+.star-btn:focus-visible {
+  color: #f5c800;
+  transform: scale(1.15);
+  background: transparent;
+  box-shadow: none;
+}
+
+.star-btn.filled {
+  color: #f5c800;
+  text-shadow: 0 0 8px rgba(245, 200, 0, 0.45);
+}
+
+.star-clear {
+  background: transparent;
+  border: none;
+  font-size: 0.85rem;
+  color: rgba(200, 200, 220, 0.5);
+  cursor: pointer;
+  padding: 2px 5px;
+  margin-left: 4px;
+  border-radius: 4px;
+  transition: color 130ms ease;
+  box-shadow: none;
+  opacity: 1;
+  text-decoration: none;
+}
+
+.star-clear::after {
+  display: none;
+}
+
+.star-clear:hover {
+  color: rgba(255, 100, 100, 0.85);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ── Star ratings in detail popup ─────────────────────────────── */
+.details-star-ratings {
+  margin: 12px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.details-star-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.details-star-label {
+  font-size: clamp(0.82rem, 1.1vw, 1rem);
+  font-weight: 600;
+  color: rgba(220, 230, 255, 0.72);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  min-width: 80px;
+}
+
+.details-stars {
+  font-size: clamp(1.05rem, 1.7vw, 1.45rem);
+  letter-spacing: 0.05em;
+  color: #f5c800;
+  text-shadow: 0 0 10px rgba(245, 200, 0, 0.4);
+  line-height: 1;
+}
+
 
 .console-card,
 .library-card {
@@ -1965,9 +2188,9 @@ button {
 
 .details-actions {
   position: absolute;
-  left: 24px;
-  right: 24px;
-  bottom: 18px;
+  left: var(--details-action-side-pad);
+  right: var(--details-action-side-pad);
+  bottom: var(--details-action-bottom-pad);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1989,6 +2212,8 @@ button {
   display: flex;
   gap: 18px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .details-admin-actions .danger {
@@ -1997,24 +2222,28 @@ button {
 
 .back-button {
   position: absolute;
-  left: 38px;
-  bottom: 18px;
+  left: var(--stage-side-pad);
+  bottom: var(--stage-bottom-pad);
   border: 0;
   background: none;
   color: rgba(255, 255, 255, 0.92);
   text-shadow: 2px 2px 0 var(--shadow);
   font-size: clamp(1.3rem, 2.2vw, 2.1rem);
+  min-width: 72px;
+  text-align: left;
   z-index: 10;
 }
 
 .admin-launch {
   position: absolute;
-  right: 38px;
-  bottom: 18px;
+  right: var(--stage-side-pad);
+  bottom: var(--stage-bottom-pad);
   border: 0;
   background: none;
   color: rgba(255, 255, 255, 0.92);
   font-size: clamp(1.3rem, 2.2vw, 2.1rem);
+  min-width: 92px;
+  text-align: right;
   z-index: 11;
 }
 
@@ -2081,7 +2310,7 @@ button {
 .pager {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: var(--stage-bottom-pad);
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -2112,8 +2341,8 @@ button {
 
 .admin-toolbar {
   position: absolute;
-  right: 38px;
-  bottom: 74px;
+  right: var(--stage-side-pad);
+  bottom: calc(var(--stage-bottom-pad) + var(--toolbar-float-gap));
   top: auto;
   display: flex;
   flex-direction: column;
@@ -2227,6 +2456,22 @@ button {
   flex-shrink: 0;
 }
 
+.systems-logo-container--detail {
+  width: 180px;
+  height: 180px;
+  border-radius: 22px;
+}
+
+.systems-logo-container--detail .systems-logo {
+  max-width: 150px;
+  max-height: 150px;
+}
+
+.details-left--console-wishlist {
+  display: grid;
+  place-items: center;
+}
+
 .systems-logo {
   max-width: 45px;
   max-height: 45px;
@@ -2309,7 +2554,8 @@ button {
   gap: 8px;
 }
 
-.form-field label {
+.form-field label,
+.form-field .star-field-label {
   color: rgba(220, 235, 255, 0.9);
   font-size: 0.9rem;
   font-weight: 600;
@@ -2758,17 +3004,19 @@ button {
   background: rgba(0, 0, 0, 0.58);
 }
 
+.confirm-panel,
+.admin-panel,
+.launchbox-art-picker-panel {
+  border-radius: 16px;
+  background: var(--popup-surface-bg);
+  border: var(--popup-surface-border);
+  box-shadow: var(--popup-surface-shadow);
+}
+
 .confirm-panel {
   position: relative;
   z-index: 1;
   width: min(520px, 92vw);
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 14% 88%, rgba(53, 84, 255, 0.2), transparent 30%),
-    radial-gradient(circle at 92% 9%, rgba(86, 219, 117, 0.14), transparent 26%),
-    linear-gradient(135deg, rgba(84, 88, 110, 0.92), rgba(62, 66, 88, 0.94));
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  box-shadow: 0 24px 42px rgba(0, 0, 0, 0.48);
   padding: 18px;
   padding-top: 48px;
 }
@@ -2833,13 +3081,6 @@ button {
   max-height: 90vh;
   overflow: auto;
   overflow-x: hidden;
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 14% 88%, rgba(53, 84, 255, 0.2), transparent 30%),
-    radial-gradient(circle at 92% 9%, rgba(86, 219, 117, 0.14), transparent 26%),
-    linear-gradient(135deg, rgba(84, 88, 110, 0.92), rgba(62, 66, 88, 0.94));
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  box-shadow: 0 24px 42px rgba(0, 0, 0, 0.48);
   padding: 28px;
 }
 
@@ -3710,6 +3951,10 @@ select option {
   margin: 0 0 16px;
 }
 
+.admin-subtabs {
+  margin-top: -6px;
+}
+
 .admin-tabs button {
   border: 1px solid rgba(150, 180, 255, 0.18);
   background: rgba(10, 20, 45, 0.72);
@@ -3725,6 +3970,11 @@ select option {
   background: linear-gradient(135deg, rgba(216, 218, 68, 0.18), rgba(90, 155, 255, 0.22));
   border-color: rgba(216, 218, 68, 0.45);
   color: var(--hud-yellow);
+}
+
+.admin-subtabs button {
+  font-size: 0.9rem;
+  padding: 9px 13px;
 }
 
 .admin-form-empty {
@@ -3957,6 +4207,40 @@ select option {
     flex-wrap: wrap;
   }
 
+  .library-hud {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .library-hud-left,
+  .library-hud-right,
+  .console-header-right,
+  .console-header-shell {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .console-header-shell {
+    gap: 10px;
+  }
+
+  .library-toolbar {
+    width: 100%;
+    margin: 0;
+    justify-content: center;
+    gap: 14px;
+  }
+
+  .wishlist-toggle--library {
+    order: -1;
+    margin-right: 18px;
+  }
+
+  .wishlist-toggle--console {
+    margin-left: 0;
+  }
+
   .admin-tabs button {
     flex: 1 1 140px;
     text-align: center;
@@ -4007,6 +4291,56 @@ select option {
 }
 
 @media (max-width: 640px) {
+  :root {
+    --stage-top-pad: 10px;
+    --stage-side-pad: 14px;
+    --stage-bottom-pad: max(10px, env(safe-area-inset-bottom, 0px));
+    --details-action-side-pad: 16px;
+    --details-action-bottom-pad: 14px;
+    --toolbar-float-gap: 46px;
+  }
+
+  .details-screen {
+    inset: 12% 4% 17% 4%;
+    padding: 14px 12px 68px;
+    gap: 10px;
+  }
+
+  .details-right {
+    padding: 0;
+    max-width: 100%;
+  }
+
+  .details-tags {
+    max-width: 100%;
+    gap: 8px;
+  }
+
+  .details-line-2,
+  .details-line-5 {
+    max-width: 100%;
+  }
+
+  .details-line-5 {
+    line-height: 1.45;
+    max-height: 24vh;
+  }
+
+  .details-admin-actions {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+
+  .confirm-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .confirm-actions button {
+    flex: 1 1 0;
+  }
+
   .ps2-screen {
     padding: 16px;
   }
@@ -4110,36 +4444,26 @@ select option {
     flex-shrink: 0;
   }
 
-  .details-actions {
-    left: 16px;
-    right: 16px;
-    bottom: 14px;
-  }
-
   .details-back,
   .details-admin-actions button {
     font-size: 1.1rem;
   }
 
   .library-hud {
-    left: 14px;
-    right: 14px;
-    top: 10px;
     gap: 10px;
-    align-items: flex-start;
+    align-items: center;
     flex-wrap: nowrap;
     display: grid;
     grid-template-columns: 1fr;
+    justify-items: center;
   }
 
   .console-hud {
-    left: 14px;
-    right: 14px;
-    top: 10px;
     gap: 8px;
-    align-items: flex-start;
+    align-items: center;
     display: grid;
     grid-template-columns: 1fr;
+    justify-items: center;
   }
 
   .library-toolbar {
@@ -4148,7 +4472,7 @@ select option {
     margin-left: 0;
     margin-right: 0;
     width: 100%;
-    justify-content: flex-start;
+    justify-content: center;
     gap: 12px;
   }
 
@@ -4203,7 +4527,7 @@ select option {
     margin-top: 0;
     margin-left: 0;
     width: 100%;
-    text-align: left;
+    text-align: center;
     max-width: none;
     font-size: clamp(0.92rem, 3.2vw, 1.16rem);
     line-height: 1.15;
@@ -4341,21 +4665,19 @@ select option {
   }
 
   .back-button {
-    left: 14px;
-    bottom: max(10px, env(safe-area-inset-bottom, 0px));
     font-size: 1.4rem;
     min-height: 44px;
     min-width: 72px;
     padding: 7px 10px;
+    text-align: left;
   }
 
   .admin-launch {
-    right: 14px;
-    bottom: max(10px, env(safe-area-inset-bottom, 0px));
     font-size: 1.4rem;
     min-height: 44px;
     min-width: 86px;
     padding: 7px 10px;
+    text-align: right;
   }
 
   .pager {
@@ -4364,8 +4686,6 @@ select option {
   }
 
   .admin-toolbar {
-    right: 12px;
-    bottom: 56px;
     top: auto;
     justify-content: flex-end;
     max-width: 62vw;

@@ -95,6 +95,9 @@ class MediaItem(SQLModel, table=True):
     disc_image: Optional[str] = None
     tags: Optional[str] = None
     notes: Optional[str] = None
+    star_rating: Optional[int] = None
+    gameplay_rating: Optional[int] = None
+    plot_rating: Optional[int] = None
 
 
 class GameSystem(SQLModel, table=True):
@@ -198,6 +201,18 @@ def ensure_spine_image_column() -> None:
             connection.execute(text("ALTER TABLE mediaitem ADD COLUMN spine_image VARCHAR"))
 
 
+def ensure_star_rating_columns() -> None:
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(mediaitem)")).fetchall()
+        column_names = {column[1] for column in columns}
+        if "star_rating" not in column_names:
+            connection.execute(text("ALTER TABLE mediaitem ADD COLUMN star_rating INTEGER"))
+        if "gameplay_rating" not in column_names:
+            connection.execute(text("ALTER TABLE mediaitem ADD COLUMN gameplay_rating INTEGER"))
+        if "plot_rating" not in column_names:
+            connection.execute(text("ALTER TABLE mediaitem ADD COLUMN plot_rating INTEGER"))
+
+
 def ensure_system_case_type_column() -> None:
     with engine.begin() as connection:
         columns = connection.execute(text("PRAGMA table_info(gamesystem)")).fetchall()
@@ -285,6 +300,10 @@ CARTRIDGE_PRESET_ALIASES: Dict[str, str] = {
     "3ds": "3ds",
     "nintendo3ds": "3ds",
     "newnintendo3ds": "3ds",
+    "gb": "gb",
+    "gameboy": "gb",
+    "gameboycolor": "gb",
+    "gbc": "gb",
     "gameboyadvance": "gba",
     "gameboyadvancesp": "gba",
     "gba": "gba",
@@ -355,6 +374,8 @@ DISC_PRESET_ALIASES: Dict[str, str] = {
     "psp": "psp",
     "playstationportable": "psp",
     # Nintendo optical systems
+    "gc": "gamecube",
+    "gamecube": "gamecube",
     "wii": "wii",
     "wiiu": "wiiu",
     # Microsoft
@@ -800,6 +821,8 @@ def mobygames_platform_aliases(platform: str) -> List[str]:
         "xbox 360": ["xbox 360"],
         "xbox": ["xbox"],
         "wii": ["wii"],
+        "gamecube": ["gamecube", "gc"],
+        "game boy": ["game boy", "gb"],
         "game boy advance": ["game boy advance", "gba"],
         "playstation portable": ["psp", "playstation portable"],
         "playstation vita": ["ps vita", "vita", "playstation vita"],
@@ -1340,6 +1363,10 @@ SYSTEM_LOGO_SOURCE_URLS: Dict[str, str] = {
     "nds": "https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg",
     "nintendo3ds": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg",
     "3ds": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg",
+    "gameboy": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg",
+    "gb": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg",
+    "gamecube": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg",
+    "gc": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg",
     "wii": "https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg",
     "xbox": "https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg",
     "xbox360": "https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg",
@@ -1430,6 +1457,10 @@ def ensure_systems() -> None:
     default_systems = [
         {"system_id": "3ds", "name": "Nintendo 3DS", "short_name": "3DS", "logo": "3DS",
          "logo_url": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg", "case_type": "cartridge", "appearance_preset": "3ds"},
+        {"system_id": "gb", "name": "GameBoy", "short_name": "GB", "logo": "GB",
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg", "case_type": "cartridge", "appearance_preset": "gb"},
+        {"system_id": "gc", "name": "GameCube", "short_name": "GC", "logo": "GC",
+         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg", "case_type": "disc", "appearance_preset": "gamecube"},
         {"system_id": "nds", "name": "Nintendo DS", "short_name": "NDS", "logo": "NDS",
          "logo_url": "https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg", "case_type": "cartridge", "appearance_preset": "nds"},
         {"system_id": "ps2", "name": "PlayStation 2", "short_name": "PS2", "logo": "PS2",
@@ -1558,6 +1589,8 @@ def ensure_console_test_games() -> None:
                 {"platform": "PlayStation 4", "short": "PS4", "accent": "#0f55aa", "accent_dark": "#0b1e3f", "cartridge": False},
                 {"platform": "Nintendo DS", "short": "NDS", "accent": "#535a69", "accent_dark": "#1f2330", "cartridge": True},
                 {"platform": "Nintendo 3DS", "short": "3DS", "accent": "#b3262d", "accent_dark": "#4f1215", "cartridge": True},
+                {"platform": "GameBoy", "short": "GB", "accent": "#5d6b8f", "accent_dark": "#23314e", "cartridge": True},
+                {"platform": "GameCube", "short": "GC", "accent": "#5a40a5", "accent_dark": "#291b53", "cartridge": False},
                 {"platform": "Wii", "short": "WII", "accent": "#9ca7b8", "accent_dark": "#4b5665", "cartridge": False},
                 {"platform": "Xbox", "short": "XBOX", "accent": "#2f9d44", "accent_dark": "#144920", "cartridge": False},
                 {"platform": "Xbox 360", "short": "360", "accent": "#4ea95f", "accent_dark": "#244d2c", "cartridge": False},
@@ -1615,6 +1648,7 @@ def on_startup() -> None:
     ensure_cooperative_column()
     ensure_disc_image_column()
     ensure_spine_image_column()
+    ensure_star_rating_columns()
     ensure_system_case_type_column()
     ensure_system_appearance_preset_column()
     ensure_system_is_cartridge_inferred_column()
