@@ -158,7 +158,23 @@
   ];
   const cooperativeOptions = ['No', 'Yes'];
   const SITE_LOGO_SRC = '/brand-logo.png';
-  const BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || '/boot.mp4';
+  const DESKTOP_BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro.mp4';
+  const MOBILE_BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_MOBILE_SRC || '').trim() || '/boot.mp4';
+
+  function prefersMobileBootPlayback() {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.matchMedia('(pointer: coarse)').matches
+      || navigator.maxTouchPoints > 0
+      || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+    );
+  }
+
+  const BOOT_PREFERS_MOBILE = prefersMobileBootPlayback();
+  const BOOT_VIDEO_SOURCES = BOOT_PREFERS_MOBILE
+    ? [MOBILE_BOOT_VIDEO_SRC, DESKTOP_BOOT_VIDEO_SRC]
+    : [DESKTOP_BOOT_VIDEO_SRC, MOBILE_BOOT_VIDEO_SRC];
+  const BOOT_VIDEO_PRELOAD = BOOT_PREFERS_MOBILE ? 'metadata' : 'auto';
   const CONSOLE_WISHLIST_KEY = 'ps2-console-wishlist';
   const GAME_WISHLIST_KEY = 'ps2-game-wishlist';
   const MUSIC_WISHLIST_KEY = 'ps2-music-wishlist';
@@ -3197,9 +3213,10 @@
         bind:this={bootVideoRef}
         class="boot-video"
         autoplay
-        preload="auto"
+        preload={BOOT_VIDEO_PRELOAD}
         muted={bootMuted}
         playsinline
+        webkit-playsinline="true"
         on:loadedmetadata={() => {
           if (bootVideoRef) {
             bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
@@ -3261,7 +3278,9 @@
           revealBootOptions({ markError: true, resetStarted: true });
         }}
       >
-        <source src={BOOT_VIDEO_SRC} type="video/mp4" />
+        {#each BOOT_VIDEO_SOURCES as source}
+          <source src={source} type="video/mp4" />
+        {/each}
         <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
       </video>
     {/if}
