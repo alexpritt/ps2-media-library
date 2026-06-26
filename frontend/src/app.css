@@ -44,6 +44,12 @@ button {
   cursor: pointer;
   letter-spacing: 0.03em;
   text-shadow: 2px 2px 0 var(--shadow);
+  -webkit-tap-highlight-color: transparent;
+}
+
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
 }
 
 .boot-screen,
@@ -4638,16 +4644,16 @@ select option {
   }
 
   .library-search-shell {
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
   }
 
   .library-search-shell.is-open {
-    width: 162px;
+    width: 172px;
   }
 
   .library-search.is-open {
-    width: 126px;
+    width: 116px;
     font-size: 0.7rem;
   }
 
@@ -4939,9 +4945,69 @@ select option {
   .popup-close {
     top: 8px;
     right: 8px;
-    width: 38px;
-    height: 38px;
+    width: 44px;
+    height: 44px;
     font-size: 1.35rem;
+  }
+
+  .wishlist-toggle {
+    min-height: 44px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .pager button {
+    min-height: 44px;
+  }
+
+  .details-back,
+  .details-admin-actions button {
+    min-height: 44px;
+  }
+
+  .details-rotator-control,
+  .details-rotator {
+    width: 160px;
+    height: 160px;
+  }
+
+  .details-game-disc,
+  .details-disc-flipper {
+    width: 130px;
+    height: 130px;
+  }
+
+  .details-cart-flipper {
+    width: 118px;
+    height: 134px;
+  }
+
+  .details-cartridge {
+    width: 118px;
+    height: 134px;
+  }
+
+  .details-cartridge.disc-shell--nds,
+  .details-cartridge.disc-shell--3ds {
+    width: 112px;
+    height: 128px;
+  }
+
+  .details-vinyl {
+    width: 138px;
+    height: 138px;
+  }
+
+  .details-vinyl .vinyl-sleeve {
+    width: 128px;
+    height: 128px;
+  }
+
+  .details-vinyl .vinyl-record {
+    width: 110px;
+    height: 110px;
+    right: -6px;
+    bottom: -6px;
   }
 }
 
