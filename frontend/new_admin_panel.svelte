@@ -162,9 +162,9 @@
 
               {#if adminListTotalPages > 1}
                 <div class="admin-list-pager">
-                  <button type="button" on:click={() => (adminListPage = Math.max(0, adminListPage - 1))} disabled={adminListPage === 0}>Back</button>
-                  <div class="admin-pager-info">Page {adminListPage + 1} / {adminListTotalPages}</div>
-                  <button type="button" on:click={() => (adminListPage = Math.min(adminListTotalPages - 1, adminListPage + 1))} disabled={adminListPage >= adminListTotalPages - 1}>Next</button>
+                  <button type="button" on:click={() => (adminListPage = Math.max(0, adminListPage - 1))} disabled={adminListPage === 0} aria-label="Previous page">←</button>
+                  <div class="admin-pager-info">{adminListPage + 1} / {adminListTotalPages}</div>
+                  <button type="button" on:click={() => (adminListPage = Math.min(adminListTotalPages - 1, adminListPage + 1))} disabled={adminListPage >= adminListTotalPages - 1} aria-label="Next page">→</button>
                 </div>
               {/if}
             </div>
