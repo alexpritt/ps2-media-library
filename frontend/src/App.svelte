@@ -506,6 +506,7 @@
   $: if (stage !== 'library') {
     librarySearchOpen = false;
     playersDropdownOpen = false;
+    starDropdownOpen = false;
   }
   $: if (stage !== 'details') {
     detailsDragActive = false;
@@ -3765,7 +3766,81 @@
                   <span class="wishlist-toggle-footer">WISH LIST</span>
                 </button>
                 <span class="toolbar-divider toolbar-divider--wishlist" aria-hidden="true">|</span>
+                <div class="players-filter">
+                  <button
+                    type="button"
+                    class="players-filter-btn"
+                    class:is-active={libraryPlayersFilter !== null}
+                    on:click={() => { playersDropdownOpen = !playersDropdownOpen; starDropdownOpen = false; }}
+                    aria-label="Filter by player count"
+                  >
+                    <span class="players-filter-inner">
+                      <img src="/controller-icon.svg" alt="" class="controller-icon" aria-hidden="true" />
+                      {#if libraryPlayersFilter !== null}
+                        <span class="players-filter-num">{libraryPlayersFilter}+</span>
+                      {/if}
+                      <span class="players-filter-caret">▾</span>
+                    </span>
+                  </button>
+                  {#if playersDropdownOpen}
+                    <button class="players-dropdown-backdrop" type="button" tabindex="-1" on:click={() => (playersDropdownOpen = false)} aria-label="Close player filter"></button>
+                    <div class="players-dropdown" role="menu">
+                      <button
+                        type="button"
+                        class:selected={libraryPlayersFilter === null}
+                        on:click={() => { libraryPlayersFilter = null; playersDropdownOpen = false; page = 0; }}
+                        role="menuitem"
+                      >All</button>
+                      {#each availablePlayerCounts as count}
+                        <button
+                          type="button"
+                          class:selected={libraryPlayersFilter === count}
+                          on:click={() => { libraryPlayersFilter = count; playersDropdownOpen = false; page = 0; }}
+                          role="menuitem"
+                        >{count}+ players</button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+                <span class="toolbar-divider" aria-hidden="true">|</span>
               {/if}
+              <div class="star-filter">
+                <button
+                  type="button"
+                  class="star-filter-btn"
+                  class:is-active={libraryStarFilter !== null}
+                  on:click={() => { starDropdownOpen = !starDropdownOpen; playersDropdownOpen = false; }}
+                  aria-label="Filter by star rating"
+                >
+                  <span class="star-filter-inner">
+                    {#if libraryStarFilter !== null}
+                      <span class="star-filter-num">{libraryStarFilter}+</span>
+                    {/if}
+                    <span class="star-filter-icon">★</span>
+                    <span class="players-filter-caret">▾</span>
+                  </span>
+                </button>
+                {#if starDropdownOpen}
+                  <button class="players-dropdown-backdrop" type="button" tabindex="-1" on:click={() => (starDropdownOpen = false)} aria-label="Close star filter"></button>
+                  <div class="players-dropdown star-dropdown" role="menu">
+                    <button
+                      type="button"
+                      class:selected={libraryStarFilter === null}
+                      on:click={() => { libraryStarFilter = null; starDropdownOpen = false; page = 0; }}
+                      role="menuitem"
+                    >All Ratings</button>
+                    {#each [1, 2, 3, 4, 5] as n}
+                      <button
+                        type="button"
+                        class:selected={libraryStarFilter === n}
+                        on:click={() => { libraryStarFilter = n; starDropdownOpen = false; page = 0; }}
+                        role="menuitem"
+                      >{n}★+</button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+              <span class="toolbar-divider" aria-hidden="true">|</span>
               <div class="library-search-shell" class:is-open={librarySearchOpen}>
                 <button
                   type="button"
@@ -3791,6 +3866,7 @@
                     if (event.key === 'Escape') {
                       if (!librarySearch.trim()) librarySearchOpen = false;
                       playersDropdownOpen = false;
+                      starDropdownOpen = false;
                     }
                   }}
                   autocomplete="off"
