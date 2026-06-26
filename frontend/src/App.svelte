@@ -245,6 +245,7 @@
 
   let page = 0;
   let itemsPerPage = 15;
+  let viewportWidth = 0;
   let mediaLoadRequestId = 0;
   let libraryLoading = false;
 
@@ -380,6 +381,9 @@
       ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Item' : 'Items'} ON WISH LIST`
       : `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Game' : 'Games'} IN LIBRARY`
     : consoleLibraryCountLabel;
+  $: itemsPerPage = viewportWidth <= 420 ? 4 : viewportWidth <= 640 ? 6 : 15;
+  $: consolePageItems = activeConsoleSource.slice(page * itemsPerPage, page * itemsPerPage + itemsPerPage);
+  $: consoleTotalPages = Math.ceil(Math.max(1, activeConsoleSource.length) / itemsPerPage);
   $: currentItems = pagedItems();
   $: totalPages = Math.ceil(media.length / itemsPerPage);
   $: libraryCountLabel = category === 'Music'
@@ -466,6 +470,12 @@
     return result;
   })();
   $: filteredTotalPages = Math.ceil(Math.max(1, filteredMedia.length) / itemsPerPage);
+  $: activeStageTotalPages = stage === 'console'
+    ? consoleTotalPages
+    : stage === 'library'
+      ? filteredTotalPages
+      : totalPages;
+  $: if (page >= activeStageTotalPages) page = Math.max(0, activeStageTotalPages - 1);
   $: availablePlayerCounts = [...new Set(
     media.filter((i) => i.players != null).map((i) => i.players as number)
   )].sort((a, b) => a - b);
@@ -726,6 +736,10 @@
 
   function toggleWishlistView() {
     switchLibraryView(libraryView === 'owned' ? 'wishlist' : 'owned');
+  }
+
+  function closeWishlistView() {
+    switchLibraryView('owned');
   }
 
   function currentWishlistCollection(kind: WishlistKind) {
@@ -2431,6 +2445,11 @@
       return;
     }
 
+    if (libraryView === 'wishlist') {
+      closeWishlistView();
+      return;
+    }
+
     if (stage === 'console') {
       void returnToBootSmooth();
       return;
@@ -3373,6 +3392,8 @@
   }
 </script>
 
+<svelte:window bind:innerWidth={viewportWidth} />
+
 {#if stage === 'boot'}
   <div
     class="boot-screen"
@@ -3519,28 +3540,26 @@
             <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
             <button
               type="button"
-              class="wishlist-toggle wishlist-toggle--console wishlist-toggle--console-header"
+              class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-header"
               class:is-active={libraryView === 'wishlist'}
               on:click={toggleWishlistView}
               aria-label={wishlistIconLabel()}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 6.25h9.25c.41 0 .75.34.75.75v1.2c0 .41-.34.75-.75.75H5c-.41 0-.75-.34-.75-.75V7c0-.41.34-.75.75-.75Zm0 4.1h9.25c.41 0 .75.34.75.75v1.2c0 .41-.34.75-.75.75H5c-.41 0-.75-.34-.75-.75v-1.2c0-.41.34-.75.75-.75Zm0 4.1h9.25c.41 0 .75.34.75.75v1.2c0 .41-.34.75-.75.75H5c-.41 0-.75-.34-.75-.75v-1.2c0-.41.34-.75.75-.75Z" fill="currentColor"></path>
-                <path d="M19.5 7.5c-1.1 0-2 .9-2 2 0 1.42 1.25 2.67 2.72 4.02.43.39.87.74 1.28 1.13.06.06.16.06.22 0 .41-.39.85-.74 1.28-1.13C24.25 12.17 25.5 10.92 25.5 9.5c0-1.1-.9-2-2-2-.78 0-1.45.42-1.78 1.05-.33-.63-1-1.05-1.72-1.05Z" transform="translate(-6 -4)" fill="currentColor"></path>
+                <path d="M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z" fill="currentColor"></path>
               </svg>
             </button>
           </div>
           <div class="console-toolbar">
             <button
               type="button"
-              class="wishlist-toggle wishlist-toggle--console wishlist-toggle--console-toolbar"
+              class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar"
               class:is-active={libraryView === 'wishlist'}
               on:click={toggleWishlistView}
               aria-label={wishlistIconLabel()}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 6.25h9.25c.41 0 .75.34.75.75v1.2c0 .41-.34.75-.75.75H5c-.41 0-.75-.34-.75-.75V7c0-.41.34-.75.75-.75Zm0 4.1h9.25c.41 0 .75.34.75.75v1.2c0 .41-.34.75-.75.75H5c-.41 0-.75-.34-.75-.75v-1.2c0-.41.34-.75.75-.75Zm0 4.1h9.25c.41 0 .75.34.75.75v1.2c0 .41-.34.75-.75.75H5c-.41 0-.75-.34-.75-.75v-1.2c0-.41.34-.75.75-.75Z" fill="currentColor"></path>
-                <path d="M19.5 7.5c-1.1 0-2 .9-2 2 0 1.42 1.25 2.67 2.72 4.02.43.39.87.74 1.28 1.13.06.06.16.06.22 0 .41-.39.85-.74 1.28-1.13C24.25 12.17 25.5 10.92 25.5 9.5c0-1.1-.9-2-2-2-.78 0-1.45.42-1.78 1.05-.33-.63-1-1.05-1.72-1.05Z" transform="translate(-6 -4)" fill="currentColor"></path>
+                <path d="M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z" fill="currentColor"></path>
               </svg>
             </button>
           </div>
@@ -3563,7 +3582,7 @@
           </div>
         </div>
         <div class="console-grid">
-          {#each activeConsoleSource as console, index}
+          {#each consolePageItems as console, index}
             <button
               type="button"
               class="console-card"
@@ -3593,6 +3612,14 @@
             </button>
           {/each}
         </div>
+
+        {#if consoleTotalPages > 1}
+          <div class="pager">
+            <button type="button" on:click={() => setPage(page - 1)} disabled={page === 0}>Back</button>
+            <div class="pager-info">Page {page + 1} / {consoleTotalPages}</div>
+            <button type="button" on:click={() => setPage(page + 1)} disabled={page >= consoleTotalPages - 1}>Next</button>
+          </div>
+        {/if}
       </section>
     {/if}
 

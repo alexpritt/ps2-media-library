@@ -4396,7 +4396,7 @@ select option {
   :root {
     --stage-top-pad: 10px;
     --stage-side-pad: 14px;
-    --stage-bottom-pad: max(10px, env(safe-area-inset-bottom, 0px));
+    --stage-bottom-pad: env(safe-area-inset-bottom, 0px);
     --details-action-side-pad: 16px;
     --details-action-bottom-pad: 14px;
     --toolbar-float-gap: 46px;
@@ -4698,7 +4698,7 @@ select option {
   .console-grid,
   .library-grid {
     grid-template-columns: repeat(3, minmax(86px, 1fr));
-    inset: 39% 4% 22% 4%;
+    inset: 39% 4% 18% 4%;
     gap: 22px 14px;
   }
 
@@ -4803,7 +4803,7 @@ select option {
   }
 
   .pager {
-    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    bottom: env(safe-area-inset-bottom, 0px);
     gap: 10px;
   }
 
@@ -4923,7 +4923,7 @@ select option {
 
   .library-grid {
     grid-template-columns: repeat(2, minmax(104px, 1fr));
-    inset: 41% 5% 23% 5%;
+    inset: 41% 5% 18% 5%;
     gap: 24px 14px;
     justify-items: center;
   }
@@ -4942,7 +4942,7 @@ select option {
 
   .console-grid {
     grid-template-columns: repeat(2, minmax(104px, 1fr));
-    inset: 41% 5% 23% 5%;
+    inset: 41% 5% 18% 5%;
     gap: 24px 14px;
     justify-items: center;
   }
