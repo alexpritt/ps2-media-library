@@ -1127,6 +1127,39 @@
     return '';
   }
 
+  function launchboxPlatformCandidates(platform: string | null | undefined) {
+    const base = (platform ?? '').trim();
+    if (!base) return [];
+
+    const compact = base.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const aliasMap: Record<string, string[]> = {
+      ps1: ['PlayStation'],
+      psx: ['PlayStation'],
+      playstation1: ['PlayStation'],
+      ps2: ['PlayStation 2'],
+      playstation2: ['PlayStation 2'],
+      ps3: ['PlayStation 3'],
+      playstation3: ['PlayStation 3'],
+      ps4: ['PlayStation 4'],
+      playstation4: ['PlayStation 4'],
+      nds: ['Nintendo DS'],
+      nintendods: ['Nintendo DS'],
+      ds: ['Nintendo DS'],
+      '3ds': ['Nintendo 3DS'],
+      nintendo3ds: ['Nintendo 3DS'],
+      gc: ['GameCube'],
+      gamecube: ['GameCube'],
+      gb: ['GameBoy'],
+      gameboy: ['GameBoy'],
+      xbx: ['Xbox'],
+      xbox360: ['Xbox 360'],
+      x360: ['Xbox 360'],
+    };
+
+    const options = [base, ...(aliasMap[compact] ?? [])];
+    return Array.from(new Set(options.map((value) => value.trim()).filter(Boolean)));
+  }
+
   function inferAppearancePreset(platform: string | null | undefined) {
     const key = normalizeConsoleKey(platform);
     if (key === 'nds' || key === '3ds' || key === 'gb') return key;
@@ -1652,7 +1685,9 @@
       bulkBusy = false;
       return;
     }
-    const endpoint = libraryAdminTab === 'games' ? '/api/bulk/games' : '/api/bulk/music';
+    const endpointCandidates = libraryAdminTab === 'games'
+      ? ['/api/bulk/games', '/api/bulk-games', '/api/games/bulk']
+      : ['/api/bulk/music', '/api/bulk-music', '/api/music/bulk'];
     const nextResults: { line: string; status: 'success' | 'error'; message: string }[] = [];
     let successCount = 0;
     let errorCount = 0;
@@ -1660,15 +1695,32 @@
     try {
       for (const line of lines) {
         try {
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: mediaHeaders(),
-            body: JSON.stringify(
-              libraryAdminTab === 'games'
-                ? { items: [line], platform: bulkPlatform }
-                : { items: [line] }
-            ),
-          });
+          let response: Response | null = null;
+          for (let endpointIndex = 0; endpointIndex < endpointCandidates.length; endpointIndex += 1) {
+            const endpoint = endpointCandidates[endpointIndex];
+            const platformAliases = launchboxPlatformCandidates(bulkPlatform);
+            const attemptedPlatform = libraryAdminTab === 'games'
+              ? (platformAliases.length > 1 ? platformAliases[1] : (platformAliases[0] ?? bulkPlatform))
+              : '';
+            const nextResponse = await fetch(endpoint, {
+              method: 'POST',
+              headers: mediaHeaders(),
+              body: JSON.stringify(
+                libraryAdminTab === 'games'
+                  ? { items: [line], platform: attemptedPlatform }
+                  : { items: [line] }
+              ),
+            });
+
+            response = nextResponse;
+            if (nextResponse.status !== 404 && nextResponse.status !== 405) {
+              break;
+            }
+          }
+
+          if (!response) {
+            throw new Error('No bulk endpoint response received.');
+          }
 
           if (response.status === 401) {
             adminToken = '';
@@ -1761,24 +1813,58 @@
 
     launchboxFetchBusy = true;
     try {
-      const response = await fetch('/api/launchbox/game-data', {
-        method: 'POST',
-        headers: mediaHeaders(),
-        body: JSON.stringify({
-          title: (adminForm.title ?? '').trim(),
-          platform: ((adminForm.platform ?? '').trim() || (selectedConsole ?? '').trim()),
-          item_id: adminForm.id ?? null,
-        }),
-      });
-      if (response.status === 401) {
-        adminToken = '';
-        localStorage.removeItem('ps2-admin-token');
-        adminError = 'Session expired. Log in again.';
+      const title = (adminForm.title ?? '').trim();
+      const requestedPlatform = ((adminForm.platform ?? '').trim() || (selectedConsole ?? '').trim());
+      const platformCandidates = launchboxPlatformCandidates(requestedPlatform);
+      const endpointCandidates = ['/api/launchbox/game-data', '/api/game-data'];
+
+      let response: Response | null = null;
+      let data: any = null;
+      let lastErrorDetail = '';
+
+      outer: for (const endpoint of endpointCandidates) {
+        for (const platform of platformCandidates) {
+          const nextResponse = await fetch(endpoint, {
+            method: 'POST',
+            headers: mediaHeaders(),
+            body: JSON.stringify({
+              title,
+              platform,
+              item_id: adminForm.id ?? null,
+            }),
+          });
+
+          if (nextResponse.status === 401) {
+            adminToken = '';
+            localStorage.removeItem('ps2-admin-token');
+            adminError = 'Session expired. Log in again.';
+            return;
+          }
+
+          const nextData = await nextResponse.json().catch(() => null);
+          response = nextResponse;
+          data = nextData;
+
+          if (nextResponse.ok) {
+            break outer;
+          }
+
+          lastErrorDetail = typeof nextData?.detail === 'string' ? nextData.detail : '';
+
+          // Continue trying aliases/endpoints only for match/path issues.
+          if (![404, 405, 502].includes(nextResponse.status)) {
+            break outer;
+          }
+        }
+      }
+
+      if (!response) {
+        launchboxFetchError = 'Could not fetch game data from available sources.';
         return;
       }
-      const data = await response.json().catch(() => null);
+
       if (!response.ok) {
-        launchboxFetchError = data?.detail ?? 'LaunchBox could not find matching game data.';
+        launchboxFetchError = lastErrorDetail || data?.detail || `LaunchBox request failed (${response.status}).`;
         return;
       }
 
