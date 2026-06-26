@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
+  import { cubicOut } from 'svelte/easing';
+  import { fade } from 'svelte/transition';
+  import type { TransitionConfig } from 'svelte/transition';
 
   export let value: string | number = '';
   export let options: Array<{ value: string | number; label: string }> = [];
@@ -12,6 +15,31 @@
 
   let isOpen = false;
   let trigger: HTMLButtonElement | null = null;
+  let prefersReducedMotion = false;
+
+  function reducedMotionTransition(css: (t: number) => string): TransitionConfig {
+    return {
+      duration: prefersReducedMotion ? 0 : 1,
+      easing: cubicOut,
+      css,
+    };
+  }
+
+  function dropdownTransition(_node: Element): TransitionConfig {
+    if (prefersReducedMotion) {
+      return reducedMotionTransition((t) => `opacity: ${t};`);
+    }
+
+    return {
+      duration: 160,
+      easing: cubicOut,
+      css: (t) => {
+        const scale = 0.985 + (0.015 * t);
+        const y = (1 - t) * 6;
+        return `opacity: ${t}; transform: translateY(${y}px) scale(${scale}); transform-origin: top center;`;
+      },
+    };
+  }
 
   function handleSelect(optionValue: string | number) {
     value = optionValue;
@@ -26,9 +54,18 @@
   }
 
   onMount(() => {
+    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const syncReducedMotionPreference = () => {
+      prefersReducedMotion = reducedMotionQuery.matches;
+    };
+
+    syncReducedMotionPreference();
+
     document.addEventListener('click', handleClickOutside);
+    reducedMotionQuery.addEventListener('change', syncReducedMotionPreference);
     return () => {
       document.removeEventListener('click', handleClickOutside);
+      reducedMotionQuery.removeEventListener('change', syncReducedMotionPreference);
     };
   });
 
@@ -57,9 +94,10 @@
       type="button"
       class="admin-select-backdrop"
       aria-label="Close dropdown"
+      transition:fade={{ duration: prefersReducedMotion ? 0 : 120 }}
       on:click={() => (isOpen = false)}
     ></button>
-    <div class="admin-select-dropdown" role="listbox">
+    <div class="admin-select-dropdown" role="listbox" transition:dropdownTransition>
       {#each options as option (option.value)}
         <button
           type="button"

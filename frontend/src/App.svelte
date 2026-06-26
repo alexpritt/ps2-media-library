@@ -172,37 +172,43 @@
   let brokenDiscIds = new Set<number>();
   let hoveredConsoleFadeVisible = false;
   let hoveredConsoleFadeTimeout: ReturnType<typeof setTimeout> | null = null;
+  let prefersReducedMotion = false;
 
   let page = 0;
   let itemsPerPage = 15;
+
+  function reducedMotionTransition(css: (t: number) => string): TransitionConfig {
+    return {
+      duration: prefersReducedMotion ? 0 : 1,
+      easing: cubicOut,
+      css,
+    };
+  }
   let mediaLoadRequestId = 0;
   let libraryLoading = false;
-
   let adminToken = '';
+  let adminBusy = false;
+  let adminError = '';
   let adminOpen = false;
-    let adminMode: 'hub' | 'systems' | 'library' = 'hub';
-    let libraryAdminTab: 'games' | 'music' = 'games';
-    let adminContextItem: MediaItem | null = null;
+  let adminMode: 'hub' | 'systems' | 'library' = 'hub';
+  let libraryAdminTab: 'games' | 'music' = 'games';
+  let adminContextItem: MediaItem | null = null;
   let adminPublisherChoice = '';
   let adminGameGenreChoice = '';
   let adminMusicGenreChoice = '';
-  let detailsEditMode = false;
   let adminEditingId: number | null = null;
   let adminPassword = '';
-  let adminBusy = false;
-  let adminError = '';
   let adminMessage = '';
   let launchboxFetchBusy = false;
   let launchboxFetchError = '';
   let launchboxArtPickerOpen = false;
   let launchboxArtPickerBusy = false;
   let launchboxArtPickerError = '';
-  let launchboxArtPickerField: GameArtField | null = null;
   let launchboxArtOptions: string[] = [];
+  let launchboxArtPickerField: GameArtField | null = null;
   let bulkOpen = false;
-  let bulkText = '';
   let bulkBusy = false;
-  let bulkResults: { line: string; status: 'success' | 'error'; message: string }[] = [];
+  let bulkText = '';
   let bulkTotalCount = 0;
   let bulkProcessedCount = 0;
   let bulkProgressPercent = 0;
@@ -728,21 +734,45 @@
   }
 
   function popupOverlayTransition(_node: Element): TransitionConfig {
+    if (prefersReducedMotion) {
+      return reducedMotionTransition((t) => `opacity: ${t};`);
+    }
+
     return {
-      duration: 190,
+      duration: 210,
       easing: cubicOut,
       css: (t) => `opacity: ${t};`,
     };
   }
 
   function popupPanelTransition(_node: Element): TransitionConfig {
+    if (prefersReducedMotion) {
+      return reducedMotionTransition((t) => `opacity: ${t};`);
+    }
+
     return {
-      duration: 220,
+      duration: 280,
       easing: cubicOut,
       css: (t) => {
-        const scale = 0.97 + (0.03 * t);
-        const y = (1 - t) * 10;
+        const scale = 0.94 + (0.06 * t);
+        const y = (1 - t) * 18;
         return `opacity: ${t}; transform: translateY(${y}px) scale(${scale});`;
+      },
+    };
+  }
+
+  function popupDropdownTransition(_node: Element): TransitionConfig {
+    if (prefersReducedMotion) {
+      return reducedMotionTransition((t) => `opacity: ${t};`);
+    }
+
+    return {
+      duration: 160,
+      easing: cubicOut,
+      css: (t) => {
+        const scale = 0.985 + (0.015 * t);
+        const y = (1 - t) * 6;
+        return `opacity: ${t}; transform: translateY(${y}px) scale(${scale}); transform-origin: top center;`;
       },
     };
   }
@@ -1537,7 +1567,7 @@
   function armBootPlaybackRetry() {
     clearBootPlaybackRetry();
     bootPlaybackRetryInterval = setInterval(() => {
-      if (stage !== 'boot' || bootError || !bootVideoRef) {
+      if (stage !== 'boot' || bootError || bootTextVisible || !bootVideoRef) {
         clearBootPlaybackRetry();
         return;
       }
@@ -2583,6 +2613,13 @@
   }
 
   onMount(() => {
+    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const syncReducedMotionPreference = () => {
+      prefersReducedMotion = reducedMotionQuery.matches;
+    };
+
+    syncReducedMotionPreference();
+
     bootTouchHint = typeof window !== 'undefined'
       && (
         window.matchMedia('(pointer: coarse)').matches
@@ -2598,6 +2635,7 @@
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleGlobalBootKeydown);
     window.addEventListener('keydown', handleGlobalEscapeKeydown);
+    reducedMotionQuery.addEventListener('change', syncReducedMotionPreference);
     void queueBootStart();
 
     void (async () => {
@@ -2609,6 +2647,7 @@
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleGlobalBootKeydown);
       window.removeEventListener('keydown', handleGlobalEscapeKeydown);
+      reducedMotionQuery.removeEventListener('change', syncReducedMotionPreference);
       if (bootSoundIndicatorTimeout) {
         clearTimeout(bootSoundIndicatorTimeout);
       }
@@ -2686,7 +2725,6 @@
       autoplay
       preload="auto"
       muted={bootMuted}
-      loop
       playsinline
       webkit-playsinline="true"
       on:loadedmetadata={() => {
@@ -2711,11 +2749,13 @@
           if (bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
             bootTextVisible = true;
             clearBootRescueTimer();
+            clearBootPlaybackRetry();
           }
         } else {
           if (bootVideoRef.currentTime >= bootRevealAt) {
             bootTextVisible = true;
             clearBootRescueTimer();
+            clearBootPlaybackRetry();
           }
         }
       }}
@@ -2745,6 +2785,7 @@
       on:ended={() => {
         bootTextVisible = true;
         clearBootRescueTimer();
+        clearBootPlaybackRetry();
       }}
       on:error={() => {
         bootError = true;
@@ -2930,9 +2971,10 @@
                       class="players-dropdown-backdrop"
                       type="button"
                       aria-label="Close dropdown"
+                      transition:fade={{ duration: prefersReducedMotion ? 0 : 120 }}
                       on:click={() => (playersDropdownOpen = false)}
                     ></button>
-                    <div class="players-dropdown" role="menu">
+                    <div class="players-dropdown" role="menu" transition:popupDropdownTransition>
                       <button type="button" role="menuitem"
                         class:selected={libraryPlayersFilter === null}
                         on:click={() => { libraryPlayersFilter = null; playersDropdownOpen = false; page = 0; }}
