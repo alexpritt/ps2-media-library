@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 import requests
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from bs4 import BeautifulSoup
@@ -21,7 +22,22 @@ FRONTEND_BUILD_DIR = Path(__file__).parent.parent / "frontend" / "build"
 
 app = FastAPI(title="PS2 Media Library API")
 
-ADMIN_PASSWORD = "foreverandalways"
+allowed_origins = [
+    "http://127.0.0.1:4173",
+    "http://localhost:4173",
+    "https://theavenoircollection.com",
+    "https://www.theavenoircollection.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "foreverandalways2015")
 admin_tokens: Dict[str, bool] = {}
 
 

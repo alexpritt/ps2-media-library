@@ -87,6 +87,9 @@
   };
 
   const ZOOM_TRANSITION_MS = 900;
+  const API_BASE_URL = import.meta.env.DEV
+    ? (import.meta.env.VITE_API_BASE_URL || '')
+    : (import.meta.env.VITE_API_BASE_URL || 'https://ps2-media-library-api.fly.dev');
 
   const fallbackConsoles: ConsoleOption[] = [
     { name: 'PlayStation 2', shortName: 'PS2', logo: 'PS2',
@@ -191,6 +194,11 @@
   const CONSOLE_WISHLIST_KEY = 'ps2-console-wishlist';
   const GAME_WISHLIST_KEY = 'ps2-game-wishlist';
   const MUSIC_WISHLIST_KEY = 'ps2-music-wishlist';
+
+  function apiPath(path: string) {
+    if (!API_BASE_URL) return path;
+    return `${API_BASE_URL.replace(/\/$/, '')}${path}`;
+  }
 
   let stage: Stage = 'boot';
   let category: Category | null = null;
@@ -947,7 +955,7 @@
     adminError = '';
     adminMessage = '';
     try {
-      const response = await fetch('/api/media', {
+      const response = await fetch(apiPath('/api/media'), {
         method: 'POST',
         headers: mediaHeaders(),
         body: JSON.stringify({
@@ -1004,7 +1012,7 @@
     adminError = '';
     adminMessage = '';
     try {
-      const response = await fetch('/api/systems', {
+      const response = await fetch(apiPath('/api/systems'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
         body: JSON.stringify({
@@ -1646,7 +1654,7 @@
     launchboxArtOptions = [];
 
     try {
-      const response = await fetch('/api/launchbox/game-art-options', {
+      const response = await fetch(apiPath('/api/launchbox/game-art-options'), {
         method: 'POST',
         headers: mediaHeaders(),
         body: JSON.stringify({
@@ -2100,7 +2108,7 @@
   }
 
   async function loadAllMedia() {
-    const response = await fetch('/api/media');
+    const response = await fetch(apiPath('/api/media'));
     if (!response.ok) return;
     allMedia = await response.json();
   }
@@ -2506,7 +2514,7 @@
 
   async function loadSystemsFromAPI() {
     try {
-      const response = await fetch('/api/systems');
+      const response = await fetch(apiPath('/api/systems'));
       if (response.ok) {
         const systems = await response.json();
         editableSystems = systems.map((s: any) => ({
@@ -2608,7 +2616,7 @@
     }
     
     try {
-      const response = await fetch('/api/systems', {
+      const response = await fetch(apiPath('/api/systems'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
         body: JSON.stringify({
@@ -2744,7 +2752,7 @@
 
     // Persist new order to backend
     try {
-      await fetch('/api/systems/reorder', {
+      await fetch(apiPath('/api/systems/reorder'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
         body: JSON.stringify({
@@ -3053,7 +3061,7 @@
     adminError = '';
     adminMessage = '';
     try {
-      const response = await fetch('/api/admin/login', {
+      const response = await fetch(apiPath('/api/admin/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: adminPassword }),
@@ -3077,7 +3085,7 @@
 
   async function adminLogout() {
     try {
-      await fetch('/api/admin/logout', {
+      await fetch(apiPath('/api/admin/logout'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${adminToken}` },
       });
