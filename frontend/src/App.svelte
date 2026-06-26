@@ -865,6 +865,37 @@ function normalizeGameTitle(title: string): string {
     return media.slice(start, start + itemsPerPage);
   }
 
+  function computeLibraryItemsPerPage(width: number, height: number) {
+    if (width <= 430) return height <= 740 ? 4 : 6;
+    if (width <= 640) return 6;
+    if (width <= 980) return 10;
+    return 15;
+  }
+
+  function computeAdminItemsPerPage(width: number) {
+    if (width <= 430) return 4;
+    if (width <= 640) return 6;
+    if (width <= 980) return 8;
+    return 10;
+  }
+
+  function applyResponsivePagination() {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    const nextLibraryItemsPerPage = computeLibraryItemsPerPage(width, height);
+    if (nextLibraryItemsPerPage !== itemsPerPage) {
+      itemsPerPage = nextLibraryItemsPerPage;
+      page = 0;
+    }
+
+    const nextAdminItemsPerPage = computeAdminItemsPerPage(width);
+    if (nextAdminItemsPerPage !== adminListItemsPerPage) {
+      adminListItemsPerPage = nextAdminItemsPerPage;
+      adminListPage = 0;
+    }
+  }
+
   function setPage(nextPage: number) {
     page = Math.max(0, Math.min(totalPages - 1, nextPage));
     history.pushState(currentHistoryState(), '');
@@ -2778,6 +2809,12 @@ async function deleteAdminItems(itemIds: number[]) {
     const ua = navigator.userAgent.toLowerCase();
     isFirefox = ua.includes('firefox') && !ua.includes('seamonkey');
 
+    applyResponsivePagination();
+
+    const handleViewportChange = () => {
+      applyResponsivePagination();
+    };
+
     const savedToken = localStorage.getItem('ps2-admin-token');
     if (savedToken) {
       adminToken = savedToken;
@@ -2793,12 +2830,16 @@ async function deleteAdminItems(itemIds: number[]) {
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleGlobalBootKeydown);
     window.addEventListener('keydown', handleGlobalEscapeKeydown);
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('orientationchange', handleViewportChange);
     void queueBootStart();
 
     return () => {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleGlobalBootKeydown);
       window.removeEventListener('keydown', handleGlobalEscapeKeydown);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('orientationchange', handleViewportChange);
       if (bootSoundIndicatorTimeout) {
         clearTimeout(bootSoundIndicatorTimeout);
       }

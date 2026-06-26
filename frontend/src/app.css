@@ -4542,7 +4542,8 @@ select option {
   }
 
   .admin-overlay {
-    padding: 10px;
+    padding: max(10px, env(safe-area-inset-top)) 10px 10px;
+    align-items: start;
   }
 
   .boot-options {
@@ -4637,9 +4638,35 @@ select option {
     grid-template-columns: 1fr;
   }
 
-  .systems-row {
+  .systems-layout .systems-list {
+    margin-top: 12px;
+    padding-right: 0;
+  }
+
+  .systems-layout .systems-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
     align-items: start;
-    flex-direction: column;
+    padding: 12px 10px;
+  }
+
+  .systems-layout .systems-row-handle {
+    display: none;
+  }
+
+  .systems-layout .systems-row-main {
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .systems-layout .systems-info {
+    min-width: 0;
+  }
+
+  .systems-layout .systems-info strong,
+  .systems-layout .systems-info small {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .library-hud-right {
@@ -4654,8 +4681,24 @@ select option {
   .console-grid,
   .library-grid {
     grid-template-columns: repeat(3, minmax(74px, 1fr));
-    inset: 26% 3% 16% 3%;
-    gap: 12px;
+    inset: 24% 4% 14% 4%;
+    gap: 14px 12px;
+  }
+
+  .console-card,
+  .library-card {
+    min-height: 104px;
+    padding: 4px 2px;
+  }
+
+  .library-card .disc-case {
+    transform: scale(0.8);
+    transform-origin: center;
+  }
+
+  .library-card .vinyl-wrap {
+    transform: scale(0.84);
+    transform-origin: center;
   }
 
   .details-screen {
@@ -4725,9 +4768,20 @@ select option {
 
   .admin-panel {
     width: 100%;
-    max-height: 95vh;
+    max-height: calc(100dvh - max(14px, env(safe-area-inset-top)) - 10px);
     border-radius: 16px;
     padding: 12px;
+    margin-top: max(4px, env(safe-area-inset-top));
+  }
+
+  .admin-header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: linear-gradient(180deg, rgba(97, 102, 114, 0.95), rgba(97, 102, 114, 0.75));
+    backdrop-filter: blur(8px);
+    padding-top: 6px;
+    margin-bottom: 14px;
   }
 
   .admin-header h2 {
@@ -4794,6 +4848,19 @@ select option {
     max-width: 36px;
     max-height: 36px;
   }
+
+  .systems-layout .systems-actions {
+    width: 100%;
+    justify-self: stretch;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .systems-layout .systems-actions button {
+    min-height: 42px;
+    padding: 8px 10px !important;
+  }
 }
 
 @media (max-width: 480px) {
@@ -4810,9 +4877,22 @@ select option {
 
   .console-grid,
   .library-grid {
-    grid-template-columns: repeat(2, minmax(84px, 1fr));
-    inset: 28% 4% 17% 4%;
-    gap: 14px 10px;
+    grid-template-columns: repeat(2, minmax(78px, 1fr));
+    inset: 24% 4% 14% 4%;
+    gap: 12px 10px;
+  }
+
+  .console-card,
+  .library-card {
+    min-height: 94px;
+  }
+
+  .library-card .disc-case {
+    transform: scale(0.74);
+  }
+
+  .library-card .vinyl-wrap {
+    transform: scale(0.78);
   }
 
   .console-logo-img {
@@ -4951,10 +5031,43 @@ select option {
     filter: none;
   }
 
-  .console-card:hover .console-title,
-  .library-card:hover .library-title {
-    opacity: 0;
-    transform: translateX(-50%);
+  .console-card .console-title,
+  .library-card .library-title {
+    position: static;
+    opacity: 0.88;
+    transform: none;
+    margin-top: 4px;
+    width: 100%;
+    max-width: 100%;
+    text-align: center;
+    white-space: normal;
+    line-height: 1.15;
+    font-size: 0.72rem;
+    pointer-events: none;
+  }
+
+  .console-card:active .console-title,
+  .library-card:active .library-title {
+    opacity: 1;
+  }
+
+  .console-card:active,
+  .library-card:active {
+    transform: scale(0.96);
+    filter: brightness(1.08);
+  }
+
+  .back-button:active,
+  .admin-launch:active,
+  .details-back:active,
+  .details-admin-actions button:active,
+  .pager button:active,
+  .library-search-toggle:active,
+  .players-filter-btn:active,
+  .systems-layout .systems-actions button:active,
+  .admin-panel button:not(.admin-backdrop):active {
+    transform: scale(0.96);
+    filter: brightness(1.12);
   }
 }
 
