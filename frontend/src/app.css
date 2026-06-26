@@ -83,7 +83,7 @@ button {
 
 .boot-options {
   position: absolute;
-  right: clamp(44px, 8.5vw, 136px);
+  right: clamp(80px, 14vw, 220px);
   top: 51%;
   transform: translateY(-50%);
   display: grid;
@@ -4591,7 +4591,7 @@ select option {
   .boot-options {
     right: max(10px, env(safe-area-inset-right));
     width: min(360px, 60vw);
-    top: 54%;
+    top: 44%;
     justify-items: end;
   }
 
@@ -4954,7 +4954,7 @@ select option {
   .boot-options {
     width: min(330px, 62vw);
     right: max(8px, env(safe-area-inset-right));
-    top: 56%;
+    top: 44%;
   }
 
   .boot-option-main,

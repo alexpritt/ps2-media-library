@@ -145,8 +145,13 @@
   let bootResumeAtSix = false;
   let bootRescueTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootPlaybackRetryInterval: ReturnType<typeof setInterval> | null = null;
+  let bootTapPendingTimeout: ReturnType<typeof setTimeout> | null = null;
+  let bootLastTouchTapAt = 0;
+  let bootSuppressClickUntil = 0;
+  let bootTouchHint = false;
   let bootRevealAt = 9;
   const BOOT_SKIP_TIME = 6;
+  const BOOT_DOUBLE_TAP_WINDOW_MS = 320;
   const BOOT_METADATA_TIMEOUT_MS = 3500;
   const BOOT_METADATA_TIMEOUT_MOBILE_MS = 5000;
   const BOOT_RESCUE_TIMEOUT_MS = 5000;
@@ -526,9 +531,42 @@
   }
 
   function handleBootScreenClick(event: MouseEvent) {
+    if (Date.now() < bootSuppressClickUntil) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('.boot-option')) return;
     toggleBootMute();
+  }
+
+  function clearBootTapPendingTimeout() {
+    if (bootTapPendingTimeout) {
+      clearTimeout(bootTapPendingTimeout);
+      bootTapPendingTimeout = null;
+    }
+  }
+
+  function handleBootPointerUp(event: PointerEvent) {
+    if (event.pointerType !== 'touch') return;
+
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.boot-option')) return;
+
+    const now = Date.now();
+    bootSuppressClickUntil = now + 450;
+
+    if (!bootTextVisible && now - bootLastTouchTapAt <= BOOT_DOUBLE_TAP_WINDOW_MS) {
+      clearBootTapPendingTimeout();
+      bootLastTouchTapAt = 0;
+      unlockBootAudio();
+      skipBootIntro();
+      return;
+    }
+
+    bootLastTouchTapAt = now;
+    clearBootTapPendingTimeout();
+    bootTapPendingTimeout = setTimeout(() => {
+      toggleBootMute();
+      bootTapPendingTimeout = null;
+    }, BOOT_DOUBLE_TAP_WINDOW_MS + 10);
   }
 
 
@@ -1499,13 +1537,17 @@
   function armBootPlaybackRetry() {
     clearBootPlaybackRetry();
     bootPlaybackRetryInterval = setInterval(() => {
-      if (stage !== 'boot' || bootError || bootTextVisible || !bootVideoRef) {
+      if (stage !== 'boot' || bootError || !bootVideoRef) {
         clearBootPlaybackRetry();
         return;
       }
 
       if (!bootVideoRef.paused) return;
       if (bootVideoRef.error || bootVideoRef.readyState < 2) return;
+
+      if (bootVideoRef.ended) {
+        bootVideoRef.currentTime = bootResumeAtSix || bootTextVisible ? BOOT_SKIP_TIME : Math.max(0, bootStartAt);
+      }
 
       void bootVideoRef.play().catch(() => {
         // Ignore transient autoplay-policy failures and retry.
@@ -1568,7 +1610,6 @@
       bootError = !bootVideoRef || bootVideoRef.readyState < 1;
       bootTextVisible = true;
       bootStarted = false;
-      clearBootPlaybackRetry();
     }, getBootRescueTimeoutMs());
   }
 
@@ -1643,7 +1684,6 @@
       bootTextVisible = true;
       bootStarted = false;
       clearBootRescueTimer();
-      clearBootPlaybackRetry();
     }
   }
 
@@ -2543,6 +2583,12 @@
   }
 
   onMount(() => {
+    bootTouchHint = typeof window !== 'undefined'
+      && (
+        window.matchMedia('(pointer: coarse)').matches
+        || (navigator.maxTouchPoints ?? 0) > 0
+      );
+
     const savedToken = localStorage.getItem('ps2-admin-token');
     if (savedToken) {
       adminToken = savedToken;
@@ -2566,6 +2612,7 @@
       if (bootSoundIndicatorTimeout) {
         clearTimeout(bootSoundIndicatorTimeout);
       }
+      clearBootTapPendingTimeout();
       if (detailsInertiaFrame !== null) {
         cancelAnimationFrame(detailsInertiaFrame);
       }
@@ -2601,6 +2648,9 @@
     }
 
     if (stage === 'boot') {
+      clearBootTapPendingTimeout();
+      bootLastTouchTapAt = 0;
+      bootSuppressClickUntil = 0;
       bootStarted = false;
       bootStartAt = previousStage === 'boot' ? 0 : BOOT_SKIP_TIME;
       bootResumeAtSix = previousStage !== 'boot';
@@ -2622,6 +2672,7 @@
     tabindex="0"
     aria-label="Toggle boot audio mute"
     on:click={handleBootScreenClick}
+    on:pointerup={handleBootPointerUp}
     on:keydown={(event) => {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
@@ -2629,88 +2680,84 @@
       }
     }}
   >
-    {#if !bootError}
-      <video
-        bind:this={bootVideoRef}
-        class="boot-video"
-        autoplay
-        preload="auto"
-        muted={bootMuted}
-        playsinline
-        webkit-playsinline="true"
-        on:loadedmetadata={() => {
-          if (bootVideoRef) {
-            bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
-            if (!bootResumeAtSix) {
-              const duration = Number.isFinite(bootVideoRef.duration) ? bootVideoRef.duration : 9;
-              bootRevealAt = Math.min(9, Math.max(1.8, duration - 0.35));
-            }
-            for (const track of Array.from(bootVideoRef.textTracks ?? [])) {
-              track.mode = 'disabled';
-            }
+    <video
+      bind:this={bootVideoRef}
+      class="boot-video"
+      autoplay
+      preload="auto"
+      muted={bootMuted}
+      loop
+      playsinline
+      webkit-playsinline="true"
+      on:loadedmetadata={() => {
+        if (bootVideoRef) {
+          bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
+          if (!bootResumeAtSix) {
+            const duration = Number.isFinite(bootVideoRef.duration) ? bootVideoRef.duration : 9;
+            bootRevealAt = Math.min(9, Math.max(1.8, duration - 0.35));
           }
-          if (stage === 'boot' && !bootTextVisible) {
-            armBootRescueTimer();
-            armBootPlaybackRetry();
+          for (const track of Array.from(bootVideoRef.textTracks ?? [])) {
+            track.mode = 'disabled';
           }
-        }}
-        on:timeupdate={() => {
-          if (!bootVideoRef) return;
-          if (bootResumeAtSix) {
-            if (bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
-              bootTextVisible = true;
-              clearBootRescueTimer();
-              clearBootPlaybackRetry();
-            }
-          } else {
-            if (bootVideoRef.currentTime >= bootRevealAt) {
-              bootTextVisible = true;
-              clearBootRescueTimer();
-              clearBootPlaybackRetry();
-            }
-          }
-        }}
-        on:playing={() => {
-          if (stage !== 'boot') return;
+        }
+        if (stage === 'boot' && !bootTextVisible) {
           armBootRescueTimer();
-          if (bootResumeAtSix && bootVideoRef && bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
+          armBootPlaybackRetry();
+        }
+      }}
+      on:timeupdate={() => {
+        if (!bootVideoRef) return;
+        if (bootResumeAtSix) {
+          if (bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
             bootTextVisible = true;
             clearBootRescueTimer();
           }
-        }}
-        on:waiting={() => {
-          if (stage === 'boot' && !bootTextVisible) {
-            armBootRescueTimer();
+        } else {
+          if (bootVideoRef.currentTime >= bootRevealAt) {
+            bootTextVisible = true;
+            clearBootRescueTimer();
           }
-        }}
-        on:stalled={() => {
-          if (stage === 'boot' && !bootTextVisible) {
-            armBootRescueTimer();
-          }
-        }}
-        on:suspend={() => {
-          if (stage === 'boot' && !bootTextVisible) {
-            armBootRescueTimer();
-          }
-        }}
-        on:ended={() => {
+        }
+      }}
+      on:playing={() => {
+        if (stage !== 'boot') return;
+        armBootRescueTimer();
+        if (bootResumeAtSix && bootVideoRef && bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
           bootTextVisible = true;
           clearBootRescueTimer();
-          clearBootPlaybackRetry();
-        }}
-        on:error={() => {
-          bootError = true;
-          bootTextVisible = true;
-          bootStarted = false;
-          clearBootRescueTimer();
-          clearBootPlaybackRetry();
-        }}
-      >
-        <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
-        <source src="/boot.mp4" type="video/mp4" />
-        <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
-      </video>
-    {/if}
+        }
+      }}
+      on:waiting={() => {
+        if (stage === 'boot' && !bootTextVisible) {
+          armBootRescueTimer();
+        }
+      }}
+      on:stalled={() => {
+        if (stage === 'boot' && !bootTextVisible) {
+          armBootRescueTimer();
+        }
+      }}
+      on:suspend={() => {
+        if (stage === 'boot' && !bootTextVisible) {
+          armBootRescueTimer();
+        }
+      }}
+      on:ended={() => {
+        bootTextVisible = true;
+        clearBootRescueTimer();
+      }}
+      on:error={() => {
+        bootError = true;
+        bootTextVisible = true;
+        bootStarted = false;
+        clearBootRescueTimer();
+        clearBootPlaybackRetry();
+      }}
+    >
+      <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
+      <source src="/boot.mp4" type="video/mp4" />
+      <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
+    </video>
 
     <div class="boot-vignette"></div>
     {#if transitionOverlay}
@@ -2723,8 +2770,8 @@
 
     {#if !bootTextVisible}
       <div class="boot-skip-hint" transition:fade={{ duration: 600 }}>
-        <div>Press spacebar to skip intro</div>
-        <div class="boot-mute-hint">{bootMuted ? 'Click to enable audio' : 'Click to mute'}</div>
+        <div>{bootTouchHint ? 'Double-tap to skip intro' : 'Press spacebar to skip intro'}</div>
+        <div class="boot-mute-hint">{bootTouchHint ? (bootMuted ? 'Tap once to enable audio' : 'Tap once to mute') : (bootMuted ? 'Click to enable audio' : 'Click to mute')}</div>
       </div>
     {/if}
 
