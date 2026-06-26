@@ -284,6 +284,8 @@
   let adminMessage = '';
   let launchboxFetchBusy = false;
   let launchboxFetchError = '';
+  let musicFetchBusy = false;
+  let musicFetchError = '';
   let launchboxArtPickerOpen = false;
   let launchboxArtPickerBusy = false;
   let launchboxArtPickerError = '';
@@ -1613,6 +1615,12 @@
     return title.length > 0 && platform.length > 0;
   }
 
+  function canFetchMusicAlbumData() {
+    const title = (adminForm.title ?? '').trim();
+    const artist = (adminForm.artist ?? '').trim();
+    return title.length > 0 && artist.length > 0;
+  }
+
   function launchboxArtKindForField(field: GameArtField): LaunchboxArtKind {
     if (field === 'cover_image') return 'cover';
     if (field === 'spine_image') return 'spine';
@@ -1957,6 +1965,60 @@
       launchboxFetchError = 'Could not fetch game data from available sources.';
     } finally {
       launchboxFetchBusy = false;
+    }
+  }
+
+  async function fetchMusicAlbumData() {
+    musicFetchError = '';
+    adminError = '';
+    adminMessage = '';
+    if (!canFetchMusicAlbumData()) {
+      musicFetchError = 'Enter an album title and artist first.';
+      return;
+    }
+
+    musicFetchBusy = true;
+    try {
+      const response = await fetch(apiPath('/api/deezer/music-data'), {
+        method: 'POST',
+        headers: mediaHeaders(),
+        body: JSON.stringify({
+          title: (adminForm.title ?? '').trim(),
+          artist: (adminForm.artist ?? '').trim(),
+        }),
+      });
+
+      if (response.status === 401) {
+        adminToken = '';
+        localStorage.removeItem('ps2-admin-token');
+        adminError = 'Session expired. Log in again.';
+        return;
+      }
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        musicFetchError = data?.detail || `Deezer request failed (${response.status}).`;
+        return;
+      }
+
+      const nextGenre = typeof data?.genre === 'string' ? data.genre.trim() : '';
+      adminForm = {
+        ...adminForm,
+        title: data?.title ?? adminForm.title,
+        artist: data?.artist ?? adminForm.artist,
+        musicGenre: nextGenre || adminForm.musicGenre,
+        release_date: normalizeDateForInput(data?.release_date) || adminForm.release_date,
+        year_released: data?.year_released ? String(data.year_released) : adminForm.year_released,
+        cover_image: data?.coverImage ?? adminForm.cover_image,
+      };
+      if (nextGenre) {
+        adminMusicGenreChoice = nextGenre;
+      }
+      adminMessage = 'Music data loaded from Deezer.';
+    } catch {
+      musicFetchError = 'Could not fetch music data from Deezer.';
+    } finally {
+      musicFetchBusy = false;
     }
   }
 
@@ -2952,8 +3014,9 @@
       } as AdminForm;
       adminError = '';
       launchboxFetchError = '';
+      musicFetchError = '';
       if (field === 'cover_image') {
-        adminMessage = 'Custom box art loaded.';
+        adminMessage = adminForm.category === 'Music' ? 'Custom album art loaded.' : 'Custom box art loaded.';
       } else if (field === 'spine_image') {
         adminMessage = 'Custom spine art loaded.';
       } else {
@@ -3161,7 +3224,7 @@
       publisher: isGames ? combineSelectionValues(publishers) : existingItem?.publisher ?? null,
       format: existingItem?.format ?? null,
       region: existingItem?.region ?? null,
-      cover_image: isGames ? adminForm.cover_image ?? existingItem?.cover_image ?? null : existingItem?.cover_image ?? null,
+      cover_image: adminForm.cover_image ?? existingItem?.cover_image ?? null,
       spine_image: isGames ? adminForm.spine_image ?? existingItem?.spine_image ?? null : existingItem?.spine_image ?? null,
       disc_image: isGames ? adminForm.disc_image ?? existingItem?.disc_image ?? null : existingItem?.disc_image ?? null,
       tags: existingItem?.tags ?? null,
@@ -4742,6 +4805,32 @@
                         </div>
                       </div>
                     </section>
+                  {:else if libraryAdminTab === 'music'}
+                    <section class="admin-loaded-art" aria-label="Loaded Album Art">
+                      <p class="admin-loaded-art-title">Loaded Art</p>
+                      <div class="admin-loaded-art-grid">
+                        <div class="admin-loaded-art-item">
+                          <div class="admin-loaded-art-item-header">
+                            <span>Album Art</span>
+                            <label for="admin-upload-album-art" class="admin-art-upload-button">Upload</label>
+                            <input
+                              id="admin-upload-album-art"
+                              class="admin-art-upload-input"
+                              type="file"
+                              accept="image/*"
+                              on:change={(e) => handleGameArtUpload(e, 'cover_image')}
+                            />
+                          </div>
+                          <div class="admin-loaded-art-media">
+                            {#if adminForm.cover_image}
+                              <img src={adminForm.cover_image} alt="Fetched album art" />
+                            {:else}
+                              <div class="admin-loaded-art-empty">No album art loaded</div>
+                            {/if}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
                   {/if}
                   <div class="form-field">
                     <label for="admin-item-title">Title</label>
@@ -4890,6 +4979,18 @@
                       <label for="admin-artist">Artist</label>
                       <input id="admin-artist" type="text" bind:value={adminForm.artist} placeholder="Artist" />
                     </div>
+                    <button
+                      type="button"
+                      class="launchbox-fetch-button"
+                      class:pulse={canFetchMusicAlbumData() && !musicFetchBusy}
+                      disabled={musicFetchBusy}
+                      on:click={fetchMusicAlbumData}
+                    >
+                      {musicFetchBusy ? 'Fetching Music Data...' : 'Fetch Music Data'}
+                    </button>
+                    {#if musicFetchError}
+                      <p class="admin-error launchbox-fetch-error">{musicFetchError}</p>
+                    {/if}
                     <div class="form-field">
                       <label for="admin-music-genre">Genre</label>
                       <select id="admin-music-genre" bind:value={adminMusicGenreChoice} required on:change={() => {
@@ -4982,4 +5083,3 @@
     </div>
   </div>
 {/if}
-
