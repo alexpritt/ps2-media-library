@@ -1488,7 +1488,7 @@
     bootRescueTimeout = setTimeout(() => {
       if (stage !== 'boot' || bootTextVisible) return;
       // Fail open to options if playback stalls.
-      bootError = true;
+      bootError = !bootVideoRef || bootVideoRef.readyState < 1;
       bootTextVisible = true;
       bootStarted = false;
     }, BOOT_RESCUE_TIMEOUT_MS);
@@ -1559,7 +1559,8 @@
 
       bootResumeAtSix = false;
     } catch {
-      bootError = true;
+      // Autoplay rejection should still allow options over the loaded frame.
+      bootError = !video || video.readyState < 1 || !!video.error;
       bootTextVisible = true;
       bootStarted = false;
       clearBootRescueTimer();
@@ -2557,6 +2558,9 @@
         on:loadedmetadata={() => {
           if (bootVideoRef) {
             bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
+            for (const track of Array.from(bootVideoRef.textTracks ?? [])) {
+              track.mode = 'disabled';
+            }
           }
           if (stage === 'boot' && !bootTextVisible) {
             armBootRescueTimer();
@@ -2612,7 +2616,7 @@
       >
         <source src="/boot.mp4" type="video/mp4" />
         <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
-        <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" default />
+        <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
       </video>
     {/if}
 
