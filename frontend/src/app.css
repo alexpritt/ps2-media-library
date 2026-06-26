@@ -468,6 +468,13 @@ button {
   justify-content: flex-end;
 }
 
+.console-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
+}
+
 .library-hud-left {
   display: flex;
   align-items: center;
@@ -492,7 +499,7 @@ button {
   padding: 0;
   flex-shrink: 0;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   transition: color 220ms ease, transform 180ms ease;
 }
 
@@ -502,31 +509,48 @@ button {
 }
 
 .wishlist-toggle:hover,
-.wishlist-toggle:focus-visible,
-.wishlist-toggle.is-active {
+.wishlist-toggle:focus-visible {
   color: #fff;
-  transform: translateY(-1px);
 }
 
-.wishlist-toggle::after {
-  content: '';
-  position: absolute;
-  width: 80px;
-  height: 80px;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(0.65);
-  border-radius: 50%;
-  pointer-events: none;
-  opacity: 0;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.06) 52%, transparent 76%);
-  transition: opacity 140ms ease, transform 140ms ease;
+.wishlist-toggle svg {
+  opacity: 0.86;
+  transition: opacity 220ms ease;
 }
 
-.wishlist-toggle:hover::after,
-.wishlist-toggle:focus-visible::after {
+.wishlist-toggle:hover svg,
+.wishlist-toggle:focus-visible svg {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
+}
+
+.wishlist-toggle.is-active {
+  color: #7ecbff;
+}
+
+.wishlist-toggle.is-active svg {
+  opacity: 1;
+}
+
+.wishlist-toggle::before {
+  content: 'Wishlist';
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(245, 246, 251, 0.82);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.65);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+  white-space: nowrap;
+}
+
+.wishlist-toggle:hover::before,
+.wishlist-toggle:focus-visible::before {
+  opacity: 1;
 }
 
 .wishlist-toggle--console {
@@ -535,6 +559,19 @@ button {
 
 .wishlist-toggle--library {
   margin-right: 12px;
+}
+
+.wishlist-toggle--library-toolbar,
+.wishlist-toggle--console-toolbar,
+.toolbar-divider--wishlist {
+  display: none;
+}
+
+.toolbar-divider {
+  color: rgba(245, 246, 251, 0.52);
+  font-size: 1rem;
+  line-height: 1;
+  user-select: none;
 }
 
 .library-search-shell {
@@ -818,27 +855,6 @@ button {
   background: transparent;
 }
 
-.star-filter-btn::after {
-  content: '';
-  position: absolute;
-  width: 80px;
-  height: 80px;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(0.65);
-  border-radius: 50%;
-  pointer-events: none;
-  opacity: 0;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.06) 52%, transparent 76%);
-  transition: opacity 140ms ease, transform 140ms ease;
-}
-
-.star-filter-btn:hover::after,
-.star-filter-btn:focus-visible::after {
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
-}
-
 .star-filter-btn.is-active {
   background: transparent;
   color: #fff;
@@ -867,12 +883,17 @@ button {
 
 .star-filter-btn:hover .star-filter-icon {
   opacity: 1;
-  color: #fff;
+  color: #7ecbff;
+}
+
+.star-filter-btn:focus-visible .star-filter-icon {
+  opacity: 1;
+  color: #7ecbff;
 }
 
 .star-filter-btn.is-active .star-filter-icon {
   opacity: 1;
-  color: #fff;
+  color: #f5c800;
 }
 
 .star-filter-btn:focus-visible {
@@ -1239,6 +1260,15 @@ button {
 .library-header-right-text {
   padding-top: 4px;
 }
+
+@media (min-width: 981px) {
+  .console-hud .console-header-right {
+    height: 116px;
+    min-height: 116px;
+    box-sizing: border-box;
+  }
+}
+
 .library-art {
   width: 100%;
   height: 100%;
@@ -4307,13 +4337,10 @@ select option {
     gap: 14px;
   }
 
+  .wishlist-toggle--console,
   .wishlist-toggle--library {
-    order: -1;
-    margin-right: 18px;
-  }
-
-  .wishlist-toggle--console {
     margin-left: 0;
+    margin-right: 0;
   }
 
   .admin-tabs button {
@@ -4551,6 +4578,14 @@ select option {
     gap: 12px;
   }
 
+  .console-toolbar {
+    order: 3;
+    margin: 0;
+    width: 100%;
+    justify-content: center;
+    gap: 12px;
+  }
+
   .library-search-shell {
     width: 32px;
     height: 32px;
@@ -4586,6 +4621,22 @@ select option {
   .console-hud .site-brand-logo--header {
     width: min(94vw, 480px);
     max-height: 68px;
+  }
+
+  .wishlist-toggle--library-header,
+  .wishlist-toggle--console-header {
+    display: none;
+  }
+
+  .wishlist-toggle--library-toolbar,
+  .wishlist-toggle--console-toolbar,
+  .toolbar-divider--wishlist {
+    display: inline-flex;
+  }
+
+  .toolbar-divider--wishlist {
+    font-size: 1.05rem;
+    align-items: center;
   }
 
   .systems-add-row {
