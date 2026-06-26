@@ -159,8 +159,35 @@
   const cooperativeOptions = ['No', 'Yes'];
   const SITE_LOGO_SRC = '/brand-logo.png';
   const BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro.mp4';
-  const BOOT_VIDEO_SOURCES = [BOOT_VIDEO_SRC];
-  const BOOT_VIDEO_PRELOAD = 'auto';
+  const BOOT_MOBILE_VIDEO_SRC = (import.meta.env.VITE_BOOT_MOBILE_SRC || '').trim();
+
+  function isMobileClient() {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    if (/Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(ua)) return true;
+    return navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua);
+  }
+
+  function shouldPreferMobileBootSource() {
+    if (!BOOT_MOBILE_VIDEO_SRC) return false;
+    if (isMobileClient()) return true;
+    if (typeof navigator !== 'undefined') {
+      const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+      if (connection?.saveData) return true;
+      if (connection?.effectiveType && /(^2g$|^slow-2g$)/i.test(connection.effectiveType)) return true;
+    }
+    return false;
+  }
+
+  function buildBootVideoSources() {
+    const ordered = shouldPreferMobileBootSource()
+      ? [BOOT_MOBILE_VIDEO_SRC, BOOT_VIDEO_SRC]
+      : [BOOT_VIDEO_SRC, BOOT_MOBILE_VIDEO_SRC];
+    return Array.from(new Set(ordered.map((value) => value?.trim()).filter(Boolean))) as string[];
+  }
+
+  const BOOT_VIDEO_SOURCES = buildBootVideoSources();
+  const BOOT_VIDEO_PRELOAD = shouldPreferMobileBootSource() ? 'metadata' : 'auto';
   const CONSOLE_WISHLIST_KEY = 'ps2-console-wishlist';
   const GAME_WISHLIST_KEY = 'ps2-game-wishlist';
   const MUSIC_WISHLIST_KEY = 'ps2-music-wishlist';
@@ -3234,6 +3261,7 @@
     <video
       bind:this={bootVideoRef}
       class="boot-video"
+      src={bootVideoSource}
       autoplay
       preload={BOOT_VIDEO_PRELOAD}
       muted={bootMuted}
@@ -3301,7 +3329,6 @@
         revealBootOptions({ markError: true, resetStarted: true });
       }}
     >
-      <source src={bootVideoSource} type="video/mp4" />
       <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
     </video>
 
