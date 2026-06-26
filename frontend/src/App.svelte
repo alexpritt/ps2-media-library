@@ -171,6 +171,8 @@
     return navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua);
   }
 
+  const isMobile = isMobileClient();
+
   function shouldPreferMobileBootSource() {
     if (!BOOT_MOBILE_VIDEO_SRC) return false;
     if (isMobileClient()) return true;
@@ -226,6 +228,11 @@
   let bootResumeAtSix = false;
   let bootRescueTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootPlaybackRetryInterval: ReturnType<typeof setInterval> | null = null;
+
+  const bootSkipHintText = isMobile ? 'Tap to skip intro' : 'Press spacebar to skip intro';
+  $: bootMuteHintText = bootMuted
+    ? (isMobile ? 'Tap to enable audio' : 'Click to enable audio')
+    : (isMobile ? 'Tap to mute' : 'Click to mute');
   let bootHardFailTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootSourceIndex = 0;
   let bootVideoSource = BOOT_VIDEO_SOURCES[0] ?? BOOT_VIDEO_SRC;
@@ -3579,8 +3586,8 @@
 
     {#if !bootTextVisible}
       <div class="boot-skip-hint" transition:fade={{ duration: 600 }}>
-        <div>Press spacebar to skip intro</div>
-        <div class="boot-mute-hint">{bootMuted ? 'Click to enable audio' : 'Click to mute'}</div>
+        <div>{bootSkipHintText}</div>
+        <div class="boot-mute-hint">{bootMuteHintText}</div>
       </div>
     {/if}
 
