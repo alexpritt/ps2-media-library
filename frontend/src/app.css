@@ -3498,6 +3498,8 @@ button {
   right: 12px;
   width: 34px;
   height: 34px;
+  appearance: none;
+  -webkit-appearance: none;
   border: 0;
   border-radius: 0;
   background: none;
@@ -3509,36 +3511,14 @@ button {
   place-items: center;
   text-shadow: none;
   box-shadow: none;
-  overflow: hidden;
   z-index: 3;
   transition: transform 140ms ease, filter 140ms ease;
-}
-
-.popup-close::after {
-  content: '';
-  position: absolute;
-  width: 80px;
-  height: 80px;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(0.65);
-  border-radius: 50%;
-  pointer-events: none;
-  opacity: 0;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.06) 52%, transparent 76%);
-  transition: opacity 140ms ease, transform 140ms ease;
 }
 
 .popup-close:hover,
 .popup-close:focus-visible {
   transform: translateY(-1px);
   filter: brightness(1.2);
-}
-
-.popup-close:hover::after,
-.popup-close:focus-visible::after {
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
 }
 
 .launchbox-art-picker-header {
@@ -5160,4 +5140,3 @@ select option {
   height: 100%;
   overflow: hidden;
 }
-
