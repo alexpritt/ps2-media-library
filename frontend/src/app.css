@@ -4685,7 +4685,7 @@ select option {
   }
 
   .library-hud-right .console-header-logo {
-    width: min(176px, 56vw);
+    width: min(200px, 62vw);
     height: 44px;
     object-fit: contain;
     object-position: center;
