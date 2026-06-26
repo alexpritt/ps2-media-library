@@ -349,13 +349,21 @@
       : allMedia.filter((item) => item.category === 'Games' && item.platform === hoveredConsole).length)
     : null;
   $: hoveredConsoleCountLabel = hoveredConsoleGameCount !== null
-    ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? (libraryView === 'wishlist' ? 'Item' : 'Game') : 'Items'} ${libraryView === 'wishlist' ? 'on Wish List' : 'in Library'}`
+    ? libraryView === 'wishlist'
+      ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Item' : 'Items'} ON WISH LIST`
+      : `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Game' : 'Games'} IN LIBRARY`
     : consoleLibraryCountLabel;
   $: currentItems = pagedItems();
   $: totalPages = Math.ceil(media.length / itemsPerPage);
   $: libraryCountLabel = category === 'Music'
     ? `${media.length} ${media.length === 1 ? 'Album' : 'Albums'} ${libraryView === 'wishlist' ? 'on Wish List' : 'in Library'}`
     : `${media.length} ${media.length === 1 ? 'Game' : 'Games'} ${libraryView === 'wishlist' ? 'on' : 'in'} ${(selectedConsole ?? activeConsole.name)} ${libraryView === 'wishlist' ? 'Wish List' : 'Library'}`;
+  $: libraryCountCopy = category === 'Music'
+    ? `${media.length} ${media.length === 1 ? 'ALBUM' : 'ALBUMS'} IN LIBRARY`
+    : `${media.length} ${media.length === 1 ? 'GAME' : 'GAMES'} IN LIBRARY`;
+  $: consoleCountCopy = libraryView === 'wishlist'
+    ? `${totalConsoleWishlistCount} ${totalConsoleWishlistCount === 1 ? 'CONSOLE' : 'CONSOLES'} ON WISH LIST`
+    : `${totalGameLibraryCount} ${totalGameLibraryCount === 1 ? 'GAME' : 'GAMES'} IN LIBRARY`;
   $: adminConsoleOptions = availableConsoles.map((item) => item.name);
   $: adminGameGenreOptions = buildGameGenreOptions(allMedia);
   $: adminMusicGenreOptions = buildMusicGenreOptions(allMedia);
@@ -3355,7 +3363,8 @@
               aria-label={wishlistIconLabel()}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z" fill="currentColor"></path>
+                <path d="M5 6.25h9.25c.41 0 .75.34.75.75v1.2c0 .41-.34.75-.75.75H5c-.41 0-.75-.34-.75-.75V7c0-.41.34-.75.75-.75Zm0 4.1h9.25c.41 0 .75.34.75.75v1.2c0 .41-.34.75-.75.75H5c-.41 0-.75-.34-.75-.75v-1.2c0-.41.34-.75.75-.75Zm0 4.1h9.25c.41 0 .75.34.75.75v1.2c0 .41-.34.75-.75.75H5c-.41 0-.75-.34-.75-.75v-1.2c0-.41.34-.75.75-.75Z" fill="currentColor"></path>
+                <path d="M19.5 7.5c-1.1 0-2 .9-2 2 0 1.42 1.25 2.67 2.72 4.02.43.39.87.74 1.28 1.13.06.06.16.06.22 0 .41-.39.85-.74 1.28-1.13C24.25 12.17 25.5 10.92 25.5 9.5c0-1.1-.9-2-2-2-.78 0-1.45.42-1.78 1.05-.33-.63-1-1.05-1.72-1.05Z" transform="translate(-6 -4)" fill="currentColor"></path>
               </svg>
             </button>
           </div>
@@ -3372,7 +3381,7 @@
               </div>
             {:else}
               <div class="console-hover-meta console-hover-meta--static">
-                <span class="console-header-copy console-header-count-copy console-header-subcopy">{consoleLibraryCountLabel}</span>
+                <span class="console-header-copy console-header-count-copy console-header-subcopy">{consoleCountCopy}</span>
               </div>
             {/if}
           </div>
@@ -3419,10 +3428,7 @@
         <div class="library-hud">
           <div class="library-hud-left">
             <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
-          </div>
-
-          {#if stage === 'library'}
-            <div class="library-toolbar">
+            {#if stage === 'library'}
               <button
                 type="button"
                 class="wishlist-toggle wishlist-toggle--library"
@@ -3434,6 +3440,11 @@
                   <path d="M12 21.35 10.55 20C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z" fill="currentColor"></path>
                 </svg>
               </button>
+            {/if}
+          </div>
+
+          {#if stage === 'library'}
+            <div class="library-toolbar">
               <div class="library-search-shell" class:is-open={librarySearchOpen}>
                 <button
                   type="button"
@@ -3553,7 +3564,7 @@
             <div class="library-hud-right console-header-right">
               <div class="console-hover-meta">
                 <img src={selectedLibraryConsole.logoImage} alt={selectedLibraryConsole.name} class="console-header-logo" draggable="false" />
-                <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryHeaderRight}</span>
+                <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryCountCopy}</span>
               </div>
             </div>
           {:else if libraryHeaderRight}
