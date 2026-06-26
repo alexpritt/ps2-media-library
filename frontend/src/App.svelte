@@ -1340,6 +1340,27 @@
     target.style.removeProperty('--ry');
   }
 
+  function supportsConsoleHover(event: PointerEvent) {
+    if (event.pointerType) {
+      return event.pointerType === 'mouse';
+    }
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    }
+    return true;
+  }
+
+  function handleConsolePointerEnter(event: PointerEvent, consoleName: string) {
+    if (!supportsConsoleHover(event)) return;
+    hoveredConsole = consoleName;
+  }
+
+  function handleConsolePointerLeave(event: PointerEvent) {
+    if (!supportsConsoleHover(event)) return;
+    hoveredConsole = null;
+    clearIconFollow(event as unknown as MouseEvent);
+  }
+
   function itemDelay(index: number) {
     const column = index % 5;
     const row = Math.floor(index / 5);
@@ -3530,12 +3551,9 @@
               class="console-card"
               class:launching={launchConsoleName === console.name}
               style="--delay: {consoleDelay(index)}ms;"
-              on:pointerenter={() => (hoveredConsole = console.name)}
+              on:pointerenter={(event) => handleConsolePointerEnter(event, console.name)}
               on:mousemove={handleIconMove}
-              on:pointerleave={(event) => {
-                hoveredConsole = null;
-                clearIconFollow(event);
-              }}
+              on:pointerleave={handleConsolePointerLeave}
               on:click={() => libraryView === 'wishlist' ? openWishlistConsoleDetails(console as WishlistSystemItem) : onConsoleSelect(console.name)}
               aria-label={`Select ${console.name}`}
             >
