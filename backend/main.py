@@ -1,54 +1,28 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 import secrets
 import base64
-import hashlib
-import hmac
 import os
 import re
 import time
 import unicodedata
-from urllib.parse import quote, urljoin
+from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 import requests
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import Response
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, StreamingResponse
 from bs4 import BeautifulSoup
 from sqlalchemy import text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
-DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(Path(__file__).parent / "media.db")))
-BOOT_VIDEO_PATH = "https://media.theavenoircollection.com/ps2-intro.mp4"
-
-
-def resolve_boot_video_path() -> Optional[str]:
-    return BOOT_VIDEO_PATH
+DATABASE_PATH = Path(__file__).parent / "media.db"
+FRONTEND_BUILD_DIR = Path(__file__).parent.parent / "frontend" / "build"
 
 app = FastAPI(title="PS2 Media Library API")
 
-from fastapi.middleware.cors import CORSMiddleware
-
-# Allow frontend on Pages to call the API
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://theavenoircollection.com",
-        "http://localhost:5173",
-        "http://localhost:4173",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Use env var for DB path so Fly.io volume works
-DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(Path(__file__).parent / "media.db")))
-
-DEFAULT_ADMIN_PASSWORD = "foreverandalways2015"
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
-ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
-ADMIN_TOKEN_TTL_SECONDS = 60 * 60 * 12
-admin_tokens: Dict[str, float] = {}
+ADMIN_PASSWORD = "foreverandalways"
+admin_tokens: Dict[str, bool] = {}
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -68,53 +42,37 @@ def env_float(name: str, default: float) -> float:
         return default
 
 
-def env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return int(raw.strip())
-    except ValueError:
-        return default
-
-
 ENABLE_KEYLESS_METADATA_FALLBACK = env_flag("ENABLE_KEYLESS_METADATA_FALLBACK", default=True)
-LAUNCHBOX_MIN_REQUEST_INTERVAL = env_float("LAUNCHBOX_MIN_REQUEST_INTERVAL", default=1.5)
-DEEZER_MIN_REQUEST_INTERVAL = env_float("DEEZER_MIN_REQUEST_INTERVAL", default=1.5)
-ADMIN_TOKEN_TTL_SECONDS = env_int("ADMIN_TOKEN_TTL_SECONDS", default=60 * 60 * 12)
+ENABLE_SCREENSCRAPER_FALLBACK = env_flag("ENABLE_SCREENSCRAPER_FALLBACK", default=False)
+ENABLE_MOBYGAMES_SCRAPE_FALLBACK = env_flag("ENABLE_MOBYGAMES_SCRAPE_FALLBACK", default=False)
+MOBYGAMES_MIN_REQUEST_INTERVAL = env_float("MOBYGAMES_MIN_REQUEST_INTERVAL", default=1.5)
 DEFAULT_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0"}
-_launchbox_last_request_at = 0.0
-_deezer_last_request_at = 0.0
+MOBYGAMES_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
+MOBYGAMES_BASE_URL = "https://www.mobygames.com"
+_mobygames_html_cache: Dict[str, str] = {}
+_mobygames_last_request_at = 0.0
 
 
-def _b64url_encode(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
-
-
-def _b64url_decode(value: str) -> bytes:
-    padding = "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode((value + padding).encode("ascii"))
-
-
-def verify_password_hash(password: str, encoded_hash: str) -> bool:
-    try:
-        algorithm, iterations_raw, salt_raw, digest_raw = encoded_hash.split("$", 3)
-        if algorithm != "pbkdf2_sha256":
-            return False
-        iterations = int(iterations_raw)
-        salt = _b64url_decode(salt_raw)
-        expected_digest = _b64url_decode(digest_raw)
-        candidate_digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-        return hmac.compare_digest(candidate_digest, expected_digest)
-    except Exception:
-        return False
-
-
-def verify_admin_password(password: str) -> bool:
-    if ADMIN_PASSWORD_HASH:
-        return verify_password_hash(password, ADMIN_PASSWORD_HASH)
-    return hmac.compare_digest(password, ADMIN_PASSWORD)
-
+def iter_file_range(file_path: Path, start: int, end: int, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
+    with file_path.open("rb") as file_obj:
+        file_obj.seek(start)
+        remaining = end - start + 1
+        while remaining > 0:
+            read_size = min(chunk_size, remaining)
+            data = file_obj.read(read_size)
+            if not data:
+                break
+            remaining -= len(data)
+            yield data
 
 class MediaItem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -137,7 +95,6 @@ class MediaItem(SQLModel, table=True):
     disc_image: Optional[str] = None
     tags: Optional[str] = None
     notes: Optional[str] = None
-    display_order: int = Field(default=0)
 
 
 class GameSystem(SQLModel, table=True):
@@ -167,17 +124,6 @@ class LaunchboxGameArtOptionsRequest(SQLModel):
     title: str
     platform: str
     art_type: str
-
-
-class DeezerAlbumArtOptionsRequest(SQLModel):
-    album: str
-    artist: str
-
-
-class DeezerAlbumDataRequest(SQLModel):
-    album: str
-    artist: str
-    item_id: Optional[int] = None
 
 
 class BulkGamesRequest(SQLModel):
@@ -252,26 +198,6 @@ def ensure_spine_image_column() -> None:
             connection.execute(text("ALTER TABLE mediaitem ADD COLUMN spine_image VARCHAR"))
 
 
-def ensure_media_display_order_column() -> None:
-    with engine.begin() as connection:
-        columns = connection.execute(text("PRAGMA table_info(mediaitem)")).fetchall()
-        has_display_order = any(column[1] == "display_order" for column in columns)
-        if not has_display_order:
-            connection.execute(text("ALTER TABLE mediaitem ADD COLUMN display_order INTEGER DEFAULT 0"))
-
-        categories = [row[0] for row in connection.execute(text("SELECT DISTINCT category FROM mediaitem WHERE category IS NOT NULL")).fetchall()]
-        for category in categories:
-            items = connection.execute(
-                text("SELECT id FROM mediaitem WHERE category = :category ORDER BY title ASC, id ASC"),
-                {"category": category},
-            ).fetchall()
-            for order, (item_id,) in enumerate(items):
-                connection.execute(
-                    text("UPDATE mediaitem SET display_order = :order WHERE id = :item_id"),
-                    {"order": order, "item_id": item_id},
-                )
-
-
 def ensure_system_case_type_column() -> None:
     with engine.begin() as connection:
         columns = connection.execute(text("PRAGMA table_info(gamesystem)")).fetchall()
@@ -344,91 +270,11 @@ def normalize_game_title(title: str) -> str:
     }
     for source, target in roman_numerals.items():
         normalized = re.sub(rf"\b{source}\b", target, normalized)
-
-    acronym_words = {
-        "Ds": "DS",
-        "3ds": "3DS",
-        "Psp": "PSP",
-        "Vr": "VR",
-        "Hd": "HD",
-        "Usa": "USA",
-        "Eu": "EU",
-        "Goty": "GOTY",
-        "Dlcs": "DLCs",
-    }
-    for source, target in acronym_words.items():
-        normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized)
-
     return normalized
 
 
 def normalize_launchbox_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
-
-
-# ---------------------------------------------------------------------------
-# Input validation
-# ---------------------------------------------------------------------------
-
-_TITLE_MAX_LENGTH = 200
-_PLATFORM_MAX_LENGTH = 100
-
-# Patterns that have no place in a video-game title but indicate injection attempts,
-# URL-based abuse, or clearly non-game text.
-_TITLE_BLOCKED_RE = re.compile(
-    r"<[^>]*>"                          # HTML / XML tags
-    r"|https?://"                       # full URLs
-    r"|www\."                           # bare host URLs
-    r"|\x00"                            # null bytes
-    r"|[\x01-\x08\x0b\x0c\x0e-\x1f]"   # non-printable control chars (allow \t \n \r)
-    r"|\bSELECT\b|\bDROP\b|\bINSERT\b|\bDELETE\b|\bUPDATE\b|\bUNION\b"  # SQL DML/DDL
-    r"|--|;\s*\w"                        # SQL comment / chaining
-    r"|\beval\s*\(|\bexec\s*\("         # code-execution keywords
-    r"|\bscript\b",                     # <script> keyword without tag brackets
-    re.IGNORECASE,
-)
-
-# A game title must have at least one letter or digit (not blank / pure punctuation).
-_TITLE_HAS_ALPHANUMERIC = re.compile(r"[a-zA-Z0-9]")
-
-
-def validate_game_title_input(title: str) -> None:
-    """Raise 400 HTTPException if *title* fails basic game-title sanity checks."""
-    if not title:
-        raise HTTPException(status_code=400, detail="Game title is required.")
-    if len(title) < 2:
-        raise HTTPException(status_code=400, detail="Game title is too short to search.")
-    if len(title) > _TITLE_MAX_LENGTH:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Game title must be {_TITLE_MAX_LENGTH} characters or fewer.",
-        )
-    if not _TITLE_HAS_ALPHANUMERIC.search(title):
-        raise HTTPException(
-            status_code=400,
-            detail="Game title must contain at least one letter or digit.",
-        )
-    if _TITLE_BLOCKED_RE.search(title):
-        raise HTTPException(
-            status_code=400,
-            detail="Game title contains invalid characters or patterns. Enter a plain game title.",
-        )
-
-
-def validate_platform_input(platform: str) -> None:
-    """Raise 400 HTTPException if *platform* fails basic sanity checks."""
-    if not platform:
-        raise HTTPException(status_code=400, detail="Platform is required.")
-    if len(platform) > _PLATFORM_MAX_LENGTH:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Platform name must be {_PLATFORM_MAX_LENGTH} characters or fewer.",
-        )
-    if _TITLE_BLOCKED_RE.search(platform):
-        raise HTTPException(
-            status_code=400,
-            detail="Platform name contains invalid characters or patterns.",
-        )
 
 
 CARTRIDGE_PRESET_ALIASES: Dict[str, str] = {
@@ -439,10 +285,6 @@ CARTRIDGE_PRESET_ALIASES: Dict[str, str] = {
     "3ds": "3ds",
     "nintendo3ds": "3ds",
     "newnintendo3ds": "3ds",
-    "gb": "gb",
-    "gameboy": "gb",
-    "gameboycolor": "gb",
-    "gbc": "gb",
     "gameboyadvance": "gba",
     "gameboyadvancesp": "gba",
     "gba": "gba",
@@ -513,8 +355,6 @@ DISC_PRESET_ALIASES: Dict[str, str] = {
     "psp": "psp",
     "playstationportable": "psp",
     # Nintendo optical systems
-    "gc": "gamecube",
-    "gamecube": "gamecube",
     "wii": "wii",
     "wiiu": "wiiu",
     # Microsoft
@@ -701,28 +541,6 @@ def fetch_wikidata_game_data(title: str, platform: str) -> Optional[dict]:
     entity = (entity_response.json().get("entities") or {}).get(entity_id) or {}
     claims = entity.get("claims") or {}
 
-    # Verify the entity is actually a video game (P31 instance-of Q7889 or related types).
-    # This prevents the Wikidata fallback from returning metadata for non-game entities
-    # that happen to share a name with a search query.
-    _VIDEO_GAME_ENTITY_IDS = {
-        "Q7889",    # video game
-        "Q16927802", # video game series
-        "Q20238256", # video game expansion pack
-        "Q1756915",  # video game remake
-        "Q209163",   # expansion pack
-    }
-    instance_of_claims = claims.get("P31") or []
-    instance_ids = {
-        (((c.get("mainsnak") or {}).get("datavalue") or {}).get("value") or {}).get("id")
-        for c in instance_of_claims
-    }
-    if not instance_ids.intersection(_VIDEO_GAME_ENTITY_IDS):
-        # Also accept if the candidate description explicitly mentions video game
-        # (some entries are only categorised under a sub-type of Q7889)
-        candidate_desc = (best_candidate.get("description") or "").lower()
-        if "video game" not in candidate_desc and "videogame" not in candidate_desc:
-            return None
-
     def claim_time(prop: str) -> Optional[str]:
         claim_entries = claims.get(prop) or []
         for claim in claim_entries:
@@ -778,29 +596,6 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
             "cart": False,
         }
         return payload
-    except HTTPException as exc:
-        # Do not use Wikidata if LaunchBox responded but the title could not be
-        # matched confidently. That scenario should surface as a user-facing
-        # LaunchBox error rather than silently replacing data with a partial
-        # fallback source.
-        if exc.status_code in {400, 404, 409}:
-            raise
-
-        if ENABLE_KEYLESS_METADATA_FALLBACK:
-            try:
-                metadata_payload = fetch_wikidata_game_data(title, platform)
-                if metadata_payload:
-                    return metadata_payload
-            except Exception:
-                pass
-
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Could not fetch game data. LaunchBox is unavailable and no approved "
-                "keyless metadata fallback source returned a match."
-            ),
-        ) from exc
     except Exception as exc:
         if ENABLE_KEYLESS_METADATA_FALLBACK:
             try:
@@ -825,11 +620,20 @@ def fetch_game_art_options_with_fallback(title: str, platform: str, art_type: st
         launchbox_options["data_source"] = "launchbox"
         return launchbox_options
     except Exception as exc:
+        if ENABLE_MOBYGAMES_SCRAPE_FALLBACK:
+            try:
+                mobygames_options = fetch_mobygames_game_art_options(title, platform, art_type)
+                mobygames_options["data_source"] = "mobygames"
+                return mobygames_options
+            except Exception:
+                pass
+
         raise HTTPException(
             status_code=404,
             detail=(
-                f"Could not fetch {art_type} art. LaunchBox art is unavailable."
-                " Use manual upload while LaunchBox is down."
+                f"Could not fetch {art_type} art. LaunchBox art is unavailable"
+                + (" and MobyGames fallback did not return an approved NTSC-US match" if ENABLE_MOBYGAMES_SCRAPE_FALLBACK else "")
+                + ". This art type will not be inferred from other media. Use manual upload while LaunchBox is down."
             ),
         ) from exc
 
@@ -899,7 +703,6 @@ def score_music_match(item: dict, artist: str, album: str) -> int:
 
 def fetch_music_album_data(album: str, artist: str) -> dict:
     """Fetch album cover art from Deezer API."""
-    deezer_throttle()
     url = f"https://api.deezer.com/search/album?q={quote(artist + ' ' + album)}&limit=25"
     response = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
     response.raise_for_status()
@@ -923,123 +726,6 @@ def fetch_music_album_data(album: str, artist: str) -> dict:
     }
 
 
-def fetch_deezer_album_art_options(album: str, artist: str) -> dict:
-    """Fetch multiple album art options from Deezer API."""
-    deezer_throttle()
-    url = f"https://api.deezer.com/search/album?q={quote(artist + ' ' + album)}&limit=25"
-    response = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-    response.raise_for_status()
-    items = response.json().get("data", [])
-    if not items:
-        raise HTTPException(status_code=404, detail=f'Could not find "{album}" by {artist} on Deezer.')
-
-    ranked = sorted(items, key=lambda i: score_music_match(i, artist, album), reverse=True)
-    
-    data_uri_options: List[str] = []
-    for item in ranked:
-        # Try to get the best available cover image size
-        cover_url = item.get("cover_xl") or item.get("cover_big") or item.get("cover_medium")
-        if not cover_url:
-            continue
-        try:
-            image_data = fetch_image_data_uri(cover_url)
-            if image_data and image_data not in data_uri_options:
-                data_uri_options.append(image_data)
-        except Exception:
-            continue
-        if len(data_uri_options) >= 12:  # Limit to 12 options like LaunchBox
-            break
-
-    if not data_uri_options:
-        raise HTTPException(status_code=502, detail="Could not download Deezer album art options.")
-
-    best = ranked[0]
-    return {
-        "title": best.get("title", album),
-        "artist": best.get("artist", {}).get("name", artist) if isinstance(best.get("artist"), dict) else artist,
-        "options": data_uri_options,
-    }
-
-
-def fetch_deezer_full_album_data(album: str, artist: str) -> dict:
-    """Fetch full album metadata from Deezer including genres, release date, cover art, and track list."""
-    deezer_throttle()
-    search_url = f"https://api.deezer.com/search/album?q={quote(artist + ' ' + album)}&limit=25"
-    response = requests.get(search_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-    response.raise_for_status()
-    items = response.json().get("data", [])
-    if not items:
-        raise HTTPException(status_code=404, detail=f'Could not find "{album}" by {artist} on Deezer.')
-
-    ranked = sorted(items, key=lambda i: score_music_match(i, artist, album), reverse=True)
-    best = ranked[0]
-    album_id = best.get("id")
-
-    # Fetch full album details for genres and complete metadata
-    genres: List[str] = []
-    release_date: Optional[str] = None
-    label: Optional[str] = None
-    track_list: Optional[str] = None
-    if album_id:
-        try:
-            detail_response = requests.get(
-                f"https://api.deezer.com/album/{album_id}",
-                timeout=20,
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            detail_response.raise_for_status()
-            detail = detail_response.json()
-            genres_data = detail.get("genres", {}).get("data", [])
-            genres = [g["name"] for g in genres_data if g.get("name")]
-            release_date = detail.get("release_date") or None
-            label = detail.get("label") or None
-            
-            # Fetch track list from the album detail
-            tracks_data = detail.get("tracks", {}).get("data", [])
-            if tracks_data:
-                track_lines = []
-                for i, track in enumerate(tracks_data, 1):
-                    track_title = track.get("title", "Unknown")
-                    track_artist = ""
-                    track_artist_obj = track.get("artist")
-                    if isinstance(track_artist_obj, dict):
-                        track_artist = track_artist_obj.get("name", "")
-                    elif isinstance(track_artist_obj, str):
-                        track_artist = track_artist_obj
-                    
-                    if track_artist:
-                        track_lines.append(f"{i}. {track_title} - {track_artist}")
-                    else:
-                        track_lines.append(f"{i}. {track_title}")
-                
-                track_list = "\n".join(track_lines)
-        except Exception:
-            pass
-
-    # Fall back to search-result release_date if detail call failed
-    if not release_date:
-        release_date = best.get("release_date") or None
-
-    cover_url = best.get("cover_xl") or best.get("cover_big") or best.get("cover_medium") or ""
-    cover_image: Optional[str] = None
-    if cover_url:
-        try:
-            cover_image = fetch_image_data_uri(cover_url)
-        except Exception:
-            cover_image = None
-
-    return {
-        "title": best.get("title", album),
-        "artist": best.get("artist", {}).get("name", artist) if isinstance(best.get("artist"), dict) else artist,
-        "release_date": release_date,
-        "genre": genres[0] if genres else None,
-        "genres": genres,
-        "label": label,
-        "coverImage": cover_image,
-        "trackList": track_list,
-    }
-
-
 def fetch_image_data_uri(image_url: str) -> Optional[str]:
     if not image_url:
         return None
@@ -1056,36 +742,299 @@ def fetch_image_data_uri(image_url: str) -> Optional[str]:
     return f"data:{content_type};base64,{encoded}"
 
 
-def launchbox_throttle() -> None:
-    """Enforce a minimum interval between outbound LaunchBox requests.
+def mobygames_throttle() -> None:
+    global _mobygames_last_request_at
 
-    Called once per game lookup (before the search page fetch) so that bulk
-    uploads of 100+ games do not hammer gamesdb.launchbox-app.com.
-    The interval is governed by LAUNCHBOX_MIN_REQUEST_INTERVAL (default 1.5 s).
-    """
-    global _launchbox_last_request_at
-
-    elapsed = time.monotonic() - _launchbox_last_request_at
-    if elapsed < LAUNCHBOX_MIN_REQUEST_INTERVAL:
-        time.sleep(LAUNCHBOX_MIN_REQUEST_INTERVAL - elapsed)
-    _launchbox_last_request_at = time.monotonic()
+    elapsed = time.monotonic() - _mobygames_last_request_at
+    if elapsed < MOBYGAMES_MIN_REQUEST_INTERVAL:
+        time.sleep(MOBYGAMES_MIN_REQUEST_INTERVAL - elapsed)
+    _mobygames_last_request_at = time.monotonic()
 
 
-def deezer_throttle() -> None:
-    """Enforce a minimum interval between outbound Deezer lookups.
+def fetch_mobygames_html(url: str) -> str:
+    cached = _mobygames_html_cache.get(url)
+    if cached is not None:
+        return cached
 
-    Called once per album lookup (before the search API call) so bulk uploads
-    do not spam api.deezer.com with tightly looped requests.
-    The interval is governed by DEEZER_MIN_REQUEST_INTERVAL (default 1.5 s).
-    """
-    global _deezer_last_request_at
-
-    elapsed = time.monotonic() - _deezer_last_request_at
-    if elapsed < DEEZER_MIN_REQUEST_INTERVAL:
-        time.sleep(DEEZER_MIN_REQUEST_INTERVAL - elapsed)
-    _deezer_last_request_at = time.monotonic()
+    mobygames_throttle()
+    response = requests.get(url, timeout=20, headers=MOBYGAMES_HTTP_HEADERS)
+    response.raise_for_status()
+    _mobygames_html_cache[url] = response.text
+    return response.text
 
 
+def fetch_mobygames_soup(url: str) -> BeautifulSoup:
+    return BeautifulSoup(fetch_mobygames_html(url), "html.parser")
+
+
+def extract_mobygames_link(href: str) -> Optional[str]:
+    if not href:
+        return None
+    if href.startswith("/"):
+        href = urljoin("https://www.bing.com", href)
+    parsed = urlparse(href)
+    if "mobygames.com" in parsed.netloc and "/game/" in parsed.path:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+    if "bing.com" not in parsed.netloc:
+        return None
+
+    query_url = parse_qs(parsed.query).get("u") or parse_qs(parsed.query).get("url") or parse_qs(parsed.query).get("q")
+    if not query_url:
+        return None
+    candidate = unquote(query_url[0])
+    candidate_parsed = urlparse(candidate)
+    if "mobygames.com" in candidate_parsed.netloc and "/game/" in candidate_parsed.path:
+        return f"{candidate_parsed.scheme}://{candidate_parsed.netloc}{candidate_parsed.path}".rstrip("/")
+    return None
+
+
+def mobygames_platform_aliases(platform: str) -> List[str]:
+    normalized = normalize_title_for_match(platform)
+    aliases = [normalized]
+    alias_map = {
+        "nintendo 3ds": ["3ds", "nintendo 3ds"],
+        "nintendo ds": ["ds", "nintendo ds", "nds"],
+        "playstation 2": ["ps2", "playstation 2"],
+        "playstation 3": ["ps3", "playstation 3"],
+        "playstation 4": ["ps4", "playstation 4"],
+        "xbox 360": ["xbox 360"],
+        "xbox": ["xbox"],
+        "wii": ["wii"],
+        "game boy advance": ["game boy advance", "gba"],
+        "playstation portable": ["psp", "playstation portable"],
+        "playstation vita": ["ps vita", "vita", "playstation vita"],
+        "nintendo switch": ["switch", "nintendo switch"],
+    }
+    for key, values in alias_map.items():
+        if normalized == key:
+            aliases.extend(values)
+            break
+    deduped: List[str] = []
+    for alias in aliases:
+        alias = alias.strip()
+        if alias and alias not in deduped:
+            deduped.append(alias)
+    return deduped
+
+
+def score_mobygames_candidate(candidate_title: str, candidate_platform: str, title: str, platform: str) -> int:
+    target_title = normalize_launchbox_key(title)
+    candidate_title_key = normalize_launchbox_key(candidate_title)
+    target_title_loose = normalize_title_for_match(title)
+    candidate_title_loose = normalize_title_for_match(candidate_title)
+    target_tokens = set(title_tokens(title))
+    candidate_tokens = set(title_tokens(candidate_title))
+    score = 0
+
+    if candidate_title_key == target_title:
+        score += 140
+    elif target_title and (target_title in candidate_title_key or candidate_title_key in target_title):
+        score += 90
+
+    if target_tokens and candidate_tokens:
+        overlap = len(target_tokens.intersection(candidate_tokens))
+        union = len(target_tokens.union(candidate_tokens))
+        if union:
+            score += int((overlap / union) * 80)
+
+    if candidate_title_loose == target_title_loose:
+        score += 20
+
+    platform_haystack = normalize_title_for_match(candidate_platform)
+    for alias in mobygames_platform_aliases(platform):
+        if alias and alias in platform_haystack:
+            score += 35
+            break
+
+    return score
+
+
+def resolve_mobygames_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
+    query = quote(f'site:mobygames.com/game "{title}" "{platform}"')
+    search_url = f"https://www.bing.com/search?q={query}"
+    search_response = requests.get(search_url, timeout=20, headers=MOBYGAMES_HTTP_HEADERS)
+    search_response.raise_for_status()
+    search_soup = BeautifulSoup(search_response.text, "html.parser")
+
+    candidates: List[dict] = []
+    seen_urls = set()
+    for link in search_soup.find_all("a", href=True):
+        resolved_href = extract_mobygames_link(link.get("href", ""))
+        if not resolved_href or resolved_href in seen_urls:
+            continue
+
+        candidate_title = link.get_text(" ", strip=True)
+        platform_slug = ""
+        path_parts = [part for part in urlparse(resolved_href).path.split("/") if part]
+        if len(path_parts) >= 3 and path_parts[0] == "game":
+            platform_slug = path_parts[1].replace("-", " ")
+
+        seen_urls.add(resolved_href)
+        candidates.append({
+            "title": candidate_title,
+            "platform": platform_slug,
+            "href": resolved_href,
+        })
+
+    if not candidates:
+        raise HTTPException(status_code=404, detail=f'MobyGames could not find "{title}" for {platform}.')
+
+    best_match = max(candidates, key=lambda candidate: score_mobygames_candidate(candidate["title"], candidate["platform"], title, platform))
+    best_score = score_mobygames_candidate(best_match["title"], best_match["platform"], title, platform)
+    if best_score < 90:
+        raise HTTPException(status_code=404, detail=f'MobyGames did not return a confident match for "{title}" on {platform}.')
+
+    detail_url = best_match["href"]
+    detail_soup = fetch_mobygames_soup(detail_url)
+    resolved_title = detail_soup.find("h1").get_text(" ", strip=True) if detail_soup.find("h1") else best_match["title"]
+    resolved_platform = best_match["platform"] or platform
+    return detail_url, detail_soup, resolved_platform, resolved_title
+
+
+def mobygames_region_score(context: str) -> int:
+    normalized = normalize_title_for_match(context)
+    if any(term in normalized for term in ["north america", "usa", "u s a", "united states"]):
+        return 2
+    if re.search(r"\bus\b", normalized):
+        return 2
+    if any(term in normalized for term in ["japan", "europe", "germany", "france", "spain", "italy", "australia", "korea"]):
+        return -1
+    return 0
+
+
+def mobygames_image_url(image_tag) -> Optional[str]:
+    for attribute in ["data-src", "data-lazy", "src"]:
+        image_url = image_tag.get(attribute)
+        if image_url:
+            return image_url.split(" ", 1)[0]
+    srcset = image_tag.get("srcset")
+    if srcset:
+        return srcset.split(",", 1)[0].split(" ", 1)[0]
+    return None
+
+
+def mobygames_collect_context(image_tag) -> str:
+    parts: List[str] = []
+    for attribute in ["alt", "title", "aria-label"]:
+        value = image_tag.get(attribute)
+        if value:
+            parts.append(value)
+
+    parent = image_tag.parent
+    if parent:
+        parent_text = parent.get_text(" ", strip=True)
+        if parent_text:
+            parts.append(parent_text)
+
+    ancestor = parent.parent if parent else None
+    if ancestor:
+        ancestor_text = ancestor.get_text(" ", strip=True)
+        if ancestor_text:
+            parts.append(ancestor_text)
+
+    return " | ".join(part for part in parts if part)
+
+
+def mobygames_art_type_matches(context: str, art_type: str, platform: str) -> bool:
+    normalized = normalize_title_for_match(context)
+    cartridge_platform = is_cartridge_platform_name(platform)
+
+    if art_type == "cover":
+        return any(term in normalized for term in ["cover", "box front", "front cover", "front box", "box"])
+    if art_type == "spine":
+        return any(term in normalized for term in ["spine", "side"])
+    if art_type == "disc":
+        if cartridge_platform:
+            return any(term in normalized for term in ["cartridge", "cart", "label", "media"])
+        return any(term in normalized for term in ["disc", "cd", "dvd", "media"])
+    if art_type == "cart":
+        return any(term in normalized for term in ["cartridge", "cart", "label"])
+    return False
+
+
+def mobygames_cover_gallery_links(detail_soup: BeautifulSoup, detail_url: str) -> List[str]:
+    links: List[str] = []
+    for anchor in detail_soup.find_all("a", href=True):
+        href = anchor.get("href", "")
+        label = anchor.get_text(" ", strip=True)
+        full_url = urljoin(detail_url, href)
+        parsed = urlparse(full_url)
+        path = parsed.path.lower()
+        if "/covers/" not in path and "cover" not in label.lower():
+            continue
+        normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if normalized_url not in links:
+            links.append(normalized_url)
+    return links[:4]
+
+
+def mobygames_extract_art_urls(page_soup: BeautifulSoup, page_url: str, art_type: str, platform: str) -> List[str]:
+    candidates: List[Tuple[int, str]] = []
+    seen = set()
+
+    for image_tag in page_soup.find_all("img"):
+        image_url = mobygames_image_url(image_tag)
+        if not image_url or image_url.startswith("data:"):
+            continue
+
+        full_image_url = urljoin(page_url, image_url)
+        if full_image_url in seen:
+            continue
+
+        context = mobygames_collect_context(image_tag)
+        if not mobygames_art_type_matches(context, art_type, platform):
+            continue
+
+        region_score = mobygames_region_score(context)
+        if region_score <= 0:
+            continue
+
+        seen.add(full_image_url)
+        candidates.append((region_score, full_image_url))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return [image_url for _score, image_url in candidates[:12]]
+
+
+def fetch_mobygames_game_art_options(title: str, platform: str, art_type: str) -> dict:
+    if art_type not in {"cover", "spine", "disc", "cart"}:
+        raise HTTPException(status_code=400, detail="Invalid art_type. Use cover, disc, spine, or cart.")
+
+    detail_url, detail_soup, resolved_platform, resolved_title = resolve_mobygames_game_detail(title, platform)
+    gallery_urls = mobygames_cover_gallery_links(detail_soup, detail_url)
+    search_pages = [detail_url, *gallery_urls]
+
+    image_urls: List[str] = []
+    for page_url in search_pages:
+        page_soup = detail_soup if page_url == detail_url else fetch_mobygames_soup(page_url)
+        for image_url in mobygames_extract_art_urls(page_soup, page_url, art_type, resolved_platform):
+            if image_url not in image_urls:
+                image_urls.append(image_url)
+
+    if not image_urls:
+        raise HTTPException(
+            status_code=404,
+            detail=f"MobyGames did not return an approved NTSC-US {art_type} image for {resolved_title}.",
+        )
+
+    data_uri_options: List[str] = []
+    for image_url in image_urls:
+        try:
+            image_data = fetch_image_data_uri(image_url)
+        except Exception:
+            continue
+        if image_data and image_data not in data_uri_options:
+            data_uri_options.append(image_data)
+
+    if not data_uri_options:
+        raise HTTPException(status_code=502, detail="Could not download approved MobyGames art options.")
+
+    return {
+        "title": resolved_title,
+        "platform": platform,
+        "artType": art_type,
+        "options": data_uri_options,
+    }
 
 
 def first_text_from_definition(detail_soup: BeautifulSoup, label: str) -> Optional[str]:
@@ -1121,10 +1070,10 @@ def section_images_by_region(detail_soup: BeautifulSoup, section_title: str, reg
             heading = item
             break
     if not heading:
-        return []
+        return None
     article = heading.find_parent("article")
     if not article:
-        return []
+        return None
     images = []
     for image in article.find_all("img"):
         image_url = image.get("src")
@@ -1155,8 +1104,6 @@ def section_images_from_titles(detail_soup: BeautifulSoup, titles: List[str], re
     collected: List[str] = []
     for title in titles:
         image_urls = section_images_by_region(detail_soup, title, region)
-        if not image_urls:
-            continue
         for image_url in image_urls:
             if image_url and image_url not in collected:
                 collected.append(image_url)
@@ -1183,97 +1130,8 @@ def launchbox_disc_section_titles(platform: Optional[str]) -> List[str]:
     return ["Disc"]
 
 
-def choose_launchbox_candidate(candidates: List[dict], title: str, platform: str) -> dict:
-    from difflib import SequenceMatcher
-
-    target_title = normalize_launchbox_key(title)
-    target_title_loose = normalize_title_for_match(title)
-    target_tokens = set(title_tokens(title))
-    target_platform = normalize_launchbox_key(platform)
-
-    def score(candidate: dict) -> int:
-        candidate_title = normalize_launchbox_key(candidate.get("title", ""))
-        candidate_title_loose = normalize_title_for_match(candidate.get("title", ""))
-        candidate_tokens = set(title_tokens(candidate.get("title", "")))
-        candidate_platform = normalize_launchbox_key(candidate.get("platform", ""))
-        candidate_score = 0
-
-        if candidate_title == target_title:
-            candidate_score += 140
-        elif target_title in candidate_title or candidate_title in target_title:
-            candidate_score += 90
-
-        if target_tokens and candidate_tokens:
-            overlap = len(target_tokens.intersection(candidate_tokens))
-            union = len(target_tokens.union(candidate_tokens))
-            if union:
-                candidate_score += int((overlap / union) * 80)
-
-        if target_title_loose and candidate_title_loose:
-            similarity = SequenceMatcher(None, target_title_loose, candidate_title_loose).ratio()
-            candidate_score += int(similarity * 50)
-
-        if target_platform and (target_platform in candidate_platform or candidate_platform in target_platform):
-            candidate_score += 35
-        if str(candidate.get("title", "")).strip().lower() == title.strip().lower():
-            candidate_score += 10
-        return candidate_score
-
-    scored_candidates = []
-    for candidate in candidates:
-        candidate_title_loose = normalize_title_for_match(candidate.get("title", ""))
-        candidate_platform = normalize_launchbox_key(candidate.get("platform", ""))
-        candidate_tokens = set(title_tokens(candidate.get("title", "")))
-        overlap_ratio = 0.0
-        if target_tokens and candidate_tokens:
-            overlap_ratio = len(target_tokens.intersection(candidate_tokens)) / len(target_tokens.union(candidate_tokens))
-        platform_match = bool(target_platform and (target_platform in candidate_platform or candidate_platform in target_platform))
-        scored_candidates.append(
-            {
-                "candidate": candidate,
-                "score": score(candidate),
-                "loose_exact": candidate_title_loose == target_title_loose,
-                "platform_match": platform_match,
-                "token_overlap": overlap_ratio,
-            }
-        )
-
-    exact_platform_matches = [entry for entry in scored_candidates if entry["loose_exact"] and entry["platform_match"]]
-    exact_title_matches = [entry for entry in scored_candidates if entry["loose_exact"]]
-
-    if exact_platform_matches:
-        best_entry = max(exact_platform_matches, key=lambda entry: entry["score"])
-    elif exact_title_matches:
-        best_entry = max(exact_title_matches, key=lambda entry: entry["score"])
-    else:
-        ranked = sorted(scored_candidates, key=lambda entry: entry["score"], reverse=True)
-        best_entry = ranked[0]
-        second_best = ranked[1] if len(ranked) > 1 else None
-
-        if best_entry["score"] < 60 or best_entry["token_overlap"] < 0.34:
-            raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}" for {platform}.')
-
-        if second_best and (best_entry["score"] - second_best["score"] <= 4):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f'LaunchBox returned multiple close matches for "{title}". '
-                    "Please use a more specific title."
-                ),
-            )
-
-    if not best_entry["loose_exact"] and best_entry["token_overlap"] < 0.45:
-        raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}" for {platform}.')
-
-    return best_entry["candidate"]
-
-
 def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
-    launchbox_throttle()
     search_url = f"https://gamesdb.launchbox-app.com/games/results/{quote(title.strip().lower())}"
-    
-    print(f"LAUNCHBOX SEARCH: {search_url}")
-    
     search_response = requests.get(search_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
     search_response.raise_for_status()
     search_soup = BeautifulSoup(search_response.text, "html.parser")
@@ -1295,15 +1153,48 @@ def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, Beaut
             "href": href,
         })
 
-    print(f"LAUNCHBOX CANDIDATES FOUND: {len(candidates)}")
-    for c in candidates[:5]:
-        print(f"  - {c['title']} | {c['platform']}")
-    
     if not candidates:
-        print(f"LAUNCHBOX RESPONSE PREVIEW: {search_soup.prettify()[:2000]}")
         raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}".')
 
-    best_match = choose_launchbox_candidate(candidates, title, platform)
+    target_title = normalize_launchbox_key(title)
+    target_title_loose = normalize_title_for_match(title)
+    target_tokens = set(title_tokens(title))
+    target_platform = normalize_launchbox_key(platform)
+
+    def score(candidate: dict) -> int:
+        from difflib import SequenceMatcher
+
+        candidate_title = normalize_launchbox_key(candidate["title"])
+        candidate_title_loose = normalize_title_for_match(candidate["title"])
+        candidate_tokens = set(title_tokens(candidate["title"]))
+        candidate_platform = normalize_launchbox_key(candidate["platform"])
+        candidate_score = 0
+
+        if candidate_title == target_title:
+            candidate_score += 140
+        elif target_title in candidate_title or candidate_title in target_title:
+            candidate_score += 90
+
+        if target_tokens and candidate_tokens:
+            overlap = len(target_tokens.intersection(candidate_tokens))
+            union = len(target_tokens.union(candidate_tokens))
+            if union:
+                candidate_score += int((overlap / union) * 80)
+
+        if target_title_loose and candidate_title_loose:
+            similarity = SequenceMatcher(None, target_title_loose, candidate_title_loose).ratio()
+            candidate_score += int(similarity * 50)
+
+        if target_platform and (target_platform in candidate_platform or candidate_platform in target_platform):
+            candidate_score += 35
+        if candidate["title"].strip().lower() == title.strip().lower():
+            candidate_score += 10
+        return candidate_score
+
+    best_match = max(candidates, key=score)
+    best_score = score(best_match)
+    if best_score < 50:
+        raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}" for {platform}.')
 
     detail_url = urljoin("https://gamesdb.launchbox-app.com", best_match["href"])
     detail_response = requests.get(detail_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
@@ -1349,17 +1240,9 @@ def fetch_launchbox_game_data(title: str, platform: str) -> dict:
         ],
     )
 
-    def safe_fetch_launchbox_image(section_url: Optional[str]) -> Optional[str]:
-        if not section_url:
-            return None
-        try:
-            return fetch_image_data_uri(urljoin(detail_url, section_url))
-        except Exception:
-            return None
-
-    cover_image = safe_fetch_launchbox_image(cover_section_url)
-    disc_image = safe_fetch_launchbox_image(disc_section_url)
-    spine_image = safe_fetch_launchbox_image(spine_section_url)
+    cover_image = fetch_image_data_uri(urljoin(detail_url, cover_section_url)) if cover_section_url else None
+    disc_image = fetch_image_data_uri(urljoin(detail_url, disc_section_url)) if disc_section_url else None
+    spine_image = fetch_image_data_uri(urljoin(detail_url, spine_section_url)) if spine_section_url else None
 
     # If a title has no dedicated spine section, use cover art as a visual fallback.
     if not spine_image:
@@ -1457,10 +1340,6 @@ SYSTEM_LOGO_SOURCE_URLS: Dict[str, str] = {
     "nds": "https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg",
     "nintendo3ds": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg",
     "3ds": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg",
-    "gameboy": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg",
-    "gb": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg",
-    "gamecube": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg",
-    "gc": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg",
     "wii": "https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg",
     "xbox": "https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg",
     "xbox360": "https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg",
@@ -1542,14 +1421,8 @@ def require_admin(authorization: Optional[str]) -> None:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Admin authorization required")
     token = authorization.removeprefix("Bearer ").strip()
-    if not token:
+    if not token or token not in admin_tokens:
         raise HTTPException(status_code=401, detail="Invalid admin token")
-    expires_at = admin_tokens.get(token)
-    if expires_at is None:
-        raise HTTPException(status_code=401, detail="Invalid admin token")
-    if expires_at <= time.time():
-        del admin_tokens[token]
-        raise HTTPException(status_code=401, detail="Admin token expired")
 
 
 def ensure_systems() -> None:
@@ -1605,6 +1478,134 @@ def ensure_systems() -> None:
         session.commit()
 
 
+def svg_data_uri(svg: str) -> str:
+        return f"data:image/svg+xml;utf8,{quote(svg)}"
+
+
+def make_case_cover_art(label: str, accent: str, accent_dark: str) -> str:
+        svg = f"""
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 720 1080'>
+    <defs>
+        <linearGradient id='bg' x1='0' y1='0' x2='1' y2='1'>
+            <stop offset='0%' stop-color='{accent}'/>
+            <stop offset='100%' stop-color='{accent_dark}'/>
+        </linearGradient>
+    </defs>
+    <rect width='720' height='1080' fill='url(#bg)'/>
+    <rect x='34' y='34' width='652' height='1012' rx='26' fill='none' stroke='rgba(255,255,255,0.42)' stroke-width='6'/>
+    <text x='360' y='450' fill='white' font-family='Arial, sans-serif' font-size='90' font-weight='700' text-anchor='middle'>CASE FIT</text>
+    <text x='360' y='565' fill='white' font-family='Arial, sans-serif' font-size='80' font-weight='700' text-anchor='middle'>{label}</text>
+    <text x='360' y='662' fill='rgba(255,255,255,0.92)' font-family='Arial, sans-serif' font-size='44' font-weight='600' text-anchor='middle'>ICON SCALE TEST</text>
+</svg>
+""".strip()
+        return svg_data_uri(svg)
+
+
+def make_case_spine_art(label: str, accent: str, accent_dark: str) -> str:
+        svg = f"""
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 140 1080'>
+    <defs>
+        <linearGradient id='spine' x1='0' y1='0' x2='0' y2='1'>
+            <stop offset='0%' stop-color='{accent}'/>
+            <stop offset='100%' stop-color='{accent_dark}'/>
+        </linearGradient>
+    </defs>
+    <rect width='140' height='1080' fill='url(#spine)'/>
+    <rect x='12' y='12' width='116' height='1056' rx='14' fill='none' stroke='rgba(255,255,255,0.34)' stroke-width='4'/>
+    <text x='70' y='540' fill='white' font-family='Arial, sans-serif' font-size='52' font-weight='700' text-anchor='middle' transform='rotate(-90 70 540)'>{label}</text>
+</svg>
+""".strip()
+        return svg_data_uri(svg)
+
+
+def make_disc_or_cartridge_art(label: str, accent: str, accent_dark: str, cartridge: bool) -> str:
+        if cartridge:
+                svg = f"""
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 440 540'>
+    <defs>
+        <linearGradient id='cart' x1='0' y1='0' x2='1' y2='1'>
+            <stop offset='0%' stop-color='{accent}'/>
+            <stop offset='100%' stop-color='{accent_dark}'/>
+        </linearGradient>
+    </defs>
+    <rect width='440' height='540' rx='24' fill='url(#cart)'/>
+    <rect x='22' y='22' width='396' height='496' rx='16' fill='none' stroke='rgba(255,255,255,0.42)' stroke-width='5'/>
+    <text x='220' y='280' fill='white' font-family='Arial, sans-serif' font-size='62' font-weight='700' text-anchor='middle'>{label}</text>
+</svg>
+""".strip()
+                return svg_data_uri(svg)
+
+        svg = f"""
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'>
+    <defs>
+        <radialGradient id='disc' cx='35%' cy='30%' r='70%'>
+            <stop offset='0%' stop-color='{accent}'/>
+            <stop offset='100%' stop-color='{accent_dark}'/>
+        </radialGradient>
+    </defs>
+    <circle cx='320' cy='320' r='312' fill='url(#disc)'/>
+    <circle cx='320' cy='320' r='88' fill='rgba(0,0,0,0.36)'/>
+    <text x='320' y='540' fill='white' font-family='Arial, sans-serif' font-size='58' font-weight='700' text-anchor='middle'>{label}</text>
+</svg>
+""".strip()
+        return svg_data_uri(svg)
+
+
+def ensure_console_test_games() -> None:
+        presets = [
+                {"platform": "PlayStation 2", "short": "PS2", "accent": "#2a49c8", "accent_dark": "#121a52", "cartridge": False},
+                {"platform": "PlayStation 3", "short": "PS3", "accent": "#1f5ec6", "accent_dark": "#12264f", "cartridge": False},
+                {"platform": "PlayStation 4", "short": "PS4", "accent": "#0f55aa", "accent_dark": "#0b1e3f", "cartridge": False},
+                {"platform": "Nintendo DS", "short": "NDS", "accent": "#535a69", "accent_dark": "#1f2330", "cartridge": True},
+                {"platform": "Nintendo 3DS", "short": "3DS", "accent": "#b3262d", "accent_dark": "#4f1215", "cartridge": True},
+                {"platform": "Wii", "short": "WII", "accent": "#9ca7b8", "accent_dark": "#4b5665", "cartridge": False},
+                {"platform": "Xbox", "short": "XBOX", "accent": "#2f9d44", "accent_dark": "#144920", "cartridge": False},
+                {"platform": "Xbox 360", "short": "360", "accent": "#4ea95f", "accent_dark": "#244d2c", "cartridge": False},
+        ]
+
+        with Session(engine) as session:
+                existing_platforms = {
+                        platform
+                        for platform in session.exec(
+                                select(MediaItem.platform).where(MediaItem.category == "Games")
+                        ).all()
+                        if platform
+                }
+
+                created_any = False
+                for preset in presets:
+                        platform = preset["platform"]
+                        if platform in existing_platforms:
+                                continue
+
+                        label = preset["short"]
+                        cover = make_case_cover_art(label, preset["accent"], preset["accent_dark"])
+                        spine = make_case_spine_art(label, preset["accent"], preset["accent_dark"])
+                        disc = make_disc_or_cartridge_art(label, preset["accent"], preset["accent_dark"], preset["cartridge"])
+
+                        item = MediaItem(
+                                title=f"{platform} Case Fit Test",
+                                category="Games",
+                                platform=platform,
+                                genre="Action",
+                                genres="Action",
+                                year_released=2006,
+                                rating="E",
+                                players=1,
+                                cooperative="No",
+                                publisher="PS2 Media Library",
+                                notes="Auto-generated QA entry for verifying per-console case, spine, and cover scaling.",
+                                cover_image=cover,
+                                spine_image=spine,
+                                disc_image=disc,
+                        )
+                        session.add(item)
+                        created_any = True
+
+                if created_any:
+                        session.commit()
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     create_db_and_tables()
@@ -1614,11 +1615,12 @@ def on_startup() -> None:
     ensure_cooperative_column()
     ensure_disc_image_column()
     ensure_spine_image_column()
-    ensure_media_display_order_column()
     ensure_system_case_type_column()
     ensure_system_appearance_preset_column()
     ensure_system_is_cartridge_inferred_column()
     ensure_system_display_order_column()
+    ensure_systems()
+    ensure_console_test_games()
 
 @app.get("/api/media", response_model=List[MediaItem])
 def read_media(
@@ -1656,7 +1658,6 @@ def read_media(
                 | (MediaItem.tags.ilike(like_term))
                 | (MediaItem.notes.ilike(like_term))
             )
-        query = query.order_by(MediaItem.display_order, MediaItem.title, MediaItem.id)
         return session.exec(query).all()
 
 @app.get("/api/media/{item_id}", response_model=MediaItem)
@@ -1670,10 +1671,10 @@ def read_media_item(item_id: int) -> MediaItem:
 
 @app.post("/api/admin/login")
 def admin_login(payload: AdminLoginRequest) -> dict:
-    if not verify_admin_password(payload.password):
+    if payload.password != ADMIN_PASSWORD:
         raise HTTPException(status_code=401, detail="Invalid password")
     token = secrets.token_urlsafe(32)
-    admin_tokens[token] = time.time() + ADMIN_TOKEN_TTL_SECONDS
+    admin_tokens[token] = True
     return {"token": token}
 
 
@@ -1689,12 +1690,6 @@ def admin_logout(authorization: Optional[str] = Header(default=None)) -> dict:
 def create_media_item(item: MediaItem, authorization: Optional[str] = Header(default=None)) -> MediaItem:
     require_admin(authorization)
     with Session(engine) as session:
-        max_display_order = session.exec(
-            select(MediaItem.display_order)
-            .where(MediaItem.category == item.category)
-            .order_by(MediaItem.display_order.desc())
-        ).first()
-        item.display_order = (max_display_order if max_display_order is not None else -1) + 1
         session.add(item)
         session.commit()
         session.refresh(item)
@@ -1768,8 +1763,6 @@ def fetch_game_data(payload: LaunchboxGameDataRequest, authorization: Optional[s
     platform = payload.platform.strip()
     if not title or not platform:
         raise HTTPException(status_code=400, detail="Game title and platform are required.")
-    validate_game_title_input(title)
-    validate_platform_input(platform)
 
     cached_item: Optional[MediaItem] = None
     with Session(engine) as session:
@@ -1833,8 +1826,6 @@ def fetch_game_art_options(payload: LaunchboxGameArtOptionsRequest, authorizatio
     art_type = payload.art_type.strip().lower()
     if not title or not platform:
         raise HTTPException(status_code=400, detail="Game title and platform are required.")
-    validate_game_title_input(title)
-    validate_platform_input(platform)
 
     if art_type not in {"cover", "disc", "spine", "cart"}:
         raise HTTPException(status_code=400, detail="Invalid art_type. Use cover, disc, spine, or cart.")
@@ -1845,40 +1836,6 @@ def fetch_game_art_options(payload: LaunchboxGameArtOptionsRequest, authorizatio
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Could not fetch art options: {exc}") from exc
-
-
-@app.post("/api/deezer/album-art-options")
-def fetch_deezer_album_art(payload: DeezerAlbumArtOptionsRequest, authorization: Optional[str] = Header(default=None)) -> dict:
-    require_admin(authorization)
-
-    album = payload.album.strip()
-    artist = payload.artist.strip()
-    if not album or not artist:
-        raise HTTPException(status_code=400, detail="Album name and artist are required.")
-
-    try:
-        return fetch_deezer_album_art_options(album, artist)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Could not fetch album art options: {exc}") from exc
-
-
-@app.post("/api/deezer/album-data")
-def fetch_deezer_album_data(payload: DeezerAlbumDataRequest, authorization: Optional[str] = Header(default=None)) -> dict:
-    require_admin(authorization)
-
-    album = payload.album.strip()
-    artist = payload.artist.strip()
-    if not album or not artist:
-        raise HTTPException(status_code=400, detail="Album name and artist are required.")
-
-    try:
-        return fetch_deezer_full_album_data(album, artist)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Could not fetch album data: {exc}") from exc
 
 
 @app.post("/api/bulk/games")
@@ -1946,7 +1903,7 @@ def bulk_upload_games(payload: BulkGamesRequest, authorization: Optional[str] = 
 
 @app.post("/api/bulk/music")
 def bulk_upload_music(payload: BulkMusicRequest, authorization: Optional[str] = Header(default=None)) -> dict:
-    """Bulk-create music entries by fetching metadata from Deezer."""
+    """Bulk-create music entries by fetching cover art from Deezer."""
     require_admin(authorization)
     results = []
     for raw_line in payload.items:
@@ -1959,11 +1916,8 @@ def bulk_upload_music(payload: BulkMusicRequest, authorization: Optional[str] = 
         album_part, artist_part = line.rsplit(" - ", 1)
         album_part = album_part.strip()
         artist_part = artist_part.strip()
-        if not album_part or not artist_part:
-            results.append({"line": line, "status": "error", "error": "Invalid format - use: Album Title - Artist"})
-            continue
         try:
-            music_data = fetch_deezer_full_album_data(album_part, artist_part)
+            music_data = fetch_music_album_data(album_part, artist_part)
         except HTTPException as exc:
             results.append({"line": line, "status": "error", "error": exc.detail})
             continue
@@ -1971,35 +1925,13 @@ def bulk_upload_music(payload: BulkMusicRequest, authorization: Optional[str] = 
             results.append({"line": line, "status": "error", "error": str(exc)})
             continue
 
-        release_date_iso = normalize_release_date(music_data.get("release_date"))
-        year_released = None
-        if release_date_iso and len(release_date_iso) >= 4:
-            try:
-                year_released = int(release_date_iso[:4])
-            except ValueError:
-                year_released = None
-
-        genres = [entry.strip() for entry in music_data.get("genres", []) if isinstance(entry, str) and entry.strip()]
-        genre = music_data.get("genre")
-        if not genre and genres:
-            genre = genres[0]
-        if isinstance(genre, str):
-            genre = genre.strip()
-        else:
-            genre = ""
-
         item = MediaItem(
             title=music_data.get("title", album_part),
             category="Music",
             platform=None,
-            genre=genre,
-            genres=", ".join(genres) if genres else None,
-            release_date=release_date_iso,
-            year_released=year_released,
+            genre="",
             artist=music_data.get("artist", artist_part),
-            publisher=music_data.get("label"),
             cover_image=music_data.get("coverImage"),
-            notes=music_data.get("trackList"),
         )
         with Session(engine) as session:
             session.add(item)
@@ -2211,15 +2143,15 @@ def delete_system(system_id: str, authorization: Optional[str] = Header(default=
 @app.patch("/api/systems/reorder")
 def reorder_systems(payload: dict, authorization: Optional[str] = Header(default=None)):
     """Update display order for systems.
-
+    
     Expected payload: {"order": ["system_id_1", "system_id_2", ...]}
     """
     require_admin(authorization)
-
+    
     system_ids = payload.get("order", [])
     if not system_ids or not isinstance(system_ids, list):
         raise HTTPException(status_code=400, detail="Expected 'order' array of system IDs")
-
+    
     with Session(engine) as session:
         for order, system_id in enumerate(system_ids):
             system = session.exec(select(GameSystem).where(GameSystem.system_id == system_id)).first()
@@ -2227,81 +2159,20 @@ def reorder_systems(payload: dict, authorization: Optional[str] = Header(default
                 system.display_order = order
                 session.add(system)
         session.commit()
-
+        
         return {"success": True}
 
 
-@app.patch("/api/media/reorder")
-def reorder_media_items(payload: dict, authorization: Optional[str] = Header(default=None)):
-    """Update display order for media items.
+if FRONTEND_BUILD_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_BUILD_DIR), html=True), name="frontend")
 
-    Expected payload:
-      {
-        "category": "Games" | "Music",
-        "order": [1, 2, 3, ...],
-        "platform": "PlayStation 2"  # optional for Games
-      }
-    """
-    require_admin(authorization)
-
-    category = payload.get("category")
-    item_ids = payload.get("order", [])
-    platform = payload.get("platform")
-
-    if category not in {"Games", "Music"}:
-        raise HTTPException(status_code=400, detail="Expected valid 'category' value")
-    if not item_ids or not isinstance(item_ids, list):
-        raise HTTPException(status_code=400, detail="Expected 'order' array of media IDs")
-
-    with Session(engine) as session:
-        query = select(MediaItem).where(MediaItem.category == category)
-        if category == "Games" and platform:
-            query = query.where(MediaItem.platform == platform)
-
-        scoped_items = session.exec(query).all()
-        scoped_by_id = {item.id: item for item in scoped_items if item.id is not None}
-
-        for order, item_id in enumerate(item_ids):
-            media_item = scoped_by_id.get(item_id)
-            if media_item:
-                media_item.display_order = order
-                session.add(media_item)
-
-        session.commit()
-
-        return {"success": True}
-
-
-@app.get("/api/boot-video")
-def stream_ps2_intro() -> Response:
-    boot_video_path = resolve_boot_video_path()
-    if not boot_video_path:
-        raise HTTPException(status_code=404, detail="Intro video not found")
-
-    # Retained for backward compatibility with older frontend builds.
-    return Response(
-        status_code=302,
-        headers={"Location": boot_video_path}
-    )
-
-
-
-@app.head("/api/boot-video")
-def head_ps2_intro() -> Response:
-    boot_video_path = resolve_boot_video_path()
-    if not boot_video_path:
-        raise HTTPException(status_code=404, detail="Intro video not found")
-    return Response(
-        status_code=302,
-        headers={"Location": boot_video_path}
-    )
-
-
-@app.get("/")
-def root_status() -> dict:
-    return {"service": "PS2 Media Library API", "status": "ok"}
-
-
-@app.get("/healthz")
-def healthz() -> dict:
-    return {"ok": True}
+    @app.get("/{path_name:path}")
+    async def frontend(path_name: str) -> FileResponse:
+        file_path = FRONTEND_BUILD_DIR / path_name
+        if file_path.exists():
+            return FileResponse(file_path)
+        return FileResponse(FRONTEND_BUILD_DIR / "index.html")
+else:
+    @app.get("/{path_name:path}")
+    async def frontend(path_name: str):
+        raise HTTPException(status_code=503, detail="Frontend build not found. Run npm run build.")

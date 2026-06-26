@@ -70,10 +70,6 @@
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg' },
     { name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg' },
-    { name: 'GameBoy', shortName: 'GB', logo: 'GB',
-      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg' },
-    { name: 'GameCube', shortName: 'GC', logo: 'GC',
-      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg' },
     { name: 'Wii', shortName: 'Wii', logo: 'Wii',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg' },
     { name: 'Xbox', shortName: 'XBX', logo: 'XBX',
@@ -582,8 +578,6 @@
     if (value === 'playstation 4') return 'ps4';
     if (value === 'nintendo ds') return 'nds';
     if (value === 'nintendo 3ds') return '3ds';
-    if (value === 'gameboy') return 'gb';
-    if (value === 'gamecube') return 'gamecube';
     if (value === 'wii') return 'wii';
     if (value === 'xbox') return 'xbox';
     if (value === 'xbox 360') return 'xbox360';
@@ -592,15 +586,15 @@
 
   function inferAppearancePreset(platform: string | null | undefined) {
     const key = normalizeConsoleKey(platform);
-    if (key === 'nds' || key === '3ds' || key === 'gb') return key;
-    if (key === 'ps2' || key === 'ps3' || key === 'ps4' || key === 'gamecube' || key === 'wii' || key === 'xbox' || key === 'xbox360') return key;
+    if (key === 'nds' || key === '3ds') return key;
+    if (key === 'ps2' || key === 'ps3' || key === 'ps4' || key === 'wii' || key === 'xbox' || key === 'xbox360') return key;
     return 'generic-disc';
   }
 
   function getSystemAppearance(platform: string | null | undefined) {
     const system = availableConsoles.find((entry) => entry.name === (platform ?? ''));
     const preset = (system?.appearancePreset ?? inferAppearancePreset(platform) ?? 'generic-disc').toLowerCase();
-    const inferredCartridge = preset === 'nds' || preset === '3ds' || preset === 'gb';
+    const inferredCartridge = preset === 'nds' || preset === '3ds';
     const caseType = inferredCartridge ? 'cartridge' : (system?.caseType ?? 'disc');
     return { caseType, preset } as const;
   }
@@ -664,13 +658,11 @@
     if (caseType === 'cartridge') {
       if (preset === 'nds') return ' disc-case--nds';
       if (preset === '3ds') return ' disc-case--3ds';
-      if (preset === 'gb') return ' disc-case--gb';
       return ' disc-case--cart-generic';
     }
     if (preset === 'ps2') return ' disc-case--ps2';
     if (preset === 'ps3') return ' disc-case--ps3';
     if (preset === 'ps4') return ' disc-case--ps4';
-    if (preset === 'gamecube') return ' disc-case--gamecube';
     if (preset === 'wii') return ' disc-case--wii';
     if (preset === 'xbox') return ' disc-case--xbox';
     if (preset === 'xbox360') return ' disc-case--xbox360';
@@ -682,13 +674,11 @@
     if (caseType === 'cartridge') {
       if (preset === 'nds') return 'disc-shell--nds';
       if (preset === '3ds') return 'disc-shell--3ds';
-      if (preset === 'gb') return 'disc-shell--gb';
       return 'disc-shell--cart-generic';
     }
     if (preset === 'ps2') return 'disc-shell--ps2';
     if (preset === 'ps3') return 'disc-shell--ps3';
     if (preset === 'ps4') return 'disc-shell--ps4';
-    if (preset === 'gamecube') return 'disc-shell--gamecube';
     if (preset === 'wii') return 'disc-shell--wii';
     if (preset === 'xbox') return 'disc-shell--xbox';
     if (preset === 'xbox360') return 'disc-shell--xbox360';
@@ -1509,7 +1499,7 @@
   function armBootPlaybackRetry() {
     clearBootPlaybackRetry();
     bootPlaybackRetryInterval = setInterval(() => {
-      if (stage !== 'boot' || bootError || !bootVideoRef) {
+      if (stage !== 'boot' || bootError || bootTextVisible || !bootVideoRef) {
         clearBootPlaybackRetry();
         return;
       }
@@ -1578,6 +1568,7 @@
       bootError = !bootVideoRef || bootVideoRef.readyState < 1;
       bootTextVisible = true;
       bootStarted = false;
+      clearBootPlaybackRetry();
     }, getBootRescueTimeoutMs());
   }
 
@@ -1652,6 +1643,7 @@
       bootTextVisible = true;
       bootStarted = false;
       clearBootRescueTimer();
+      clearBootPlaybackRetry();
     }
   }
 
@@ -1847,10 +1839,6 @@
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg', caseType: 'cartridge', appearancePreset: 'nds' },
       { id: '3ds', name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg', caseType: 'cartridge', appearancePreset: '3ds' },
-      { id: 'gb', name: 'GameBoy', shortName: 'GB', logo: 'GB',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg', caseType: 'cartridge', appearancePreset: 'gb' },
-      { id: 'gc', name: 'GameCube', shortName: 'GC', logo: 'GC',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg', caseType: 'disc', appearancePreset: 'gamecube' },
       { id: 'wii', name: 'Wii', shortName: 'Wii', logo: 'Wii',
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg', caseType: 'disc', appearancePreset: 'wii' },
       { id: 'xbox', name: 'Xbox', shortName: 'XBX', logo: 'XBX',
@@ -2110,10 +2098,6 @@
       nintendods: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg',
       '3ds': 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg',
       nintendo3ds: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg',
-      gb: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg',
-      gameboy: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg',
-      gc: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg',
-      gamecube: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg',
       wii: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg',
       xbox: 'https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg',
       xbox360: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg',
@@ -2676,11 +2660,13 @@
             if (bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
               bootTextVisible = true;
               clearBootRescueTimer();
+              clearBootPlaybackRetry();
             }
           } else {
             if (bootVideoRef.currentTime >= bootRevealAt) {
               bootTextVisible = true;
               clearBootRescueTimer();
+              clearBootPlaybackRetry();
             }
           }
         }}
@@ -2710,6 +2696,7 @@
         on:ended={() => {
           bootTextVisible = true;
           clearBootRescueTimer();
+          clearBootPlaybackRetry();
         }}
         on:error={() => {
           bootError = true;
