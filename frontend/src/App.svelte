@@ -150,9 +150,12 @@
   let bootResumeAtSix = false;
   let bootRescueTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootPlaybackRetryInterval: ReturnType<typeof setInterval> | null = null;
+  let bootHardFailTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootRevealAt = 9;
   const BOOT_SKIP_TIME = 6;
   const BOOT_RESCUE_TIMEOUT_MS = 5000;
+  const BOOT_HARD_FAIL_OPEN_MS = 12000;
+  const BOOT_LOOP_CEILING_TIME = 600;
 
   let transitionOverlay = false;
   let transitionOpacity = 0;
@@ -1362,6 +1365,7 @@
     bootAudioFadeInMs = 1000;
     clearBootRescueTimer();
     clearBootPlaybackRetry();
+    clearBootHardFailTimer();
 
     const newState: HistoryState = { stage: 'boot', category: null, console: null, itemId: null, page: 0 };
     history.pushState(newState, '');
@@ -1407,6 +1411,7 @@
     if (stage !== 'boot') {
       clearBootRescueTimer();
       clearBootPlaybackRetry();
+      clearBootHardFailTimer();
     }
 
     await tick();
@@ -1495,6 +1500,25 @@
     }
   }
 
+  function clearBootHardFailTimer() {
+    if (bootHardFailTimeout) {
+      clearTimeout(bootHardFailTimeout);
+      bootHardFailTimeout = null;
+    }
+  }
+
+  function armBootHardFailTimer() {
+    clearBootHardFailTimer();
+    bootHardFailTimeout = setTimeout(() => {
+      if (stage !== 'boot' || bootTextVisible) return;
+      bootError = !bootVideoRef || bootVideoRef.readyState < 1;
+      bootTextVisible = true;
+      bootStarted = false;
+      clearBootRescueTimer();
+      clearBootPlaybackRetry();
+    }, BOOT_HARD_FAIL_OPEN_MS);
+  }
+
   function armBootRescueTimer() {
     clearBootRescueTimer();
     const observedTime = bootVideoRef?.currentTime ?? 0;
@@ -1540,6 +1564,7 @@
     bootStarted = true;
     armBootRescueTimer();
     armBootPlaybackRetry();
+    armBootHardFailTimer();
 
     const video = bootVideoRef;
     try {
@@ -1577,6 +1602,7 @@
       bootStarted = false;
       clearBootRescueTimer();
       clearBootPlaybackRetry();
+      clearBootHardFailTimer();
     }
   }
 
@@ -1591,6 +1617,7 @@
       bootTextVisible = true;
       clearBootRescueTimer();
       clearBootPlaybackRetry();
+      clearBootHardFailTimer();
       return;
     }
 
@@ -1598,6 +1625,7 @@
     bootTextVisible = true;
     clearBootRescueTimer();
     clearBootPlaybackRetry();
+    clearBootHardFailTimer();
 
     if (bootVideoRef.paused) {
       void bootVideoRef.play().catch(() => {
@@ -1606,6 +1634,7 @@
         bootStarted = false;
         clearBootRescueTimer();
         clearBootPlaybackRetry();
+        clearBootHardFailTimer();
       });
     }
   }
@@ -1613,6 +1642,7 @@
   async function queueBootStart() {
     armBootRescueTimer();
     armBootPlaybackRetry();
+    armBootHardFailTimer();
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await tick();
       if (bootVideoRef) {
@@ -1629,6 +1659,11 @@
     }
     clearBootRescueTimer();
     clearBootPlaybackRetry();
+    clearBootHardFailTimer();
+  }
+
+  function isBootSpaceKey(event: KeyboardEvent) {
+    return event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar';
   }
 
   async function handleBootPick(categoryName: Category) {
@@ -2443,7 +2478,7 @@
   }
 
   function handleGlobalBootKeydown(event: KeyboardEvent) {
-    if (event.code !== 'Space') return;
+    if (!isBootSpaceKey(event)) return;
     if (stage !== 'boot' || bootTextVisible) return;
     event.preventDefault();
     unlockBootAudio();
@@ -2516,6 +2551,7 @@
       window.removeEventListener('keydown', handleGlobalEscapeKeydown);
       clearBootRescueTimer();
       clearBootPlaybackRetry();
+      clearBootHardFailTimer();
       if (bootSoundIndicatorTimeout) {
         clearTimeout(bootSoundIndicatorTimeout);
       }
@@ -2562,6 +2598,7 @@
     } else {
       clearBootRescueTimer();
       clearBootPlaybackRetry();
+      clearBootHardFailTimer();
     }
   }
 </script>
@@ -2574,9 +2611,15 @@
     aria-label="Toggle boot audio mute"
     on:click={handleBootScreenClick}
     on:keydown={(event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
+      if (event.key === 'Enter') {
         event.preventDefault();
         toggleBootMute();
+        return;
+      }
+      if (event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar') {
+        event.preventDefault();
+        unlockBootAudio();
+        skipBootIntro();
       }
     }}
   >
@@ -2604,17 +2647,29 @@
         }}
         on:timeupdate={() => {
           if (!bootVideoRef) return;
+
+          if (bootVideoRef.currentTime >= BOOT_LOOP_CEILING_TIME) {
+            bootVideoRef.currentTime = BOOT_SKIP_TIME;
+            if (bootVideoRef.paused) {
+              void bootVideoRef.play().catch(() => {
+                // Keep the fallback flow alive when replaying the loop window fails.
+              });
+            }
+          }
+
           if (bootResumeAtSix) {
             if (bootVideoRef.currentTime >= BOOT_SKIP_TIME) {
               bootTextVisible = true;
               clearBootRescueTimer();
               clearBootPlaybackRetry();
+              clearBootHardFailTimer();
             }
           } else {
             if (bootVideoRef.currentTime >= bootRevealAt) {
               bootTextVisible = true;
               clearBootRescueTimer();
               clearBootPlaybackRetry();
+              clearBootHardFailTimer();
             }
           }
         }}
@@ -2641,6 +2696,7 @@
           bootTextVisible = true;
           clearBootRescueTimer();
           clearBootPlaybackRetry();
+          clearBootHardFailTimer();
         }}
         on:error={() => {
           bootError = true;
@@ -2648,6 +2704,7 @@
           bootStarted = false;
           clearBootRescueTimer();
           clearBootPlaybackRetry();
+          clearBootHardFailTimer();
         }}
       >
         <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
@@ -2718,8 +2775,8 @@
                 <span class="console-header-copy console-header-count-copy console-header-subcopy">{hoveredConsoleCountLabel}</span>
               </div>
             {:else}
-              <div class="console-header-static-copy">
-                <span class="console-header-copy console-header-count-copy">{consoleLibraryCountLabel}</span>
+              <div class="console-hover-meta console-hover-meta--static">
+                <span class="console-header-copy console-header-count-copy console-header-subcopy">{consoleLibraryCountLabel}</span>
               </div>
             {/if}
           </div>
@@ -2959,6 +3016,7 @@
       ></button>
 
       <section class="details-screen">
+        <button type="button" class="popup-close details-close" aria-label="Close details" on:click={closeDetails}>×</button>
         {#if detailsConsoleLogo}
           <img src={detailsConsoleLogo} alt="" class="details-console-logo-bg" aria-hidden="true" draggable="false" />
         {/if}
@@ -3081,9 +3139,9 @@
       <div class="launchbox-art-picker-overlay" role="dialog" aria-modal="true" aria-labelledby="launchbox-art-picker-title" transition:popupOverlayTransition>
         <button type="button" class="launchbox-art-picker-backdrop" aria-label="Close LaunchBox art selector" on:click={closeLaunchboxArtPicker}></button>
         <div class="launchbox-art-picker-panel" transition:popupPanelTransition>
+          <button type="button" class="popup-close" aria-label="Close LaunchBox art selector" on:click={closeLaunchboxArtPicker}>×</button>
           <div class="launchbox-art-picker-header">
             <h3 id="launchbox-art-picker-title">Choose {adminArtLabel(launchboxArtPickerField ?? 'cover_image')}</h3>
-            <button type="button" class="ghost" on:click={closeLaunchboxArtPicker}>Close</button>
           </div>
           {#if launchboxArtPickerBusy}
             <p class="launchbox-art-picker-state">Loading art options from available sources...</p>
@@ -3113,6 +3171,7 @@
       <div class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title" transition:popupOverlayTransition>
         <button type="button" class="confirm-backdrop" aria-label="Close confirmation" on:click={closeConfirm}></button>
         <div class="confirm-panel" transition:popupPanelTransition>
+          <button type="button" class="popup-close" aria-label="Close confirmation" on:click={closeConfirm}>×</button>
           <h3 id="confirm-title">{confirmMode === 'delete' ? 'Delete Item?' : 'Edit Item?'}</h3>
           <p>
             {#if confirmMode === 'delete'}
@@ -3155,7 +3214,7 @@
       {#if !isAdmin}
         <div class="admin-header">
           <h2>Admin Access</h2>
-          <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+          <button type="button" class="popup-close" aria-label="Close admin panel" on:click={() => (adminOpen = false)}>×</button>
         </div>
         <div class="admin-login">
           <label for="admin-password">Password</label>
@@ -3167,7 +3226,7 @@
           <!-- ADMIN HUB VIEW -->
           <div class="admin-header">
             <h2>Admin Hub</h2>
-            <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+            <button type="button" class="popup-close" aria-label="Close admin panel" on:click={() => (adminOpen = false)}>×</button>
           </div>
           
           <div class="admin-hub-options">
@@ -3189,7 +3248,7 @@
           <div class="admin-header">
             <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>← Hub</button>
             <h2>System Manager</h2>
-            <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+            <button type="button" class="popup-close" aria-label="Close admin panel" on:click={() => (adminOpen = false)}>×</button>
           </div>
 
           <div class="admin-layout systems-layout">
@@ -3351,7 +3410,7 @@
           <div class="admin-header">
             <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>← Hub</button>
             <h2>Library Manager</h2>
-            <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+            <button type="button" class="popup-close" aria-label="Close admin panel" on:click={() => (adminOpen = false)}>×</button>
           </div>
 
           <div class="admin-tabs">

@@ -861,6 +861,11 @@ button {
   padding: 10px 0 10px 20px;
 }
 
+.console-screen .console-header-right {
+  width: clamp(260px, 31vw, 380px);
+  flex: 0 0 clamp(260px, 31vw, 380px);
+}
+
 .console-hover-meta {
   display: grid;
   justify-items: center;
@@ -868,6 +873,11 @@ button {
   align-items: center;
   width: auto;
   margin-left: auto;
+}
+
+.console-screen .console-hover-meta {
+  width: 100%;
+  margin-left: 0;
 }
 
 .console-hover-meta .console-header-copy {
@@ -1491,6 +1501,11 @@ button {
     linear-gradient(135deg, rgba(123, 124, 132, 0.62), rgba(109, 114, 120, 0.66));
 }
 
+.details-close {
+  top: 12px;
+  right: 12px;
+}
+
 .details-overlay {
   position: absolute;
   inset: 0;
@@ -2009,7 +2024,7 @@ button {
 .details-admin-actions button::after,
 .pager button::after,
 .admin-toolbar button::after,
-.admin-header button::after,
+.admin-header button:not(.popup-close)::after,
 .admin-actions button::after,
 .admin-form button::after,
 .admin-row-actions button::after {
@@ -2033,7 +2048,7 @@ button {
 .details-admin-actions button:hover::after,
 .pager button:hover::after,
 .admin-toolbar button:hover::after,
-.admin-header button:hover::after,
+.admin-header button:not(.popup-close):hover::after,
 .admin-actions button:hover::after,
 .admin-form button:hover::after,
 .admin-row-actions button:hover::after {
@@ -2049,8 +2064,8 @@ button {
 .details-admin-actions button:focus-visible,
 .admin-toolbar button:hover,
 .admin-toolbar button:focus-visible,
-.admin-header button:hover,
-.admin-header button:focus-visible,
+.admin-header button:not(.popup-close):hover,
+.admin-header button:not(.popup-close):focus-visible,
 .admin-actions button:hover,
 .admin-actions button:focus-visible,
 .admin-form button:hover,
@@ -2755,6 +2770,7 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.24);
   box-shadow: 0 24px 42px rgba(0, 0, 0, 0.48);
   padding: 18px;
+  padding-top: 48px;
 }
 
 .confirm-panel h3 {
@@ -2834,7 +2850,9 @@ button {
   gap: 16px;
   margin-bottom: 24px;
   padding-bottom: 20px;
+  padding-right: 48px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  position: relative;
 }
 
 .admin-header h2 {
@@ -3094,6 +3112,35 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.24);
   box-shadow: 0 24px 42px rgba(0, 0, 0, 0.48);
   padding: 18px;
+  padding-top: 46px;
+}
+
+.popup-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 10px;
+  background: linear-gradient(140deg, rgba(18, 26, 44, 0.94), rgba(12, 18, 32, 0.9));
+  color: rgba(245, 246, 251, 0.96);
+  font-size: 1.28rem;
+  font-weight: 700;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  text-shadow: none;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.34);
+  z-index: 3;
+  transition: filter 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.popup-close:hover,
+.popup-close:focus-visible {
+  transform: translateY(-1px);
+  filter: brightness(1.14);
+  border-color: rgba(126, 203, 255, 0.55);
 }
 
 .launchbox-art-picker-header {
@@ -3729,7 +3776,7 @@ select option {
 }
 
 /* Admin actions mirror the plain text/glow style used by the library Back button. */
-.admin-panel button:not(.admin-backdrop):not(.admin-hub-card) {
+.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):not(.popup-close) {
   position: relative;
   border: 0 !important;
   background: none !important;
@@ -3742,8 +3789,8 @@ select option {
   transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
 }
 
-.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):hover,
-.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):focus-visible {
+.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):not(.popup-close):hover,
+.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):not(.popup-close):focus-visible {
   transform: translateY(-1px);
   filter: brightness(1.1);
 }
@@ -3830,8 +3877,12 @@ select option {
   .console-grid,
   .library-grid {
     grid-template-columns: repeat(4, minmax(84px, 1fr));
-    inset: 22% 5% 15% 5%;
+    inset: 24% 5% 15% 5%;
     gap: 18px 18px;
+  }
+
+  .library-grid {
+    inset: 30% 5% 16% 5%;
   }
 
   .details-screen {
@@ -3965,14 +4016,19 @@ select option {
   }
 
   .boot-options {
-    right: 4vw;
-    width: 86vw;
-    top: 56%;
-    justify-items: start;
+    left: auto;
+    right: clamp(14px, 5vw, 28px);
+    transform: translateY(-50%);
+    width: min(64vw, 290px);
+    top: 50%;
+    bottom: auto;
+    justify-items: end;
+    text-align: right;
+    gap: 8px;
   }
 
   .boot-brand {
-    top: 9vh;
+    top: max(46px, 8vh);
   }
 
   .site-brand-logo--boot {
@@ -3981,12 +4037,41 @@ select option {
 
   .boot-option,
   .category-option {
-    text-align: left;
+    text-align: right;
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    min-height: 58px;
+    padding: 4px 0;
   }
 
   .boot-option-main,
   .category-main {
-    font-size: 2.7rem;
+    font-size: clamp(2.45rem, 11.6vw, 3.7rem);
+    line-height: 1.05;
+    max-width: 100%;
+  }
+
+  .boot-skip-hint {
+    bottom: max(52px, calc(3.2vh + env(safe-area-inset-bottom, 0px)));
+    width: min(92vw, 440px);
+    font-size: clamp(0.68rem, 2.6vw, 0.9rem);
+  }
+
+  .footer {
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .footer-content {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    max-width: 96vw;
+    gap: 6px;
+    font-size: clamp(0.5rem, 2.1vw, 0.72rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .hud-left,
@@ -4017,7 +4102,12 @@ select option {
   }
 
   .footer-brand-logo {
-    width: min(42vw, 146px);
+    width: clamp(72px, 24vw, 118px);
+    flex-shrink: 0;
+  }
+
+  .footer-delimiter {
+    flex-shrink: 0;
   }
 
   .details-actions {
@@ -4035,16 +4125,31 @@ select option {
     left: 14px;
     right: 14px;
     top: 10px;
+    gap: 10px;
+    align-items: flex-start;
+    flex-wrap: nowrap;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .console-hud {
+    left: 14px;
+    right: 14px;
+    top: 10px;
     gap: 8px;
     align-items: flex-start;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .library-toolbar {
-    order: 2;
+    order: 3;
     margin-top: 0;
     margin-left: 0;
     margin-right: 0;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 12px;
   }
 
   .library-search-shell {
@@ -4064,6 +4169,24 @@ select option {
   .library-hud-left {
     order: 1;
     width: 100%;
+    min-height: 54px;
+    justify-content: center;
+    padding-right: 0;
+  }
+
+  .library-hud-left .site-brand-logo--header {
+    width: min(94vw, 480px);
+    max-height: 68px;
+  }
+
+  .console-hud .console-header-shell {
+    min-height: 54px;
+    justify-content: center;
+  }
+
+  .console-hud .site-brand-logo--header {
+    width: min(94vw, 480px);
+    max-height: 68px;
   }
 
   .systems-add-row {
@@ -4076,7 +4199,7 @@ select option {
   }
 
   .library-hud-right {
-    order: 3;
+    order: 2;
     margin-top: 0;
     margin-left: 0;
     width: 100%;
@@ -4086,11 +4209,24 @@ select option {
     line-height: 1.15;
   }
 
+  .console-hud .console-header-right,
+  .library-hud .console-header-right {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .console-hud .console-hover-meta,
+  .library-hud .console-hover-meta {
+    justify-items: center;
+    width: 100%;
+  }
+
   .console-header-right {
     justify-content: flex-start;
     min-width: 0;
-    min-height: 64px;
+    min-height: 48px;
     width: 100%;
+    padding: 0;
   }
 
   .console-hover-meta {
@@ -4111,32 +4247,120 @@ select option {
 
   .console-grid,
   .library-grid {
-    grid-template-columns: repeat(3, minmax(74px, 1fr));
-    inset: 26% 3% 16% 3%;
-    gap: 12px;
+    grid-template-columns: repeat(3, minmax(86px, 1fr));
+    inset: 34% 4% 21% 4%;
+    gap: 22px 14px;
+  }
+
+  .library-grid {
+    inset: 39% 4% 22% 4%;
+  }
+
+  .console-card,
+  .library-card {
+    min-height: 126px;
+    padding-top: 2px;
+  }
+
+  .console-card .console-title,
+  .library-card .library-title {
+    bottom: -20px;
+    max-width: 106px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.12;
+    font-size: 0.78rem;
   }
 
   .console-icon,
   .library-art,
   .library-fallback {
-    width: 74px;
-    height: 74px;
+    width: 86px;
+    height: 86px;
+  }
+
+  .console-logo-img {
+    height: clamp(66px, 8.4vh, 84px);
+    max-width: clamp(146px, 17vw, 190px);
+  }
+
+  .library-grid .disc-case {
+    --case-h: 102px;
+    --spine-w: 9px;
+    --disc-size: 66px;
+    --media-w: var(--disc-size);
+    --media-h: var(--disc-size);
+    --disc-right: -12px;
+    width: calc(var(--spine-w) + var(--front-w));
+    height: var(--case-h);
+  }
+
+  .library-grid .disc-case--ps2 {
+    --case-h: 114px;
+    --disc-size: 70px;
+    --disc-right: -14px;
+  }
+
+  .library-grid .disc-case--ps3,
+  .library-grid .disc-case--ps4,
+  .library-grid .disc-case--xbox,
+  .library-grid .disc-case--xbox360,
+  .library-grid .disc-case--wii {
+    --case-h: 100px;
+    --disc-size: 66px;
+    --disc-right: -12px;
+  }
+
+  .library-grid .disc-case--nds,
+  .library-grid .disc-case--3ds,
+  .library-grid .disc-case--gb,
+  .library-grid .disc-case--cart-generic,
+  .library-grid .disc-case--gamecube {
+    --case-h: 92px;
+    --disc-size: 60px;
+    --media-w: 48px;
+    --media-h: 60px;
+    --disc-right: -9px;
+  }
+
+  .library-grid .vinyl-wrap {
+    width: 94px;
+    height: 94px;
+  }
+
+  .library-grid .vinyl-sleeve {
+    width: 80px;
+    height: 80px;
+  }
+
+  .library-grid .vinyl-record {
+    width: 68px;
+    height: 68px;
+    right: -6px;
+    bottom: -6px;
   }
 
   .back-button {
     left: 14px;
-    bottom: 10px;
-    font-size: 1.1rem;
+    bottom: max(10px, env(safe-area-inset-bottom, 0px));
+    font-size: 1.4rem;
+    min-height: 44px;
+    min-width: 72px;
+    padding: 7px 10px;
   }
 
   .admin-launch {
     right: 14px;
-    bottom: 10px;
-    font-size: 1.1rem;
+    bottom: max(10px, env(safe-area-inset-bottom, 0px));
+    font-size: 1.4rem;
+    min-height: 44px;
+    min-width: 86px;
+    padding: 7px 10px;
   }
 
   .pager {
-    bottom: 10px;
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    gap: 10px;
   }
 
   .admin-toolbar {
@@ -4217,6 +4441,82 @@ select option {
   .systems-logo {
     max-width: 36px;
     max-height: 36px;
+  }
+
+  .popup-close {
+    top: 8px;
+    right: 8px;
+    width: 38px;
+    height: 38px;
+    font-size: 1.35rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .boot-options {
+    right: clamp(12px, 4vw, 22px);
+    width: min(62vw, 248px);
+    gap: 6px;
+  }
+
+  .boot-option-main,
+  .category-main {
+    font-size: clamp(2.05rem, 11vw, 3rem);
+  }
+
+  .boot-option,
+  .category-option {
+    min-height: 54px;
+  }
+
+  .footer-content {
+    gap: 4px;
+    font-size: clamp(0.46rem, 2.5vw, 0.62rem);
+    max-width: 97vw;
+  }
+
+  .footer-brand-logo {
+    width: clamp(62px, 21vw, 96px);
+  }
+
+  .library-grid {
+    grid-template-columns: repeat(2, minmax(104px, 1fr));
+    inset: 41% 5% 23% 5%;
+    gap: 24px 14px;
+    justify-items: center;
+  }
+
+  .console-card,
+  .library-card {
+    min-height: 132px;
+  }
+
+  .console-card .console-title,
+  .library-card .library-title {
+    bottom: -20px;
+    max-width: 110px;
+    font-size: 0.78rem;
+  }
+
+  .console-grid {
+    grid-template-columns: repeat(2, minmax(104px, 1fr));
+    inset: 35% 5% 23% 5%;
+    gap: 22px 14px;
+    justify-items: center;
+  }
+
+  .console-icon,
+  .library-art,
+  .library-fallback {
+    width: 90px;
+    height: 90px;
+  }
+
+  .back-button,
+  .admin-launch {
+    font-size: 1.28rem;
+    min-height: 42px;
+    padding: 6px 9px;
   }
 }
 
