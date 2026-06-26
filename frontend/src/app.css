@@ -491,8 +491,9 @@ button {
   width: auto;
   min-height: 38px;
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   border: 0;
   background: transparent;
   color: var(--hud-white);
@@ -502,6 +503,12 @@ button {
   position: relative;
   overflow: visible;
   transition: color 220ms ease, transform 180ms ease;
+}
+
+.wishlist-toggle-toprow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .wishlist-toggle-icon {
@@ -519,12 +526,25 @@ button {
 }
 
 .wishlist-toggle-label {
-  color: #fff;
+  color: rgba(245, 246, 251, 0.54);
   font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
+.wishlist-toggle-footer {
+  color: #fff;
+  font-size: 0.56rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.65);
   white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity 150ms ease, transform 150ms ease;
+  pointer-events: none;
 }
 
 .wishlist-toggle:hover,
@@ -558,6 +578,12 @@ button {
   content: none;
 }
 
+.wishlist-toggle:hover .wishlist-toggle-footer,
+.wishlist-toggle:focus-visible .wishlist-toggle-footer {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .wishlist-toggle--console {
   margin-left: 12px;
 }
@@ -571,6 +597,22 @@ button {
 .toolbar-divider--wishlist {
   display: none;
 }
+
+  .wishlist-toggle {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .wishlist-toggle-footer {
+    opacity: 1;
+    transform: none;
+    font-size: 0.62rem;
+  }
+
+  .wishlist-toggle-label {
+    color: rgba(245, 246, 251, 0.58);
+  }
 
 .toolbar-divider {
   color: rgba(245, 246, 251, 0.52);
