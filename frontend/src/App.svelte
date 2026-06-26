@@ -1622,6 +1622,7 @@ function normalizeGameTitle(title: string): string {
     bootStartAt = 0;
     bootResumeAtSix = true;
     bootTextVisible = false;
+    bootError = false;
     bootStarted = false;
     bootAudioFadeInMs = 1000;
 
@@ -1754,6 +1755,10 @@ function normalizeGameTitle(title: string): string {
 
       const startAt = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
       video.currentTime = startAt;
+      if (bootResumeAtSix) {
+        bootTextVisible = true;
+        bootResumeAtSix = false;
+      }
       const shouldFadeAudioIn = bootAudioFadeInMs > 0;
       video.volume = shouldFadeAudioIn ? 0 : 1;
 
@@ -1820,6 +1825,11 @@ function normalizeGameTitle(title: string): string {
       }
       await sleep(25);
     }
+
+    // If the video element never binds, fail open to boot options instead of trapping on black.
+    bootError = true;
+    bootTextVisible = true;
+    bootStarted = false;
   }
 
   async function handleBootPick(categoryName: Category) {
@@ -2883,6 +2893,7 @@ async function deleteAdminItems(itemIds: number[]) {
       bootStarted = false;
       bootStartAt = previousStage === 'boot' ? 0 : BOOT_SKIP_TIME;
       bootResumeAtSix = previousStage !== 'boot';
+      bootError = false;
       bootTextVisible = false;
       void queueBootStart();
     }
@@ -3358,9 +3369,9 @@ async function deleteAdminItems(itemIds: number[]) {
       <div class="launchbox-art-picker-overlay" role="dialog" aria-modal="true" aria-labelledby="launchbox-art-picker-title" transition:popupOverlayTransition>
         <button type="button" class="launchbox-art-picker-backdrop" aria-label="Close LaunchBox art selector" on:click={closeLaunchboxArtPicker}></button>
         <div class="launchbox-art-picker-panel" transition:popupPanelTransition>
+          <button type="button" class="ghost popup-close" aria-label="Close LaunchBox art selector" on:click={closeLaunchboxArtPicker}>X</button>
           <div class="launchbox-art-picker-header">
             <h3 id="launchbox-art-picker-title">Choose {adminArtLabel(launchboxArtPickerField ?? 'cover_image')}</h3>
-            <button type="button" class="ghost" on:click={closeLaunchboxArtPicker}>Close</button>
           </div>
           {#if launchboxArtPickerBusy}
             <p class="launchbox-art-picker-state">Loading art options from available sources...</p>
@@ -3390,9 +3401,9 @@ async function deleteAdminItems(itemIds: number[]) {
       <div class="deezer-art-picker-overlay" role="dialog" aria-modal="true" aria-labelledby="deezer-art-picker-title" transition:popupOverlayTransition>
         <button type="button" class="deezer-art-picker-backdrop" aria-label="Close Deezer album art selector" on:click={closeDeezerArtPicker}></button>
         <div class="deezer-art-picker-panel" transition:popupPanelTransition>
+          <button type="button" class="ghost popup-close" aria-label="Close Deezer art selector" on:click={closeDeezerArtPicker}>X</button>
           <div class="deezer-art-picker-header">
             <h3 id="deezer-art-picker-title">Choose Album Art</h3>
-            <button type="button" class="ghost" on:click={closeDeezerArtPicker}>Close</button>
           </div>
           {#if deezerArtPickerBusy}
             <p class="deezer-art-picker-state">Loading album art options from Deezer...</p>
@@ -3453,7 +3464,7 @@ async function deleteAdminItems(itemIds: number[]) {
     <button type="button" class="admin-launch" on:click={toggleAdminPanel} aria-haspopup="dialog" aria-expanded={adminOpen}>Admin</button>
 
     {#if isAdmin}
-      <div class="admin-toolbar">
+      <div class="admin-toolbar" class:admin-toolbar--library={isLibraryContextStage} class:admin-toolbar--console={stage === 'console'}>
         {#if stage === 'console'}
           <button type="button" on:click={() => openAdminMode('systems')}>Manage Systems</button>
         {/if}
@@ -3470,7 +3481,7 @@ async function deleteAdminItems(itemIds: number[]) {
       {#if !isAdmin}
         <div class="admin-header">
           <h2>Admin Access</h2>
-          <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+          <button type="button" class="ghost popup-close" aria-label="Close admin panel" on:click={() => (adminOpen = false)}>X</button>
         </div>
         <div class="admin-login">
           <label for="admin-password">Password</label>
@@ -3485,7 +3496,7 @@ async function deleteAdminItems(itemIds: number[]) {
           <!-- ADMIN HUB VIEW -->
           <div class="admin-header">
             <h2>Admin Hub</h2>
-            <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+            <button type="button" class="ghost popup-close" aria-label="Close admin panel" on:click={() => (adminOpen = false)}>X</button>
           </div>
           
           <div class="admin-hub-options">
@@ -3507,7 +3518,7 @@ async function deleteAdminItems(itemIds: number[]) {
           <div class="admin-header">
             <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>←  Hub</button>
             <h2>System Manager</h2>
-            <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+            <button type="button" class="ghost popup-close" aria-label="Close admin panel" on:click={() => (adminOpen = false)}>X</button>
           </div>
 
           <div class="admin-layout systems-layout">
@@ -3693,7 +3704,7 @@ async function deleteAdminItems(itemIds: number[]) {
           <div class="admin-header">
             <button type="button" class="ghost back-to-hub" on:click={backToAdminHub}>←  Hub</button>
             <h2>Library Manager</h2>
-            <button type="button" class="ghost" on:click={() => (adminOpen = false)}>Close</button>
+            <button type="button" class="ghost popup-close" aria-label="Close admin panel" on:click={() => (adminOpen = false)}>X</button>
           </div>
 
           <div class="admin-tabs">

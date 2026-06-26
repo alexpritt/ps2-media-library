@@ -821,6 +821,13 @@ button {
   border-radius: inherit;
 }
 
+.vinyl-sleeve .library-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .library-fallback {
   width: 100%;
   height: 100%;
@@ -1979,6 +1986,30 @@ button {
   gap: 8px;
   max-width: min(44vw, 360px);
   z-index: 12;
+}
+
+.popup-close {
+  min-width: 42px;
+  min-height: 42px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 10px;
+  border-radius: 999px;
+}
+
+.launchbox-art-picker-panel .popup-close,
+.deezer-art-picker-panel .popup-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+}
+
+.admin-header .popup-close {
+  margin-left: auto;
 }
 
 .systems-manager {
@@ -4736,7 +4767,6 @@ select option {
   }
 
   .console-icon,
-  .library-art,
   .library-fallback {
     width: 74px;
     height: 74px;
@@ -4764,6 +4794,19 @@ select option {
     top: auto;
     justify-content: flex-end;
     max-width: 62vw;
+  }
+
+  .admin-toolbar--library {
+    top: calc(max(14px, env(safe-area-inset-top)) + 74px);
+    bottom: auto;
+    right: 12px;
+    max-width: 48vw;
+  }
+
+  .admin-toolbar--library button {
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 0.88rem;
   }
 
   .admin-panel {
@@ -4927,9 +4970,26 @@ select option {
     align-items: stretch;
   }
 
+  .admin-toolbar--library {
+    left: auto;
+    right: 10px;
+    top: calc(max(12px, env(safe-area-inset-top)) + 72px);
+    bottom: auto;
+    width: auto;
+    max-width: 50vw;
+    align-items: flex-end;
+  }
+
   .admin-toolbar button {
     width: 100%;
     text-align: center;
+  }
+
+  .admin-toolbar--library button {
+    width: auto;
+    min-height: 38px;
+    padding: 7px 9px;
+    font-size: 0.82rem;
   }
 }
 
