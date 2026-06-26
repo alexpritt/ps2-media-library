@@ -2650,7 +2650,6 @@
         bind:this={bootVideoRef}
         class="boot-video"
         autoplay
-        loop
         preload="auto"
         muted={bootMuted}
         playsinline
@@ -2720,8 +2719,8 @@
           clearBootPlaybackRetry();
         }}
       >
-        <source src="/boot.mp4" type="video/mp4" />
         <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" />
+        <source src="/boot.mp4" type="video/mp4" />
         <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
       </video>
     {/if}
