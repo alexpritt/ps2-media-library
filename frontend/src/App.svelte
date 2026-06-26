@@ -1485,8 +1485,20 @@
 
   function armBootRescueTimer() {
     clearBootRescueTimer();
+    const observedTime = bootVideoRef?.currentTime ?? 0;
     bootRescueTimeout = setTimeout(() => {
       if (stage !== 'boot' || bootTextVisible) return;
+
+      if (
+        bootVideoRef
+        && !bootVideoRef.error
+        && bootVideoRef.readyState >= 2
+        && bootVideoRef.currentTime > observedTime + 0.15
+      ) {
+        armBootRescueTimer();
+        return;
+      }
+
       // Fail open to options if playback stalls.
       bootError = !bootVideoRef || bootVideoRef.readyState < 1;
       bootTextVisible = true;
