@@ -408,6 +408,7 @@
   $: consoleCountCopy = libraryView === 'wishlist'
     ? `${totalConsoleWishlistCount} ${totalConsoleWishlistCount === 1 ? 'CONSOLE' : 'CONSOLES'} ON WISH LIST`
     : `${totalGameLibraryCount} ${totalGameLibraryCount === 1 ? 'GAME' : 'GAMES'} IN LIBRARY`;
+  $: wishlistToggleCopy = libraryView === 'wishlist' ? 'LIBRARY' : 'WISH LIST';
   $: adminConsoleOptions = (availableConsoles.length ? availableConsoles : fallbackConsoles).map((item) => item.name);
   $: adminGameGenreOptions = buildGameGenreOptions(allMedia);
   $: adminMusicGenreOptions = buildMusicGenreOptions(allMedia);
@@ -3558,10 +3559,13 @@
               on:click={toggleWishlistView}
               aria-label={wishlistIconLabel()}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
-                <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
-              </svg>
+              <span class="wishlist-toggle-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
+                  <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
+                </svg>
+              </span>
+              <span class="wishlist-toggle-label">{wishlistToggleCopy}</span>
             </button>
           </div>
           <div class="console-toolbar">
@@ -3572,10 +3576,13 @@
               on:click={toggleWishlistView}
               aria-label={wishlistIconLabel()}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
-                <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
-              </svg>
+              <span class="wishlist-toggle-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
+                  <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
+                </svg>
+              </span>
+              <span class="wishlist-toggle-label">{wishlistToggleCopy}</span>
             </button>
           </div>
           <div class="library-hud-right console-header-count console-header-right">
@@ -3651,10 +3658,13 @@
                 on:click={toggleWishlistView}
                 aria-label={wishlistIconLabel()}
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
-                  <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
-                </svg>
+                <span class="wishlist-toggle-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
+                    <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
+                  </svg>
+                </span>
+                <span class="wishlist-toggle-label">{wishlistToggleCopy}</span>
               </button>
             {/if}
           </div>
@@ -3669,10 +3679,13 @@
                   on:click={toggleWishlistView}
                   aria-label={wishlistIconLabel()}
                 >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
-                    <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
-                  </svg>
+                  <span class="wishlist-toggle-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
+                      <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
+                    </svg>
+                  </span>
+                  <span class="wishlist-toggle-label">{wishlistToggleCopy}</span>
                 </button>
                 <span class="toolbar-divider toolbar-divider--wishlist" aria-hidden="true">|</span>
               {/if}
