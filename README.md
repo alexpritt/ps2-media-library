@@ -1,6 +1,6 @@
 # 🎮 PS2 Media Library
 
-A personal web application that catalogs my physical media collection in a PlayStation 2 Browser-inspired UI. Built to run on a Raspberry Pi and be accessible from anywhere.
+A personal web application that catalogs a physical media collection in a PlayStation 2 Browser-inspired UI. Frontend is deployed on Cloudflare Pages and backend API is deployed on Fly.io.
 
 ## 🏗️ Architecture
 
@@ -63,8 +63,8 @@ PlayStation 2, PlayStation 3, PlayStation 4, Nintendo DS, Nintendo 3DS, Wii, Xbo
 `id` · `title` · `category` · `platform` · `genre` · `genres` · `release_date` · `year_released` · `rating` · `players` · `cooperative` · `artist` · `publisher` · `format` · `region` · `cover_image` · `spine_image` · `disc_image` · `tags` · `notes` · `display_order`
 
 ### 🔌 Backend Notes
-- FastAPI serves the compiled frontend from `frontend/build/`
-- Boot intro media is served through backend endpoints: `/api/boot-video` and `/api/boot-captions.vtt`
+- FastAPI provides API endpoints only (frontend is hosted separately on Cloudflare Pages)
+- Legacy `/api/boot-video` remains as a redirect endpoint for older frontend builds
 - Admin authentication uses a bearer token workflow for protected CRUD operations
 - Startup migration helpers add new columns to existing SQLite databases automatically
 - Input validation now blocks clearly invalid/injected game-title and platform payloads for metadata requests
@@ -91,21 +91,20 @@ pip install -e .
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-### 🧪 Frontend (build once, served by backend)
+### 🧪 Frontend (Cloudflare Pages build)
 ```bash
 cd frontend
 npm install
 npm run build
 ```
 
-The backend serves the built frontend from `frontend/build/`. The boot intro media comes from backend endpoints backed by files in `frontend/public/`.
+Set `VITE_API_BASE_URL` in your Pages environment to your Fly.io backend URL.
 
 ### 🔐 Admin password
-Set `ADMIN_PASSWORD` in `backend/main.py` (default: `foreverandalways`). Change this before exposing the app externally.
+Set `ADMIN_PASSWORD` (or `ADMIN_PASSWORD_HASH`) as an environment variable for Fly.io. Change this before exposing the app externally.
 
 ## 🚀 Deployment
 
-Run the backend on a Raspberry Pi (or any always-on machine). For remote access use one of:
-- **Cloudflare Tunnel** — no open ports required
-- **Tailscale** — zero-config VPN
-- **Router port forwarding** — expose port 8000 directly
+- Frontend: deploy `frontend/` to Cloudflare Pages
+- Backend: deploy `backend/` to Fly.io (using `backend/fly.toml`)
+- Persistent DB: Fly volume mounted at `/data` via `DATABASE_PATH=/data/media.db`

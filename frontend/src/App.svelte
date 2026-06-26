@@ -161,6 +161,12 @@
   let brokenCoverIds = new Set<number>();
   let brokenSpineIds = new Set<number>();
   let brokenDiscIds = new Set<number>();
+  let isFirefox = false;
+  let iconMoveFrame: number | null = null;
+  let pendingIconTarget: HTMLElement | null = null;
+  let pendingIconX = 0;
+  let pendingIconY = 0;
+  let pendingIconRotateY = 0;
   let hoveredConsoleFadeVisible = false;
   let hoveredConsoleFadeTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -865,6 +871,8 @@ function normalizeGameTitle(title: string): string {
   }
 
   function handleIconMove(event: MouseEvent) {
+    if (isFirefox) return;
+
     const target = event.currentTarget as HTMLElement | null;
     if (!target) return;
     const rect = target.getBoundingClientRect();
@@ -873,15 +881,31 @@ function normalizeGameTitle(title: string): string {
     const nx = x / Math.max(rect.width, 1) - 0.5;
     const rotateY = Math.max(-25, Math.min(25, nx * 50));
 
-    target.style.setProperty('--cursor-x', `${x}px`);
-    target.style.setProperty('--cursor-y', `${y}px`);
-    target.style.setProperty('--ry', `${rotateY}deg`);
-    target.classList.add('cursor-following');
+    pendingIconTarget = target;
+    pendingIconX = x;
+    pendingIconY = y;
+    pendingIconRotateY = rotateY;
+
+    if (iconMoveFrame !== null) return;
+    iconMoveFrame = requestAnimationFrame(() => {
+      if (!pendingIconTarget) {
+        iconMoveFrame = null;
+        return;
+      }
+      pendingIconTarget.style.setProperty('--cursor-x', `${pendingIconX}px`);
+      pendingIconTarget.style.setProperty('--cursor-y', `${pendingIconY}px`);
+      pendingIconTarget.style.setProperty('--ry', `${pendingIconRotateY}deg`);
+      pendingIconTarget.classList.add('cursor-following');
+      iconMoveFrame = null;
+    });
   }
 
   function clearIconFollow(event: MouseEvent) {
     const target = event.currentTarget as HTMLElement | null;
     if (!target) return;
+    if (pendingIconTarget === target) {
+      pendingIconTarget = null;
+    }
     target.classList.remove('cursor-following');
     target.style.removeProperty('--ry');
   }
@@ -1326,6 +1350,14 @@ function normalizeGameTitle(title: string): string {
         status: r.status as 'success' | 'error',
         message: r.status === 'success' ? `Added: ${r.title}` : `Error: ${r.error}`,
       }));
+      bulkProcessedCount = bulkResults.length;
+      bulkProgressPercent = bulkTotalCount > 0
+        ? Math.min(100, Math.round((bulkProcessedCount / bulkTotalCount) * 100))
+        : 0;
+      const successCount = bulkResults.filter((entry) => entry.status === 'success').length;
+      const errorCount = bulkResults.filter((entry) => entry.status === 'error').length;
+      bulkStatusText = `Processed ${bulkProcessedCount}/${bulkTotalCount}. Added ${successCount}, failed ${errorCount}.`;
+      bulkErrorText = errorCount > 0 ? `${errorCount} item${errorCount === 1 ? '' : 's'} could not be added.` : '';
       await Promise.all([loadAllMedia(), loadMedia()]);
     } catch {
       adminError = 'Bulk upload failed.';
@@ -2743,6 +2775,9 @@ async function deleteAdminItems(itemIds: number[]) {
   }
 
   onMount(() => {
+    const ua = navigator.userAgent.toLowerCase();
+    isFirefox = ua.includes('firefox') && !ua.includes('seamonkey');
+
     const savedToken = localStorage.getItem('ps2-admin-token');
     if (savedToken) {
       adminToken = savedToken;
@@ -2769,6 +2804,9 @@ async function deleteAdminItems(itemIds: number[]) {
       }
       if (detailsInertiaFrame !== null) {
         cancelAnimationFrame(detailsInertiaFrame);
+      }
+      if (iconMoveFrame !== null) {
+        cancelAnimationFrame(iconMoveFrame);
       }
       if (detailsSpinPauseTimeout) {
         clearTimeout(detailsSpinPauseTimeout);
@@ -2857,8 +2895,6 @@ async function deleteAdminItems(itemIds: number[]) {
           bootTextVisible = true;
         }}
       >
-        <!-- <source src="/api/boot-video" type="video/mp4" /> -->
-        <!-- <source src="https://media.theavenoircollection.com/ps2-intro.mp4" type="video/mp4" /> -->
         <track kind="captions" srclang="en" label="English" src="/ps2-intro.en.vtt" />
       </video>
     {/if}
@@ -2895,7 +2931,7 @@ async function deleteAdminItems(itemIds: number[]) {
     </div>
   </div>
 {:else}
-  <div class="ps2-screen" class:transitioning={isTransitioning}>
+  <div class="ps2-screen" class:transitioning={isTransitioning} class:is-firefox={isFirefox}>
     <div class="screen-fog"></div>
     {#if transitionOverlay}
       <div class="transition-overlay" class:to-black={transitionToBlack} style="opacity: {transitionOpacity};" aria-hidden="true"></div>

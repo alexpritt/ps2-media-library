@@ -4837,3 +4837,54 @@ select option {
   overflow: hidden;
 }
 
+/* Firefox-specific performance fallbacks for heavy compositing effects. */
+.ps2-screen.is-firefox::before {
+  animation: none;
+  opacity: 0.45;
+}
+
+.ps2-screen.is-firefox .screen-fog {
+  mix-blend-mode: normal;
+  opacity: 0.38;
+}
+
+.ps2-screen.is-firefox .hover-burst {
+  display: none;
+}
+
+.ps2-screen.is-firefox .console-card,
+.ps2-screen.is-firefox .library-card {
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+
+.ps2-screen.is-firefox .console-card:hover,
+.ps2-screen.is-firefox .library-card:hover {
+  transform: translateY(-2px) scale(1.02);
+  filter: none;
+}
+
+.ps2-screen.is-firefox .console-card.cursor-following .console-icon,
+.ps2-screen.is-firefox .console-card.cursor-following .console-logo-img {
+  filter: none;
+  transform: translateY(-6px) scale(1.06);
+}
+
+.ps2-screen.is-firefox .library-card.cursor-following .disc-case,
+.ps2-screen.is-firefox .library-card:hover .disc-case {
+  filter: none;
+  transform: translateY(-6px) scale(1.05);
+}
+
+.ps2-screen.is-firefox .library-card.cursor-following .disc-case-disc,
+.ps2-screen.is-firefox .library-card:hover .disc-case-disc {
+  filter: none;
+}
+
+.ps2-screen.is-firefox .players-dropdown,
+.ps2-screen.is-firefox .confirm-panel,
+.ps2-screen.is-firefox .deezer-art-picker-panel {
+  background: rgba(22, 26, 35, 0.92);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+

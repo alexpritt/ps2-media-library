@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import secrets
 import base64
 import hashlib
@@ -8,37 +8,21 @@ import os
 import re
 import time
 import unicodedata
-import mimetypes
 from urllib.parse import quote, urljoin
 
 import requests
-from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import Response
 from bs4 import BeautifulSoup
 from sqlalchemy import text
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(Path(__file__).parent / "media.db")))
-FRONTEND_BUILD_DIR = Path(__file__).parent.parent / "frontend" / "build"
-FRONTEND_PUBLIC_DIR = Path(__file__).parent.parent / "frontend" / "public"
 BOOT_VIDEO_PATH = "https://media.theavenoircollection.com/ps2-intro.mp4"
-BOOT_CAPTIONS_PATH = FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt"
-FRONTEND_INDEX_PATH = FRONTEND_BUILD_DIR / "index.html"
 
 
 def resolve_boot_video_path() -> Optional[str]:
     return BOOT_VIDEO_PATH
-
-
-def resolve_boot_captions_path() -> Optional[Path]:
-    candidates = (
-        FRONTEND_PUBLIC_DIR / "ps2-intro.en.vtt",
-        FRONTEND_BUILD_DIR / "ps2-intro.en.vtt",
-    )
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
-            return candidate
-    return None
 
 app = FastAPI(title="PS2 Media Library API")
 
@@ -131,28 +115,6 @@ def verify_admin_password(password: str) -> bool:
         return verify_password_hash(password, ADMIN_PASSWORD_HASH)
     return hmac.compare_digest(password, ADMIN_PASSWORD)
 
-
-def detect_media_type(path: Path) -> Optional[str]:
-    suffix = path.suffix.lower()
-    if suffix == ".svg":
-        return "image/svg+xml"
-    if suffix == ".vtt":
-        return "text/vtt"
-    guessed, _encoding = mimetypes.guess_type(str(path))
-    return guessed
-
-
-def iter_file_range(file_path: Path, start: int, end: int, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
-    with file_path.open("rb") as file_obj:
-        file_obj.seek(start)
-        remaining = end - start + 1
-        while remaining > 0:
-            read_size = min(chunk_size, remaining)
-            data = file_obj.read(read_size)
-            if not data:
-                break
-            remaining -= len(data)
-            yield data
 
 class MediaItem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -382,6 +344,21 @@ def normalize_game_title(title: str) -> str:
     }
     for source, target in roman_numerals.items():
         normalized = re.sub(rf"\b{source}\b", target, normalized)
+
+    acronym_words = {
+        "Ds": "DS",
+        "3ds": "3DS",
+        "Psp": "PSP",
+        "Vr": "VR",
+        "Hd": "HD",
+        "Usa": "USA",
+        "Eu": "EU",
+        "Goty": "GOTY",
+        "Dlcs": "DLCs",
+    }
+    for source, target in acronym_words.items():
+        normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized)
+
     return normalized
 
 
@@ -801,6 +778,29 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
             "cart": False,
         }
         return payload
+    except HTTPException as exc:
+        # Do not use Wikidata if LaunchBox responded but the title could not be
+        # matched confidently. That scenario should surface as a user-facing
+        # LaunchBox error rather than silently replacing data with a partial
+        # fallback source.
+        if exc.status_code in {400, 404, 409}:
+            raise
+
+        if ENABLE_KEYLESS_METADATA_FALLBACK:
+            try:
+                metadata_payload = fetch_wikidata_game_data(title, platform)
+                if metadata_payload:
+                    return metadata_payload
+            except Exception:
+                pass
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Could not fetch game data. LaunchBox is unavailable and no approved "
+                "keyless metadata fallback source returned a match."
+            ),
+        ) from exc
     except Exception as exc:
         if ENABLE_KEYLESS_METADATA_FALLBACK:
             try:
@@ -1121,10 +1121,10 @@ def section_images_by_region(detail_soup: BeautifulSoup, section_title: str, reg
             heading = item
             break
     if not heading:
-        return None
+        return []
     article = heading.find_parent("article")
     if not article:
-        return None
+        return []
     images = []
     for image in article.find_all("img"):
         image_url = image.get("src")
@@ -1155,6 +1155,8 @@ def section_images_from_titles(detail_soup: BeautifulSoup, titles: List[str], re
     collected: List[str] = []
     for title in titles:
         image_urls = section_images_by_region(detail_soup, title, region)
+        if not image_urls:
+            continue
         for image_url in image_urls:
             if image_url and image_url not in collected:
                 collected.append(image_url)
@@ -1179,6 +1181,91 @@ def launchbox_disc_section_titles(platform: Optional[str]) -> List[str]:
             "Disc",
         ]
     return ["Disc"]
+
+
+def choose_launchbox_candidate(candidates: List[dict], title: str, platform: str) -> dict:
+    from difflib import SequenceMatcher
+
+    target_title = normalize_launchbox_key(title)
+    target_title_loose = normalize_title_for_match(title)
+    target_tokens = set(title_tokens(title))
+    target_platform = normalize_launchbox_key(platform)
+
+    def score(candidate: dict) -> int:
+        candidate_title = normalize_launchbox_key(candidate.get("title", ""))
+        candidate_title_loose = normalize_title_for_match(candidate.get("title", ""))
+        candidate_tokens = set(title_tokens(candidate.get("title", "")))
+        candidate_platform = normalize_launchbox_key(candidate.get("platform", ""))
+        candidate_score = 0
+
+        if candidate_title == target_title:
+            candidate_score += 140
+        elif target_title in candidate_title or candidate_title in target_title:
+            candidate_score += 90
+
+        if target_tokens and candidate_tokens:
+            overlap = len(target_tokens.intersection(candidate_tokens))
+            union = len(target_tokens.union(candidate_tokens))
+            if union:
+                candidate_score += int((overlap / union) * 80)
+
+        if target_title_loose and candidate_title_loose:
+            similarity = SequenceMatcher(None, target_title_loose, candidate_title_loose).ratio()
+            candidate_score += int(similarity * 50)
+
+        if target_platform and (target_platform in candidate_platform or candidate_platform in target_platform):
+            candidate_score += 35
+        if str(candidate.get("title", "")).strip().lower() == title.strip().lower():
+            candidate_score += 10
+        return candidate_score
+
+    scored_candidates = []
+    for candidate in candidates:
+        candidate_title_loose = normalize_title_for_match(candidate.get("title", ""))
+        candidate_platform = normalize_launchbox_key(candidate.get("platform", ""))
+        candidate_tokens = set(title_tokens(candidate.get("title", "")))
+        overlap_ratio = 0.0
+        if target_tokens and candidate_tokens:
+            overlap_ratio = len(target_tokens.intersection(candidate_tokens)) / len(target_tokens.union(candidate_tokens))
+        platform_match = bool(target_platform and (target_platform in candidate_platform or candidate_platform in target_platform))
+        scored_candidates.append(
+            {
+                "candidate": candidate,
+                "score": score(candidate),
+                "loose_exact": candidate_title_loose == target_title_loose,
+                "platform_match": platform_match,
+                "token_overlap": overlap_ratio,
+            }
+        )
+
+    exact_platform_matches = [entry for entry in scored_candidates if entry["loose_exact"] and entry["platform_match"]]
+    exact_title_matches = [entry for entry in scored_candidates if entry["loose_exact"]]
+
+    if exact_platform_matches:
+        best_entry = max(exact_platform_matches, key=lambda entry: entry["score"])
+    elif exact_title_matches:
+        best_entry = max(exact_title_matches, key=lambda entry: entry["score"])
+    else:
+        ranked = sorted(scored_candidates, key=lambda entry: entry["score"], reverse=True)
+        best_entry = ranked[0]
+        second_best = ranked[1] if len(ranked) > 1 else None
+
+        if best_entry["score"] < 60 or best_entry["token_overlap"] < 0.34:
+            raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}" for {platform}.')
+
+        if second_best and (best_entry["score"] - second_best["score"] <= 4):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f'LaunchBox returned multiple close matches for "{title}". '
+                    "Please use a more specific title."
+                ),
+            )
+
+    if not best_entry["loose_exact"] and best_entry["token_overlap"] < 0.45:
+        raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}" for {platform}.')
+
+    return best_entry["candidate"]
 
 
 def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
@@ -1216,45 +1303,7 @@ def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, Beaut
         print(f"LAUNCHBOX RESPONSE PREVIEW: {search_soup.prettify()[:2000]}")
         raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}".')
 
-    target_title = normalize_launchbox_key(title)
-    target_title_loose = normalize_title_for_match(title)
-    target_tokens = set(title_tokens(title))
-    target_platform = normalize_launchbox_key(platform)
-
-    def score(candidate: dict) -> int:
-        from difflib import SequenceMatcher
-
-        candidate_title = normalize_launchbox_key(candidate["title"])
-        candidate_title_loose = normalize_title_for_match(candidate["title"])
-        candidate_tokens = set(title_tokens(candidate["title"]))
-        candidate_platform = normalize_launchbox_key(candidate["platform"])
-        candidate_score = 0
-
-        if candidate_title == target_title:
-            candidate_score += 140
-        elif target_title in candidate_title or candidate_title in target_title:
-            candidate_score += 90
-
-        if target_tokens and candidate_tokens:
-            overlap = len(target_tokens.intersection(candidate_tokens))
-            union = len(target_tokens.union(candidate_tokens))
-            if union:
-                candidate_score += int((overlap / union) * 80)
-
-        if target_title_loose and candidate_title_loose:
-            similarity = SequenceMatcher(None, target_title_loose, candidate_title_loose).ratio()
-            candidate_score += int(similarity * 50)
-
-        if target_platform and (target_platform in candidate_platform or candidate_platform in target_platform):
-            candidate_score += 35
-        if candidate["title"].strip().lower() == title.strip().lower():
-            candidate_score += 10
-        return candidate_score
-
-    best_match = max(candidates, key=score)
-    best_score = score(best_match)
-    if best_score < 50:
-        raise HTTPException(status_code=404, detail=f'LaunchBox could not find "{title}" for {platform}.')
+    best_match = choose_launchbox_candidate(candidates, title, platform)
 
     detail_url = urljoin("https://gamesdb.launchbox-app.com", best_match["href"])
     detail_response = requests.get(detail_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
@@ -1300,9 +1349,17 @@ def fetch_launchbox_game_data(title: str, platform: str) -> dict:
         ],
     )
 
-    cover_image = fetch_image_data_uri(urljoin(detail_url, cover_section_url)) if cover_section_url else None
-    disc_image = fetch_image_data_uri(urljoin(detail_url, disc_section_url)) if disc_section_url else None
-    spine_image = fetch_image_data_uri(urljoin(detail_url, spine_section_url)) if spine_section_url else None
+    def safe_fetch_launchbox_image(section_url: Optional[str]) -> Optional[str]:
+        if not section_url:
+            return None
+        try:
+            return fetch_image_data_uri(urljoin(detail_url, section_url))
+        except Exception:
+            return None
+
+    cover_image = safe_fetch_launchbox_image(cover_section_url)
+    disc_image = safe_fetch_launchbox_image(disc_section_url)
+    spine_image = safe_fetch_launchbox_image(spine_section_url)
 
     # If a title has no dedicated spine section, use cover art as a visual fallback.
     if not spine_image:
@@ -2215,20 +2272,13 @@ def reorder_media_items(payload: dict, authorization: Optional[str] = Header(def
         return {"success": True}
 
 
-_VIDEO_PROXY_HEADERS = {
-    "Cache-Control": "no-store, no-transform",
-    "X-Accel-Buffering": "no",
-    "X-Content-Type-Options": "nosniff",
-}
-
-
 @app.get("/api/boot-video")
-def stream_ps2_intro(request: Request):
+def stream_ps2_intro() -> Response:
     boot_video_path = resolve_boot_video_path()
     if not boot_video_path:
         raise HTTPException(status_code=404, detail="Intro video not found")
-    
-    # Just redirect to the public R2 URL
+
+    # Retained for backward compatibility with older frontend builds.
     return Response(
         status_code=302,
         headers={"Location": boot_video_path}
@@ -2237,7 +2287,7 @@ def stream_ps2_intro(request: Request):
 
 
 @app.head("/api/boot-video")
-def head_ps2_intro():
+def head_ps2_intro() -> Response:
     boot_video_path = resolve_boot_video_path()
     if not boot_video_path:
         raise HTTPException(status_code=404, detail="Intro video not found")
@@ -2247,56 +2297,11 @@ def head_ps2_intro():
     )
 
 
-
-@app.get("/api/boot-captions.vtt")
-def stream_ps2_intro_captions() -> FileResponse:
-    boot_captions_path = resolve_boot_captions_path()
-    if not boot_captions_path:
-        raise HTTPException(status_code=404, detail="Boot captions not found")
-    return FileResponse(boot_captions_path, media_type="text/vtt")
+@app.get("/")
+def root_status() -> dict:
+    return {"service": "PS2 Media Library API", "status": "ok"}
 
 
-@app.head("/api/boot-captions.vtt")
-def head_ps2_intro_captions() -> Response:
-    boot_captions_path = resolve_boot_captions_path()
-    if not boot_captions_path:
-        raise HTTPException(status_code=404, detail="Boot captions not found")
-
-    file_size = boot_captions_path.stat().st_size
-    return Response(
-        status_code=200,
-        headers={
-            "Content-Length": str(file_size),
-            "Content-Type": "text/vtt",
-        },
-    )
-
-if FRONTEND_INDEX_PATH.exists():
-    @app.get("/")
-    async def frontend_root() -> FileResponse:
-        return FileResponse(FRONTEND_INDEX_PATH)
-
-    @app.get("/{path_name:path}")
-    async def frontend(path_name: str) -> FileResponse:
-        # CRITICAL: Block API paths from falling through to the SPA
-        if path_name.startswith("api/"):
-            raise HTTPException(status_code=404, detail="API route not found")
-
-        public_path = FRONTEND_PUBLIC_DIR / path_name
-        if public_path.exists() and public_path.is_file():
-            return FileResponse(public_path, media_type=detect_media_type(public_path))
-
-        file_path = FRONTEND_BUILD_DIR / path_name
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path, media_type=detect_media_type(file_path))
-        return FileResponse(FRONTEND_INDEX_PATH)
-else:
-    @app.get("/")
-    async def frontend_root():
-        raise HTTPException(status_code=503, detail="Frontend build not found. Run npm run build.")
-
-    @app.get("/{path_name:path}")
-    async def frontend(path_name: str):
-        if path_name.startswith("api/"):
-            raise HTTPException(status_code=404, detail="API route not found")
-        raise HTTPException(status_code=503, detail="Frontend build not found. Run npm run build.")
+@app.get("/healthz")
+def healthz() -> dict:
+    return {"ok": True}

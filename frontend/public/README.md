@@ -1,7 +1,6 @@
-PS2 Boot Video Placeholder
+Frontend Public Assets
 
-Place your PS2 boot animation video file here as `boot.mp4`.
+Static assets in this folder are published by Cloudflare Pages.
 
-The app expects the boot animation to be available at `/boot.mp4`.
-
-Use a clip that shows the PS2 startup animation without the final "PlayStation 2" text if you want the experience to transition directly into the browser UI.
+- Keep `ps2-intro.en.vtt` here so the boot-video captions are available at `/ps2-intro.en.vtt`.
+- The boot video itself is currently hosted at `https://media.theavenoircollection.com/ps2-intro.mp4`.
