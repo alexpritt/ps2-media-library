@@ -11,6 +11,13 @@ Small freeware-style app for managing a physical game/music collection today, wi
 - Admin mode for add/edit/delete, bulk upload, and console management
 - Metadata + artwork helpers (LaunchBox for games, Deezer for music)
 
+## Recent Updates
+
+- ⭐ Added star ratings for games (gameplay + plot) and albums, plus star-based filtering.
+- 🎬 Hardened boot intro playback: R2-first source, improved failover, iOS inline compatibility, and mobile intro fallback support.
+- 🎛️ Refined library HUD and popup controls across desktop/mobile for better consistency and usability.
+- 🛠️ Fixed admin game add/edit + bulk upload reliability by improving platform fallback/validation when system options are empty.
+
 ## Stack
 
 - Frontend: Svelte + TypeScript + Vite

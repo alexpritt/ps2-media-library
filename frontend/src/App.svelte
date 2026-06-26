@@ -391,7 +391,7 @@
   $: consoleCountCopy = libraryView === 'wishlist'
     ? `${totalConsoleWishlistCount} ${totalConsoleWishlistCount === 1 ? 'CONSOLE' : 'CONSOLES'} ON WISH LIST`
     : `${totalGameLibraryCount} ${totalGameLibraryCount === 1 ? 'GAME' : 'GAMES'} IN LIBRARY`;
-  $: adminConsoleOptions = availableConsoles.map((item) => item.name);
+  $: adminConsoleOptions = (availableConsoles.length ? availableConsoles : fallbackConsoles).map((item) => item.name);
   $: adminGameGenreOptions = buildGameGenreOptions(allMedia);
   $: adminMusicGenreOptions = buildMusicGenreOptions(allMedia);
   $: adminPublisherOptions = buildPublisherOptions(allMedia);
@@ -1641,7 +1641,10 @@
     bulkProgressPercent = 0;
     bulkStatusText = lines.length ? `Starting upload for ${lines.length} item${lines.length === 1 ? '' : 's'}...` : '';
     if (!lines.length) { bulkBusy = false; return; }
-    const bulkPlatform = libraryAdminTab === 'games' ? (adminSearchPlatform === 'All' ? '' : adminSearchPlatform.trim()) : '';
+    const fallbackBulkPlatform = (selectedConsole ?? activeConsole?.name ?? '').trim();
+    const bulkPlatform = libraryAdminTab === 'games'
+      ? (adminSearchPlatform === 'All' ? fallbackBulkPlatform : adminSearchPlatform.trim())
+      : '';
     if (libraryAdminTab === 'games' && !bulkPlatform) {
       adminError = 'Select a platform filter above before bulk uploading games.';
       bulkErrorText = adminError;
@@ -2961,6 +2964,10 @@
     }
     if (isGames && adminForm.gameGenres.length === 0) {
       adminError = 'Select at least one genre for the game.';
+      return;
+    }
+    if (isGames && !adminForm.platform.trim()) {
+      adminError = 'Select a platform for the game.';
       return;
     }
     if (!isGames && !adminForm.musicGenre.trim()) {
