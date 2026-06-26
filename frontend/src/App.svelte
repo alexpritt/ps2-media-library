@@ -2125,6 +2125,7 @@
 
     const video = bootVideoRef;
     try {
+      video.setAttribute('webkit-playsinline', 'true');
       bootError = false;
       if (video.readyState < 1) {
         await new Promise<void>((resolve) => {
@@ -3229,9 +3230,9 @@
       preload={BOOT_VIDEO_PRELOAD}
       muted={bootMuted}
       playsinline
-      webkit-playsinline="true"
       on:loadedmetadata={() => {
         if (bootVideoRef) {
+          bootVideoRef.setAttribute('webkit-playsinline', 'true');
           bootVideoRef.currentTime = Math.max(0, bootResumeAtSix ? BOOT_SKIP_TIME : bootStartAt);
           if (!bootResumeAtSix) {
             const duration = Number.isFinite(bootVideoRef.duration) ? bootVideoRef.duration : 9;
