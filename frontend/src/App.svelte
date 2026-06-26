@@ -3433,6 +3433,7 @@ async function deleteAdminItems(itemIds: number[]) {
       <div class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title" transition:popupOverlayTransition>
         <button type="button" class="confirm-backdrop" aria-label="Close confirmation" on:click={closeConfirm}></button>
         <div class="confirm-panel" transition:popupPanelTransition>
+          <button type="button" class="ghost popup-close" aria-label="Close confirmation" on:click={closeConfirm}>X</button>
           <h3 id="confirm-title">
             {confirmMode === 'edit' ? 'Edit Item?' : (confirmMode === 'bulk-delete' ? 'Delete Selected Items?' : 'Delete Item?')}
           </h3>

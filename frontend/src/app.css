@@ -2001,7 +2001,8 @@ button {
 }
 
 .launchbox-art-picker-panel .popup-close,
-.deezer-art-picker-panel .popup-close {
+.deezer-art-picker-panel .popup-close,
+.confirm-panel .popup-close {
   position: absolute;
   top: 10px;
   right: 10px;
@@ -2742,6 +2743,7 @@ button {
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
     0 12px 24px rgba(0, 0, 0, 0.22);
   padding: 18px;
+  padding-top: 48px;
 }
 
 .confirm-panel h3 {
@@ -3190,6 +3192,7 @@ button {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+  padding-right: 54px;
 }
 
 .launchbox-art-picker-header h3 {
@@ -3276,6 +3279,7 @@ button {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+  padding-right: 54px;
 }
 
 .deezer-art-picker-header h3 {
@@ -4714,6 +4718,9 @@ select option {
     grid-template-columns: repeat(3, minmax(74px, 1fr));
     inset: 24% 4% 14% 4%;
     gap: 14px 12px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: 8px;
   }
 
   .console-card,
@@ -4737,6 +4744,20 @@ select option {
     border-radius: 14px;
     padding: 14px 12px;
     gap: 12px;
+  }
+
+  .details-right {
+    min-width: 0;
+  }
+
+  .details-tags {
+    row-gap: 8px;
+  }
+
+  .details-tag {
+    white-space: normal;
+    text-align: left;
+    line-height: 1.15;
   }
 
   .details-rotator-control,
@@ -4774,18 +4795,18 @@ select option {
 
   .back-button {
     left: 14px;
-    bottom: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
     font-size: 1.1rem;
   }
 
   .admin-launch {
     right: 14px;
-    bottom: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
     font-size: 1.1rem;
   }
 
   .pager {
-    bottom: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
   }
 
   .admin-toolbar {
@@ -4829,6 +4850,11 @@ select option {
 
   .admin-header h2 {
     font-size: 1.2rem;
+    overflow-wrap: anywhere;
+  }
+
+  .admin-header {
+    gap: 10px;
   }
 
   .admin-header button,
@@ -4866,6 +4892,15 @@ select option {
 
   .admin-row {
     flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .admin-row-content strong,
+  .admin-row-content small {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.2;
   }
 
   .admin-list-pager {
@@ -4876,6 +4911,7 @@ select option {
   .admin-pager-info {
     width: 100%;
     min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .systems-row-main {
@@ -4990,6 +5026,24 @@ select option {
     min-height: 38px;
     padding: 7px 9px;
     font-size: 0.82rem;
+  }
+
+  .launchbox-art-picker-panel,
+  .deezer-art-picker-panel,
+  .confirm-panel {
+    width: 96vw;
+    max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 12px);
+  }
+
+  .launchbox-art-picker-grid,
+  .deezer-art-picker-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .launchbox-art-picker-option img,
+  .deezer-art-picker-option img {
+    height: 118px;
   }
 }
 
