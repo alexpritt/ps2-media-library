@@ -3096,6 +3096,8 @@
   function openAdminMode(mode: 'systems' | 'library', tab?: AdminLibraryTab, contextItem?: MediaItem) {
     adminOpen = true;
     adminMode = mode;
+    adminError = '';
+    adminMessage = '';
     if (tab) libraryAdminTab = tab;
 
     if (mode === 'library' && contextItem) {
@@ -3114,6 +3116,8 @@
       adminMode = 'hub';
       adminContextItem = null;
       adminEditingId = null;
+      adminError = '';
+      adminMessage = '';
     }
 
   function startEditItem(item: MediaItem) {
