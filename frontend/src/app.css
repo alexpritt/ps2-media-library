@@ -2935,6 +2935,27 @@ a,
   gap: 8px;
 }
 
+.launchbox-url-fetch-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.launchbox-url-fetch-row .launchbox-fetch-button {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .launchbox-url-fetch-row {
+    grid-template-columns: 1fr;
+  }
+
+  .launchbox-url-fetch-row .launchbox-fetch-button {
+    width: 100%;
+  }
+}
+
 .form-field label,
 .form-field .star-field-label {
   color: rgba(220, 235, 255, 0.9);

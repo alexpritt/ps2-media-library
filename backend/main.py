@@ -138,6 +138,7 @@ class LaunchboxGameDataRequest(SQLModel):
     title: str
     platform: str
     item_id: Optional[int] = None
+    launchbox_url: Optional[str] = None
 
 
 class LaunchboxGameArtOptionsRequest(SQLModel):
@@ -1327,8 +1328,30 @@ def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, Beaut
     return detail_url, detail_soup, resolved_platform, resolved_title
 
 
-def fetch_launchbox_game_data(title: str, platform: str) -> dict:
-    detail_url, detail_soup, resolved_platform, resolved_title = resolve_launchbox_game_detail(title, platform)
+def normalize_launchbox_detail_url(raw_url: str) -> str:
+    candidate = (raw_url or "").strip()
+    if not candidate:
+        raise HTTPException(status_code=400, detail="LaunchBox URL is required.")
+
+    parsed = urlparse(candidate)
+    if not parsed.scheme and not parsed.netloc:
+        parsed = urlparse(f"https://{candidate}")
+
+    if parsed.scheme not in {"http", "https"}:
+        raise HTTPException(status_code=400, detail="LaunchBox URL must use http or https.")
+
+    host = (parsed.netloc or "").lower()
+    if host not in {"gamesdb.launchbox-app.com", "www.gamesdb.launchbox-app.com"}:
+        raise HTTPException(status_code=400, detail="URL must point to gamesdb.launchbox-app.com.")
+
+    path = (parsed.path or "").rstrip("/")
+    if not path.startswith("/games/details/"):
+        raise HTTPException(status_code=400, detail="LaunchBox URL must be a game details page.")
+
+    return f"https://gamesdb.launchbox-app.com{path}"
+
+
+def parse_launchbox_game_data(detail_url: str, detail_soup: BeautifulSoup, resolved_platform: str, resolved_title: str) -> dict:
 
     release_date = first_text_from_definition(detail_soup, "Release Date")
     release_date_iso = parse_launchbox_date(release_date)
@@ -1389,6 +1412,22 @@ def fetch_launchbox_game_data(title: str, platform: str) -> dict:
         "spineImage": spine_image,
         "discImage": disc_image,
     }
+
+
+def fetch_launchbox_game_data_from_url(launchbox_url: str, fallback_platform: str, fallback_title: str) -> dict:
+    detail_url = normalize_launchbox_detail_url(launchbox_url)
+    detail_response = requests.get(detail_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+    detail_response.raise_for_status()
+    detail_soup = BeautifulSoup(detail_response.text, "html.parser")
+
+    resolved_platform = first_text_from_definition(detail_soup, "Platform") or fallback_platform
+    resolved_title = detail_soup.find("h1").get_text(" ", strip=True) if detail_soup.find("h1") else fallback_title
+    return parse_launchbox_game_data(detail_url, detail_soup, resolved_platform, resolved_title)
+
+
+def fetch_launchbox_game_data(title: str, platform: str) -> dict:
+    detail_url, detail_soup, resolved_platform, resolved_title = resolve_launchbox_game_detail(title, platform)
+    return parse_launchbox_game_data(detail_url, detail_soup, resolved_platform, resolved_title)
 
 
 def fetch_launchbox_game_art_options(title: str, platform: str, art_type: str) -> dict:
@@ -1894,18 +1933,24 @@ def fetch_game_data(payload: LaunchboxGameDataRequest, authorization: Optional[s
     require_admin(authorization)
     title = payload.title.strip()
     platform = payload.platform.strip()
+    launchbox_url = (payload.launchbox_url or "").strip()
     if not title or not platform:
         raise HTTPException(status_code=400, detail="Game title and platform are required.")
 
     cached_item: Optional[MediaItem] = None
-    with Session(engine) as session:
-        cached_item = find_cached_game_item(session, title, platform, payload.item_id)
-        if cached_item and cached_item.cover_image and cached_item.disc_image and cached_item.spine_image:
-            data = media_item_to_game_data(cached_item)
-            data["data_source"] = "cache"
-            return data
+    if not launchbox_url:
+        with Session(engine) as session:
+            cached_item = find_cached_game_item(session, title, platform, payload.item_id)
+            if cached_item and cached_item.cover_image and cached_item.disc_image and cached_item.spine_image:
+                data = media_item_to_game_data(cached_item)
+                data["data_source"] = "cache"
+                return data
 
-    fetched = fetch_game_data_with_fallback(title, platform)
+    if launchbox_url:
+        fetched = fetch_launchbox_game_data_from_url(launchbox_url, platform, title)
+        fetched["data_source"] = "launchbox"
+    else:
+        fetched = fetch_game_data_with_fallback(title, platform)
 
     with Session(engine) as session:
         item_to_update = find_cached_game_item(session, title, platform, payload.item_id)

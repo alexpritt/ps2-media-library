@@ -3,7 +3,7 @@ import unittest
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
-from main import choose_launchbox_candidate, section_images_from_titles
+from main import choose_launchbox_candidate, normalize_launchbox_detail_url, section_images_from_titles
 
 
 class LaunchboxCandidateSelectionTests(unittest.TestCase):
@@ -53,6 +53,25 @@ class LaunchboxCandidateSelectionTests(unittest.TestCase):
         soup = BeautifulSoup(html, "html.parser")
         images = section_images_from_titles(soup, ["Box - Front", "Disc"])
         self.assertEqual(images, [])
+
+    def test_normalize_launchbox_detail_url_accepts_valid_link(self):
+        normalized = normalize_launchbox_detail_url(
+            "https://gamesdb.launchbox-app.com/games/details/1234-gran-turismo-4"
+        )
+        self.assertEqual(
+            normalized,
+            "https://gamesdb.launchbox-app.com/games/details/1234-gran-turismo-4",
+        )
+
+    def test_normalize_launchbox_detail_url_rejects_non_launchbox_host(self):
+        with self.assertRaises(HTTPException) as context:
+            normalize_launchbox_detail_url("https://example.com/games/details/1234-gran-turismo-4")
+        self.assertEqual(context.exception.status_code, 400)
+
+    def test_normalize_launchbox_detail_url_rejects_non_detail_page(self):
+        with self.assertRaises(HTTPException) as context:
+            normalize_launchbox_detail_url("https://gamesdb.launchbox-app.com/games/results?search=gran+turismo")
+        self.assertEqual(context.exception.status_code, 400)
 
 
 if __name__ == "__main__":

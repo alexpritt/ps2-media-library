@@ -297,6 +297,7 @@
   let adminMessage = '';
   let launchboxFetchBusy = false;
   let launchboxFetchError = '';
+  let launchboxManualUrl = '';
   let musicFetchBusy = false;
   let musicFetchError = '';
   let launchboxArtPickerOpen = false;
@@ -846,6 +847,7 @@
     adminPublisherChoice = '';
     adminGameGenreChoice = '';
     adminMusicGenreChoice = item.category === 'Music' ? item.genre : '';
+    launchboxManualUrl = '';
   }
 
   function openWishlistConsoleDetails(item: WishlistSystemItem) {
@@ -1929,12 +1931,18 @@
     }
   }
 
-  async function fetchLaunchBoxGameData() {
+  async function fetchLaunchBoxGameData(launchboxUrlOverride?: string) {
     launchboxFetchError = '';
     adminError = '';
     adminMessage = '';
-    if (!canFetchLaunchBoxGameData()) {
+    const manualLaunchboxUrl = (launchboxUrlOverride ?? '').trim();
+    if (!manualLaunchboxUrl && !canFetchLaunchBoxGameData()) {
       launchboxFetchError = 'Enter a game title and select a platform first.';
+      return;
+    }
+
+    if (manualLaunchboxUrl && !manualLaunchboxUrl.includes('launchbox-app.com')) {
+      launchboxFetchError = 'Enter a valid LaunchBox game details URL.';
       return;
     }
 
@@ -1942,7 +1950,12 @@
     try {
       const title = (adminForm.title ?? '').trim();
       const requestedPlatform = ((adminForm.platform ?? '').trim() || (selectedConsole ?? '').trim());
-      const platformCandidates = launchboxPlatformCandidates(requestedPlatform);
+      if (!requestedPlatform) {
+        launchboxFetchError = 'Select a platform first.';
+        return;
+      }
+
+      const platformCandidates = manualLaunchboxUrl ? [requestedPlatform] : launchboxPlatformCandidates(requestedPlatform);
       const endpointCandidates = ['/api/launchbox/game-data'];
 
       let response: Response | null = null;
@@ -1958,6 +1971,7 @@
               title,
               platform,
               item_id: adminForm.id ?? null,
+              launchbox_url: manualLaunchboxUrl || null,
             }),
           });
 
@@ -2028,6 +2042,15 @@
     } finally {
       launchboxFetchBusy = false;
     }
+  }
+
+  async function fetchLaunchBoxGameDataFromUrl() {
+    const manualLaunchboxUrl = (launchboxManualUrl ?? '').trim();
+    if (!manualLaunchboxUrl) {
+      launchboxFetchError = 'Enter a LaunchBox game details URL first.';
+      return;
+    }
+    await fetchLaunchBoxGameData(manualLaunchboxUrl);
   }
 
   async function fetchMusicAlbumData() {
@@ -2628,6 +2651,7 @@
     adminPublisherChoice = '';
     adminGameGenreChoice = '';
     adminMusicGenreChoice = '';
+    launchboxManualUrl = '';
     adminForm = emptyAdminForm(category);
     wishlistEditingId = null;
   }
@@ -3203,6 +3227,7 @@
     adminPublisherChoice = '';
     adminGameGenreChoice = '';
     adminMusicGenreChoice = item.category === 'Music' ? item.genre : '';
+    launchboxManualUrl = '';
     wishlistEditingId = null;
   }
 
@@ -3706,7 +3731,7 @@
   <div
     class="ps2-screen"
     class:transitioning={isTransitioning}
-    class:dark-mode={darkModeEnabled && (stage === 'console' || stage === 'library')}
+    class:dark-mode={darkModeEnabled && (stage === 'console' || stage === 'library' || stage === 'details')}
   >
     <div class="screen-fog"></div>
     {#if transitionOverlay}
@@ -5096,6 +5121,25 @@
                     >
                       {launchboxFetchBusy ? 'Fetching Game Data...' : 'Fetch Game Data'}
                     </button>
+                    <div class="form-field">
+                      <label for="admin-launchbox-url">LaunchBox Link</label>
+                      <div class="launchbox-url-fetch-row">
+                        <input
+                          id="admin-launchbox-url"
+                          type="url"
+                          bind:value={launchboxManualUrl}
+                          placeholder="https://gamesdb.launchbox-app.com/games/details/..."
+                        />
+                        <button
+                          type="button"
+                          class="launchbox-fetch-button"
+                          disabled={launchboxFetchBusy}
+                          on:click={fetchLaunchBoxGameDataFromUrl}
+                        >
+                          {launchboxFetchBusy ? 'Fetching...' : 'Fetch'}
+                        </button>
+                      </div>
+                    </div>
                     {#if launchboxFetchError}
                       <p class="admin-error launchbox-fetch-error">{launchboxFetchError}</p>
                     {/if}
