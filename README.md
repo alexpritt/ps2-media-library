@@ -9,7 +9,7 @@ Small freeware-style app for managing a physical game/music collection today, wi
 - Search and player-count filtering in the game library
 - Per-console visual case/disc styles for a media-shelf look
 - Admin mode for add/edit/delete, bulk upload, and console management
-- Metadata + artwork helpers (LaunchBox for games, Deezer for music)
+- Metadata + artwork helpers (games: LaunchBox -> IGDB -> Libretro, music: Deezer)
 
 ## Recent Updates
 

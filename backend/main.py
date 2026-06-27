@@ -617,16 +617,16 @@ def fetch_igdb_cover_options(title: str, platform: str, limit: int = 8) -> List[
 
 
 def resolve_cover_image_with_priority(title: str, platform: str, launchbox_cover_image: Optional[str]) -> Tuple[Optional[str], str]:
-    libretro_cover = fetch_libretro_cover_image(title, platform)
-    if libretro_cover:
-        return libretro_cover, "libretro"
+    if launchbox_cover_image:
+        return launchbox_cover_image, "launchbox"
 
     igdb_cover_options = fetch_igdb_cover_options(title, platform, limit=1)
     if igdb_cover_options:
         return igdb_cover_options[0], "igdb"
 
-    if launchbox_cover_image:
-        return launchbox_cover_image, "launchbox"
+    libretro_cover = fetch_libretro_cover_image(title, platform)
+    if libretro_cover:
+        return libretro_cover, "libretro"
 
     return None, "none"
 
@@ -1407,13 +1407,6 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
 def fetch_game_art_options_with_fallback(title: str, platform: str, art_type: str) -> dict:
     if art_type == "cover":
         options: List[str] = []
-        libretro_cover = fetch_libretro_cover_image(title, platform)
-        if libretro_cover:
-            options.append(libretro_cover)
-
-        for igdb_cover in fetch_igdb_cover_options(title, platform, limit=8):
-            if igdb_cover not in options:
-                options.append(igdb_cover)
 
         try:
             launchbox_options = fetch_launchbox_game_art_options(title, platform, art_type)
@@ -1424,18 +1417,26 @@ def fetch_game_art_options_with_fallback(title: str, platform: str, art_type: st
         except Exception:
             pass
 
+        for igdb_cover in fetch_igdb_cover_options(title, platform, limit=8):
+            if igdb_cover not in options:
+                options.append(igdb_cover)
+
+        libretro_cover = fetch_libretro_cover_image(title, platform)
+        if libretro_cover and libretro_cover not in options:
+            options.append(libretro_cover)
+
         if options:
             return {
                 "title": title,
                 "platform": platform,
                 "artType": art_type,
                 "options": options,
-                "data_source": "libretro-igdb-launchbox",
+                "data_source": "launchbox-igdb-libretro",
             }
 
         raise HTTPException(
             status_code=404,
-            detail="Could not fetch cover art from libretro, IGDB, or LaunchBox.",
+            detail="Could not fetch cover art from LaunchBox, IGDB, or Libretro.",
         )
 
     # Disc/spine/cart remain LaunchBox-only by policy.
@@ -2814,7 +2815,7 @@ def fetch_music_data(payload: DeezerMusicDataRequest, authorization: Optional[st
 
 @app.post("/api/bulk/games")
 def bulk_upload_games(payload: BulkGamesRequest, authorization: Optional[str] = Header(default=None)) -> dict:
-    """Bulk-create game entries by fetching metadata from LaunchBox."""
+    """Bulk-create game entries with LaunchBox -> IGDB -> Libretro fallback for game data/art."""
     require_admin(authorization)
     platform = (payload.platform or "").strip()
     if not platform:
