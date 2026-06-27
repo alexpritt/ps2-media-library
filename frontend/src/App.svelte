@@ -24,6 +24,7 @@
   };
 
   type WishlistAdminSection = 'console' | 'games' | 'music';
+  type BulkUploadSection = 'console' | 'games' | 'music';
 
   type HistoryState = {
     stage: Stage;
@@ -720,6 +721,10 @@
 
   function createWishlistId(prefix: WishlistKind) {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function createWishlistMediaId() {
+    return -Math.floor(Date.now() + Math.random() * 1_000_000);
   }
 
   function loadWishlistItems<T>(storageKey: string, fallback: T[]): T[] {
@@ -1905,6 +1910,252 @@
     closeLaunchboxArtPicker();
   }
 
+  function activeBulkUploadSection(): BulkUploadSection {
+    return libraryAdminTab === 'wishlists' ? wishlistAdminSection : libraryAdminTab;
+  }
+
+  function resetBulkUploadState(clearText = true) {
+    bulkResults = [];
+    if (clearText) bulkText = '';
+    bulkTotalCount = 0;
+    bulkProcessedCount = 0;
+    bulkProgressPercent = 0;
+    bulkStatusText = '';
+    bulkErrorText = '';
+  }
+
+  function bulkUploadHintText() {
+    const section = activeBulkUploadSection();
+    if (section === 'console') {
+      return 'One console per line. Optional: System Name | Short Name | Logo URL | disc|cartridge|hybrid';
+    }
+    if (section === 'games') {
+      return 'One game title per line. Platform comes from the filter above.';
+    }
+    return 'One album per line: Album Title - Artist';
+  }
+
+  function bulkUploadPlaceholder() {
+    const section = activeBulkUploadSection();
+    if (section === 'console') {
+      return 'PlayStation 5\nNintendo Switch | NSW\nSega Saturn | SAT | https://example.com/logo.png | disc';
+    }
+    if (section === 'games') {
+      return 'Final Fantasy VII\nShadow of the Colossus';
+    }
+    return 'Nevermind - Nirvana\nAbbey Road - The Beatles';
+  }
+
+  function bulkUploadActionLabel() {
+    const section = activeBulkUploadSection();
+    if (section === 'console') return 'Upload Consoles';
+    if (section === 'games') return 'Upload Games';
+    return 'Upload Albums';
+  }
+
+  function normalizeBulkKey(...parts: Array<string | null | undefined>) {
+    return parts.map((part) => (part ?? '').trim().toLowerCase()).join('::');
+  }
+
+  function buildWishlistConsoleFromBulkLine(line: string) {
+    const segments = line.split('|').map((segment) => segment.trim());
+    const name = segments[0] ?? '';
+    if (!name) {
+      return { error: 'System name is required.' } as const;
+    }
+
+    const rawCaseType = (segments[3] ?? '').toLowerCase();
+    const caseType = rawCaseType === 'disc' || rawCaseType === 'cartridge' || rawCaseType === 'hybrid'
+      ? rawCaseType
+      : undefined;
+
+    const shortName = (segments[1] || name.slice(0, 3)).trim().toUpperCase();
+    return {
+      item: {
+        id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || createWishlistId('console'),
+        wishlistId: createWishlistId('console'),
+        wishlistKind: 'console' as const,
+        name,
+        shortName,
+        logo: shortName,
+        logoImage: segments[2] || null,
+        caseType,
+        appearancePreset: null,
+      },
+    } as const;
+  }
+
+  function splitBulkMusicLine(line: string) {
+    if (line.includes('|')) {
+      const parts = line.split('|').map((part) => part.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        return { title: parts[0], artist: parts.slice(1).join(' | ') };
+      }
+    }
+
+    const separatorIndex = line.lastIndexOf(' - ');
+    if (separatorIndex <= 0) return null;
+
+    const title = line.slice(0, separatorIndex).trim();
+    const artist = line.slice(separatorIndex + 3).trim();
+    if (!title || !artist) return null;
+    return { title, artist };
+  }
+
+  function buildWishlistMediaFromBulkLine(kind: 'games' | 'music', line: string, platform: string) {
+    if (kind === 'games') {
+      const title = normalizeGameTitle(line);
+      if (!title) {
+        return { error: 'Game title is required.' } as const;
+      }
+
+      return {
+        item: {
+          id: createWishlistMediaId(),
+          wishlistId: createWishlistId('games'),
+          wishlistKind: 'games' as const,
+          title,
+          category: 'Games',
+          platform,
+          genre: '',
+          genres: null,
+          year_released: null,
+          release_date: null,
+          rating: null,
+          players: null,
+          cooperative: null,
+          artist: null,
+          publisher: null,
+          format: null,
+          region: null,
+          cover_image: null,
+          spine_image: null,
+          disc_image: null,
+          tags: null,
+          notes: null,
+          star_rating: null,
+        },
+      } as const;
+    }
+
+    const parsed = splitBulkMusicLine(line);
+    if (!parsed) {
+      return { error: 'Use Album Title - Artist or Album Title | Artist.' } as const;
+    }
+
+    return {
+      item: {
+        id: createWishlistMediaId(),
+        wishlistId: createWishlistId('music'),
+        wishlistKind: 'music' as const,
+        title: parsed.title,
+        category: 'Music',
+        platform: null,
+        genre: '',
+        genres: null,
+        year_released: null,
+        release_date: null,
+        rating: null,
+        players: null,
+        cooperative: null,
+        artist: parsed.artist,
+        publisher: null,
+        format: null,
+        region: null,
+        cover_image: null,
+        spine_image: null,
+        disc_image: null,
+        tags: null,
+        notes: null,
+        star_rating: null,
+      },
+    } as const;
+  }
+
+  async function bulkUploadWishlist(lines: string[], bulkPlatform: string) {
+    const nextResults: { line: string; status: 'success' | 'error'; message: string }[] = [];
+    let successCount = 0;
+    let errorCount = 0;
+    const section = wishlistAdminSection;
+    const seenKeys = new Set<string>();
+    const existingKeys = new Set(
+      (section === 'console'
+        ? consoleWishlist.map((item) => normalizeBulkKey(item.name))
+        : section === 'games'
+          ? gameWishlist.map((item) => normalizeBulkKey(item.title, item.platform))
+          : musicWishlist.map((item) => normalizeBulkKey(item.title, item.artist)))
+    );
+
+    for (const line of lines) {
+      let uploadError = '';
+
+      if (section === 'console') {
+        const built = buildWishlistConsoleFromBulkLine(line);
+        if ('error' in built) {
+          uploadError = built.error;
+        } else {
+          const dedupeKey = normalizeBulkKey(built.item.name);
+          if (existingKeys.has(dedupeKey) || seenKeys.has(dedupeKey)) {
+            uploadError = 'Console is already on the wish list.';
+          } else {
+            seenKeys.add(dedupeKey);
+            consoleWishlist = [built.item, ...consoleWishlist];
+            persistConsoleWishlist();
+            successCount += 1;
+            nextResults.push({ line, status: 'success', message: `Added: ${built.item.name}` });
+          }
+        }
+      } else {
+        const built = buildWishlistMediaFromBulkLine(section, line, bulkPlatform);
+        if ('error' in built) {
+          uploadError = built.error;
+        } else {
+          const dedupeKey = section === 'games'
+            ? normalizeBulkKey(built.item.title, built.item.platform)
+            : normalizeBulkKey(built.item.title, built.item.artist);
+          if (existingKeys.has(dedupeKey) || seenKeys.has(dedupeKey)) {
+            uploadError = section === 'games'
+              ? 'Game is already on the wish list for this platform.'
+              : 'Album is already on the wish list.';
+          } else {
+            seenKeys.add(dedupeKey);
+            if (section === 'games') {
+              gameWishlist = [built.item, ...gameWishlist];
+              persistGameWishlist();
+            } else {
+              musicWishlist = [built.item, ...musicWishlist];
+              persistMusicWishlist();
+            }
+            successCount += 1;
+            nextResults.push({ line, status: 'success', message: `Added: ${built.item.title}` });
+          }
+        }
+      }
+
+      if (uploadError) {
+        errorCount += 1;
+        nextResults.push({ line, status: 'error', message: `Error: ${uploadError}` });
+      }
+
+      bulkProcessedCount += 1;
+      bulkProgressPercent = Math.round((bulkProcessedCount / bulkTotalCount) * 100);
+      bulkResults = [...nextResults];
+      const remaining = Math.max(0, bulkTotalCount - bulkProcessedCount);
+      bulkStatusText = `Processed ${bulkProcessedCount}/${bulkTotalCount}. ${remaining} remaining. ${successCount} succeeded, ${errorCount} failed.`;
+    }
+
+    if (errorCount > 0) {
+      bulkErrorText = `${errorCount} item${errorCount === 1 ? '' : 's'} failed. See details below.`;
+    }
+    adminMessage = successCount > 0
+      ? `Added ${successCount} ${successCount === 1 ? 'item' : 'items'} to the wish list.`
+      : '';
+
+    if (libraryView === 'wishlist') {
+      await loadMedia(category, selectedConsole);
+    }
+  }
+
   async function bulkUpload() {
     if (bulkBusy) return;
     bulkResults = [];
@@ -1919,16 +2170,33 @@
     bulkStatusText = lines.length ? `Starting upload for ${lines.length} item${lines.length === 1 ? '' : 's'}...` : '';
     if (!lines.length) { bulkBusy = false; return; }
     const fallbackBulkPlatform = (selectedConsole ?? activeConsole?.name ?? '').trim();
-    const bulkPlatform = libraryAdminTab === 'games'
+    const bulkPlatform = activeBulkUploadSection() === 'games'
       ? (adminSearchPlatform === 'All' ? fallbackBulkPlatform : adminSearchPlatform.trim())
       : '';
-    if (libraryAdminTab === 'games' && !bulkPlatform) {
+    if (activeBulkUploadSection() === 'games' && !bulkPlatform) {
       adminError = 'Select a platform filter above before bulk uploading games.';
       bulkErrorText = adminError;
       bulkStatusText = 'Upload blocked: select a platform first.';
       bulkBusy = false;
       return;
     }
+
+    if (libraryAdminTab === 'wishlists') {
+      try {
+        await bulkUploadWishlist(lines, bulkPlatform);
+      } catch {
+        adminError = 'Bulk upload failed.';
+        bulkErrorText = adminError;
+        bulkStatusText = 'Upload failed before completion.';
+      } finally {
+        bulkBusy = false;
+        if (!bulkStatusText && bulkTotalCount > 0) {
+          bulkStatusText = `Processed ${bulkProcessedCount}/${bulkTotalCount}.`;
+        }
+      }
+      return;
+    }
+
     const endpointCandidates = libraryAdminTab === 'games'
       ? ['/api/bulk/games', '/api/bulk-games', '/api/games/bulk']
       : ['/api/bulk/music', '/api/bulk-music', '/api/music/bulk'];
@@ -4899,31 +5167,19 @@
                   class="bulk-upload-toggle"
                   on:click={() => {
                     bulkOpen = !bulkOpen;
-                    bulkResults = [];
-                    bulkText = '';
-                    bulkTotalCount = 0;
-                    bulkProcessedCount = 0;
-                    bulkProgressPercent = 0;
-                    bulkStatusText = '';
-                    bulkErrorText = '';
+                      resetBulkUploadState();
                   }}
                 >
                   {bulkOpen ? '▲ Hide Bulk Upload' : '▼ Bulk Upload'}
                 </button>
                 <div class="bulk-upload-body" class:open={bulkOpen}>
                   <p class="bulk-format-hint">
-                    {#if libraryAdminTab === 'games'}
-                      One game title per line. Platform comes from the filter above.
-                    {:else}
-                      One album per line: <code>Album Title - Artist</code>
-                    {/if}
+                      {bulkUploadHintText()}
                   </p>
                   <textarea
                     class="bulk-upload-textarea"
                     bind:value={bulkText}
-                    placeholder={libraryAdminTab === 'games'
-                      ? 'Final Fantasy VII\nShadow of the Colossus'
-                      : 'Nevermind - Nirvana\nAbbey Road - The Beatles'}
+                      placeholder={bulkUploadPlaceholder()}
                     rows="6"
                     disabled={bulkBusy}
                   ></textarea>
@@ -4933,7 +5189,7 @@
                     disabled={!bulkText.trim() || bulkBusy}
                     on:click={bulkUpload}
                   >
-                    {bulkBusy ? 'Uploading...' : libraryAdminTab === 'games' ? 'Upload Games' : 'Upload Albums'}
+                      {bulkBusy ? 'Uploading...' : bulkUploadActionLabel()}
                   </button>
                   {#if bulkTotalCount > 0 || bulkBusy}
                     <div class="bulk-progress-panel" role="status" aria-live="polite">
