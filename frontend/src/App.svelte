@@ -3948,10 +3948,11 @@
                 {/if}
               </div>
               <span class="toolbar-divider" aria-hidden="true">|</span>
-              <div class="library-search-shell filter-icon-label-host" data-hover-label="SEARCH" class:is-open={librarySearchOpen}>
+              <div class="library-search-shell" class:is-open={librarySearchOpen}>
                 <button
                   type="button"
-                  class="library-search-toggle"
+                  class="library-search-toggle filter-icon-label-host"
+                  data-hover-label="SEARCH"
                   on:click={toggleLibrarySearch}
                   aria-label="Toggle search"
                 >
