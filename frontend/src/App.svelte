@@ -5215,7 +5215,6 @@
               {/if}
 
               <!-- Bulk Upload -->
-              {#if libraryAdminTab !== 'wishlists'}
               <div class="bulk-upload-section">
                 <button
                   type="button"
@@ -5271,7 +5270,6 @@
                   {/if}
                 </div>
               </div>
-              {/if}
             </div>
 
             <!-- Library Editor (Right) -->
