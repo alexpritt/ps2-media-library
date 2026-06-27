@@ -5064,6 +5064,7 @@ select option {
   }
 
   .back-button {
+    bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + 4px));
     font-size: 1.4rem;
     min-height: 44px;
     min-width: 72px;
@@ -5072,6 +5073,7 @@ select option {
   }
 
   .admin-launch {
+    bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + 4px));
     font-size: 1.4rem;
     min-height: 44px;
     min-width: 86px;
@@ -5080,8 +5082,12 @@ select option {
   }
 
   .pager {
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+    bottom: max(58px, calc(env(safe-area-inset-bottom, 0px) + 56px));
     gap: 10px;
+  }
+
+  .pager-info {
+    min-width: 92px;
   }
 
   .admin-toolbar {
@@ -5178,6 +5184,7 @@ select option {
 
   .pager button {
     min-height: 44px;
+    padding: 8px 10px;
   }
 
   .details-back,
@@ -5318,9 +5325,14 @@ select option {
 
   .back-button,
   .admin-launch {
+    bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + 3px));
     font-size: 1.28rem;
     min-height: 42px;
     padding: 6px 9px;
+  }
+
+  .pager {
+    bottom: max(56px, calc(env(safe-area-inset-bottom, 0px) + 54px));
   }
 }
 
