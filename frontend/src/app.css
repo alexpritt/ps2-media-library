@@ -1153,15 +1153,15 @@ a,
 
 .star-btn:hover,
 .star-btn:focus-visible {
-  color: #f5c800;
+  color: var(--hud-blue);
   transform: scale(1.15);
   background: transparent;
   box-shadow: none;
 }
 
 .star-btn.filled {
-  color: #f5c800;
-  text-shadow: 0 0 8px rgba(245, 200, 0, 0.45);
+  color: var(--hud-blue);
+  text-shadow: 0 0 8px rgba(65, 200, 255, 0.45);
 }
 
 .star-clear {

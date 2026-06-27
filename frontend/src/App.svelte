@@ -357,12 +357,7 @@
 
   function combinedStarRating(item: MediaItem): number | null {
     if (item.category === 'Games') {
-      const gameplayRating = item.gameplay_rating;
-      const plotRating = item.plot_rating;
-      if (gameplayRating != null && plotRating != null) return Math.round((gameplayRating + plotRating) / 2);
-      if (gameplayRating != null) return gameplayRating;
-      if (plotRating != null) return plotRating;
-      return null;
+      return item.star_rating ?? null;
     }
     return item.star_rating ?? null;
   }
@@ -811,27 +806,40 @@
 
   function populateAdminFormFromWishlistItem(item: WishlistMediaItem) {
     adminContextItem = item;
+    const isGames = item.category === 'Games';
+    let consolidatedStarRating: number | null = null;
+    if (isGames) {
+      if (item.star_rating != null) {
+        consolidatedStarRating = item.star_rating;
+      } else if (item.gameplay_rating != null && item.plot_rating != null) {
+        consolidatedStarRating = Math.round((item.gameplay_rating + item.plot_rating) / 2);
+      } else if (item.gameplay_rating != null) {
+        consolidatedStarRating = item.gameplay_rating;
+      } else if (item.plot_rating != null) {
+        consolidatedStarRating = item.plot_rating;
+      }
+    }
     adminForm = {
       id: item.id,
       title: item.title,
       category: item.category === 'Music' ? 'Music' : 'Games',
       platform: item.platform ?? '',
-      publishers: item.category === 'Games' ? splitDelimitedValues(item.publisher) : [],
-      gameGenres: item.category === 'Games' ? splitDelimitedValues(item.genres ?? item.genre) : [],
+      publishers: isGames ? splitDelimitedValues(item.publisher) : [],
+      gameGenres: isGames ? splitDelimitedValues(item.genres ?? item.genre) : [],
       release_date: normalizeDateForInput(item.release_date) || (item.year_released ? `${item.year_released}-01-01` : ''),
       year_released: item.year_released ? String(item.year_released) : '',
       rating: normalizeGameRating(item.rating),
       players: item.players ? String(item.players) : '',
-      cooperative: item.category === 'Games' ? (item.cooperative ?? 'No') : 'No',
+      cooperative: isGames ? (item.cooperative ?? 'No') : 'No',
       artist: item.artist ?? '',
       musicGenre: item.category === 'Music' ? item.genre : '',
       cover_image: item.cover_image ?? null,
       spine_image: item.spine_image ?? null,
       disc_image: item.disc_image ?? null,
       notes: item.notes ?? '',
-      gameplayRating: item.gameplay_rating ?? null,
-      plotRating: item.plot_rating ?? null,
-      starRating: item.star_rating ?? null,
+      gameplayRating: null,
+      plotRating: null,
+      starRating: isGames ? consolidatedStarRating : (item.star_rating ?? null),
     };
     adminPublisherChoice = '';
     adminGameGenreChoice = '';
@@ -903,9 +911,9 @@
       disc_image: adminForm.disc_image ?? null,
       tags: null,
       notes: adminForm.notes.trim() || null,
-      star_rating: isGames ? null : adminForm.starRating,
-      gameplay_rating: isGames ? adminForm.gameplayRating : null,
-      plot_rating: isGames ? adminForm.plotRating : null,
+      star_rating: adminForm.starRating,
+      gameplay_rating: null,
+      plot_rating: null,
     };
   }
 
@@ -3156,6 +3164,18 @@
     adminListPage = 0;
     adminEditingId = item.id;
     const isGames = item.category === 'Games';
+    let consolidatedStarRating: number | null = null;
+    if (isGames) {
+      if (item.star_rating != null) {
+        consolidatedStarRating = item.star_rating;
+      } else if (item.gameplay_rating != null && item.plot_rating != null) {
+        consolidatedStarRating = Math.round((item.gameplay_rating + item.plot_rating) / 2);
+      } else if (item.gameplay_rating != null) {
+        consolidatedStarRating = item.gameplay_rating;
+      } else if (item.plot_rating != null) {
+        consolidatedStarRating = item.plot_rating;
+      }
+    }
     adminForm = {
       id: item.id,
       title: item.title,
@@ -3174,9 +3194,9 @@
       spine_image: item.spine_image ?? null,
       disc_image: item.disc_image ?? null,
       notes: item.notes ?? '',
-      gameplayRating: item.gameplay_rating ?? null,
-      plotRating: item.plot_rating ?? null,
-      starRating: item.star_rating ?? null,
+      gameplayRating: null,
+      plotRating: null,
+      starRating: isGames ? consolidatedStarRating : (item.star_rating ?? null),
     };
     adminPublisherChoice = '';
     adminGameGenreChoice = '';
@@ -3294,9 +3314,9 @@
       disc_image: isGames ? adminForm.disc_image ?? existingItem?.disc_image ?? null : existingItem?.disc_image ?? null,
       tags: existingItem?.tags ?? null,
       notes: adminForm.notes.trim() || null,
-      gameplay_rating: isGames ? adminForm.gameplayRating : null,
-      plot_rating: isGames ? adminForm.plotRating : null,
-      star_rating: isGames ? null : adminForm.starRating,
+      gameplay_rating: null,
+      plot_rating: null,
+      star_rating: adminForm.starRating,
     };
 
     try {
@@ -4218,20 +4238,12 @@
               </button>
             {/each}
           </div>
-          {#if detailItem.category === 'Games' && (detailItem.gameplay_rating != null || detailItem.plot_rating != null)}
-            <div class="details-star-ratings" aria-label="Star ratings">
-              {#if detailItem.gameplay_rating != null}
-                <div class="details-star-row">
-                  <span class="details-star-label">Gameplay</span>
-                  <span class="details-stars" aria-label="{detailItem.gameplay_rating} out of 5 stars">{renderStars(detailItem.gameplay_rating)}</span>
-                </div>
-              {/if}
-              {#if detailItem.plot_rating != null}
-                <div class="details-star-row">
-                  <span class="details-star-label">Plot</span>
-                  <span class="details-stars" aria-label="{detailItem.plot_rating} out of 5 stars">{renderStars(detailItem.plot_rating)}</span>
-                </div>
-              {/if}
+          {#if detailItem.category === 'Games' && detailItem.star_rating != null}
+            <div class="details-star-ratings" aria-label="Star rating">
+              <div class="details-star-row">
+                <span class="details-star-label">Rating</span>
+                <span class="details-stars" aria-label="{detailItem.star_rating} out of 5 stars">{renderStars(detailItem.star_rating)}</span>
+              </div>
             </div>
           {:else if detailItem.category === 'Music' && detailItem.star_rating != null}
             <div class="details-star-ratings" aria-label="Star rating">
@@ -5169,36 +5181,19 @@
                       </select>
                     </div>
                     <div class="form-field">
-                      <span class="star-field-label">Gameplay Rating</span>
-                      <div class="star-picker" role="group" aria-label="Gameplay rating out of 5">
+                      <span class="star-field-label">Star Rating</span>
+                      <div class="star-picker" role="group" aria-label="Star rating out of 5">
                         {#each [1, 2, 3, 4, 5] as n}
                           <button
                             type="button"
                             class="star-btn"
-                            class:filled={adminForm.gameplayRating !== null && n <= adminForm.gameplayRating}
+                            class:filled={adminForm.starRating !== null && n <= adminForm.starRating}
                             aria-label="{n} star{n !== 1 ? 's' : ''}"
-                            on:click={() => { adminForm = { ...adminForm, gameplayRating: adminForm.gameplayRating === n ? null : n }; }}
+                            on:click={() => { adminForm = { ...adminForm, starRating: adminForm.starRating === n ? null : n }; }}
                           >★</button>
                         {/each}
-                        {#if adminForm.gameplayRating !== null}
-                          <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, gameplayRating: null }; }} aria-label="Clear gameplay rating">×</button>
-                        {/if}
-                      </div>
-                    </div>
-                    <div class="form-field">
-                      <span class="star-field-label">Plot Rating</span>
-                      <div class="star-picker" role="group" aria-label="Plot rating out of 5">
-                        {#each [1, 2, 3, 4, 5] as n}
-                          <button
-                            type="button"
-                            class="star-btn"
-                            class:filled={adminForm.plotRating !== null && n <= adminForm.plotRating}
-                            aria-label="{n} star{n !== 1 ? 's' : ''}"
-                            on:click={() => { adminForm = { ...adminForm, plotRating: adminForm.plotRating === n ? null : n }; }}
-                          >★</button>
-                        {/each}
-                        {#if adminForm.plotRating !== null}
-                          <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, plotRating: null }; }} aria-label="Clear plot rating">×</button>
+                        {#if adminForm.starRating !== null}
+                          <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, starRating: null }; }} aria-label="Clear star rating">×</button>
                         {/if}
                       </div>
                     </div>
