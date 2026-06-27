@@ -399,7 +399,8 @@
       hoveredConsole = null;
     }, 4000);
   }
-  $: if (stage !== 'console' || !hoveredConsole) {
+  $: if (stage !== 'console') {
+    hoveredConsole = null;
     hoveredConsoleFadeVisible = false;
     if (hoveredConsoleFadeTimeout) {
       clearTimeout(hoveredConsoleFadeTimeout);
@@ -2950,6 +2951,7 @@
   }
 
   function onConsoleSelect(consoleName: string) {
+    hoveredConsole = null;
     selectedConsole = consoleName;
     if (libraryView === 'wishlist') {
       void loadMedia('Games', consoleName);
