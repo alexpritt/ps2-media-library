@@ -1363,10 +1363,6 @@ a,
   width: clamp(130px, 14vw, 200px);
 }
 
-.console-header-logo--hover {
-  animation: fadeInConsoleHeader 400ms ease-out forwards;
-}
-
 @keyframes fadeInConsoleHeader {
   from {
     opacity: 0;

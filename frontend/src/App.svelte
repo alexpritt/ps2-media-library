@@ -3707,7 +3707,7 @@
                 <img
                   src={consoleHeaderOption.logoImage}
                   alt={consoleHeaderOption.name}
-                  class="console-header-logo console-header-logo--hover"
+                  class="console-header-logo"
                   draggable="false"
                 />
                 <span class="console-header-copy console-header-count-copy console-header-subcopy">{hoveredConsoleCountLabel}</span>
@@ -3932,7 +3932,9 @@
             <div class="library-hud-right console-header-right">
               <div class="console-hover-meta">
                 <img src={selectedLibraryConsole.logoImage} alt={selectedLibraryConsole.name} class="console-header-logo" draggable="false" />
-                <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryCountCopy}</span>
+                {#key `${selectedLibraryConsole.name}-${libraryCountCopy}`}
+                  <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryCountCopy}</span>
+                {/key}
               </div>
             </div>
           {:else if libraryHeaderRight}
