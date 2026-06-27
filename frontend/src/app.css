@@ -1186,6 +1186,13 @@ a,
   text-shadow: 0 0 8px rgba(65, 200, 255, 0.45);
 }
 
+.star-picker-preview {
+  margin: 6px 0 0;
+  color: rgba(220, 230, 255, 0.82);
+  font-size: 0.86rem;
+  letter-spacing: 0.04em;
+}
+
 .star-clear {
   background: transparent;
   border: none;
@@ -1223,6 +1230,28 @@ a,
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.details-star-row--meta {
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.details-star-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.details-star-btn {
+  font-size: 1.38rem;
+}
+
+.details-rating-message {
+  color: rgba(182, 224, 255, 0.9);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .details-star-label {
@@ -2580,6 +2609,27 @@ a,
   align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.details-actions-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.details-save-rating {
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 2px 2px 0 var(--shadow);
+  font-size: clamp(1.05rem, 1.7vw, 1.55rem);
+  padding: 2px 0;
+}
+
+.details-save-rating:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
 }
 
 .details-admin-actions .danger {

@@ -197,6 +197,7 @@
   const GAME_WISHLIST_KEY = 'ps2-game-wishlist';
   const MUSIC_WISHLIST_KEY = 'ps2-music-wishlist';
   const DARK_MODE_KEY = 'ps2-dark-mode-enabled';
+  const LOCAL_STAR_RATING_OVERRIDES_KEY = 'ps2-local-star-rating-overrides';
 
   function apiPath(path: string) {
     if (!API_BASE_URL) return path;
@@ -354,6 +355,14 @@
   let confirmItem: MediaItem | null = null;
   let confirmWishlistKind: WishlistKind | null = null;
   let detailCombinedStarRating: number | null = null;
+  let detailEditedStarRating: number | null = null;
+  let detailInitialStarRating: number | null = null;
+  let detailRatingStateKey = '';
+  let detailRatingSaving = false;
+  let detailRatingMessage = '';
+  let localStarRatingOverrides: Record<string, number | null> = {};
+  let detailRatingKey = '';
+  let detailRatingDirty = false;
 
   function combinedStarRating(item: MediaItem): number | null {
     return item.star_rating ?? null;
@@ -367,6 +376,19 @@
   $: detailItem = selectedWishlistItem ?? selectedItem;
   $: detailCombinedStarRating = detailItem ? combinedStarRating(detailItem) : null;
   $: detailIsWishlist = selectedWishlistItem !== null;
+  $: detailRatingKey = detailItem
+    ? detailIsWishlist && selectedWishlistItem
+      ? `wishlist-${selectedWishlistItem.wishlistKind}-${selectedWishlistItem.wishlistId}`
+      : `media-${detailItem.id}`
+    : '';
+  $: if (detailRatingKey !== detailRatingStateKey) {
+    detailRatingStateKey = detailRatingKey;
+    detailEditedStarRating = detailCombinedStarRating;
+    detailInitialStarRating = detailCombinedStarRating;
+    detailRatingSaving = false;
+    detailRatingMessage = '';
+  }
+  $: detailRatingDirty = detailEditedStarRating !== detailInitialStarRating;
   $: consoleHeaderSelection = hoveredConsole ?? (stage === 'console' ? selectedConsole : null);
   $: consoleHeaderOption = availableConsoles.find((item) => item.name === consoleHeaderSelection) ?? null;
   $: if (stage === 'console' && hoveredConsole) {
@@ -726,6 +748,76 @@
     consoleWishlist = loadWishlistItems<WishlistSystemItem>(CONSOLE_WISHLIST_KEY, []);
     gameWishlist = loadWishlistItems<WishlistMediaItem>(GAME_WISHLIST_KEY, []);
     musicWishlist = loadWishlistItems<WishlistMediaItem>(MUSIC_WISHLIST_KEY, []);
+  }
+
+  function normalizeStarRating(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') return null;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return null;
+    const rounded = Math.round(numeric);
+    if (rounded < 1 || rounded > 5) return null;
+    return rounded;
+  }
+
+  function loadLocalStarRatingOverrides() {
+    const stored = localStorage.getItem(LOCAL_STAR_RATING_OVERRIDES_KEY);
+    if (!stored) {
+      localStarRatingOverrides = {};
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored) as Record<string, unknown>;
+      localStarRatingOverrides = Object.fromEntries(
+        Object.entries(parsed).map(([key, value]) => [key, normalizeStarRating(value)])
+      );
+    } catch {
+      localStarRatingOverrides = {};
+    }
+  }
+
+  function persistLocalStarRatingOverrides() {
+    localStorage.setItem(LOCAL_STAR_RATING_OVERRIDES_KEY, JSON.stringify(localStarRatingOverrides));
+  }
+
+  function applyLocalStarRatingOverrides(items: MediaItem[]) {
+    return items.map((item) => {
+      const overrideKey = String(item.id);
+      if (!(overrideKey in localStarRatingOverrides)) return item;
+      return {
+        ...item,
+        star_rating: normalizeStarRating(localStarRatingOverrides[overrideKey]),
+      };
+    });
+  }
+
+  function updateLibraryItemStarRating(itemId: number, starRating: number | null) {
+    allMedia = allMedia.map((item) => item.id === itemId ? { ...item, star_rating: starRating } : item);
+    media = media.map((item) => item.id === itemId ? { ...item, star_rating: starRating } : item);
+    if (selectedItem?.id === itemId) {
+      selectedItem = { ...selectedItem, star_rating: starRating };
+    }
+  }
+
+  function updateWishlistItemStarRating(item: WishlistMediaItem, starRating: number | null) {
+    const updated = { ...item, star_rating: starRating };
+    if (item.wishlistKind === 'games') {
+      gameWishlist = gameWishlist.map((entry) => entry.wishlistId === item.wishlistId ? { ...entry, star_rating: starRating } : entry);
+      persistGameWishlist();
+    } else {
+      musicWishlist = musicWishlist.map((entry) => entry.wishlistId === item.wishlistId ? { ...entry, star_rating: starRating } : entry);
+      persistMusicWishlist();
+    }
+    selectedWishlistItem = updated;
+    selectedItem = updated;
+  }
+
+  function setDetailStarRating(n: number) {
+    detailEditedStarRating = detailEditedStarRating === n ? null : n;
+    detailRatingMessage = '';
+  }
+
+  function starDisplay(value: number | null, max = 5): string {
+    return value == null ? '☆'.repeat(max) : renderStars(value, max);
   }
 
   function resetWishlistSystemForm() {
@@ -1559,6 +1651,56 @@
     return '★'.repeat(filled) + '☆'.repeat(max - filled);
   }
 
+  async function saveDetailRatingChanges() {
+    if (!detailItem || !detailRatingDirty || detailRatingSaving) return;
+
+    detailRatingSaving = true;
+    detailRatingMessage = '';
+    const nextRating = normalizeStarRating(detailEditedStarRating);
+
+    try {
+      if (detailIsWishlist && selectedWishlistItem) {
+        updateWishlistItemStarRating(selectedWishlistItem, nextRating);
+        detailInitialStarRating = nextRating;
+        detailRatingMessage = 'Saved.';
+        return;
+      }
+
+      if (!detailItem.id) {
+        detailRatingMessage = 'Could not save changes.';
+        return;
+      }
+
+      if (adminToken) {
+        const payload = {
+          ...detailItem,
+          star_rating: nextRating,
+        };
+        const response = await fetch(apiPath(`/api/media/${detailItem.id}`), {
+          method: 'PUT',
+          headers: mediaHeaders(),
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          detailRatingMessage = 'Could not save changes.';
+          return;
+        }
+        updateLibraryItemStarRating(detailItem.id, nextRating);
+      } else {
+        localStarRatingOverrides[String(detailItem.id)] = nextRating;
+        persistLocalStarRatingOverrides();
+        updateLibraryItemStarRating(detailItem.id, nextRating);
+      }
+
+      detailInitialStarRating = nextRating;
+      detailRatingMessage = 'Saved.';
+    } catch {
+      detailRatingMessage = 'Could not save changes.';
+    } finally {
+      detailRatingSaving = false;
+    }
+  }
+
   function addTag(tags: DetailTag[], seen: Set<string>, label: string, query: string, tone: DetailTagTone) {
     const normalizedLabel = label.trim();
     const normalizedQuery = query.trim();
@@ -2244,7 +2386,8 @@
   async function loadAllMedia() {
     const response = await fetch(apiPath('/api/media'));
     if (!response.ok) return;
-    allMedia = await response.json();
+    const data = await response.json();
+    allMedia = applyLocalStarRatingOverrides(data);
   }
 
   async function loadMedia(nextCategory: Category | null = category, nextConsole: string | null = selectedConsole) {
@@ -2297,7 +2440,7 @@
     const data = await response.json();
     if (requestId !== mediaLoadRequestId) return;
 
-    media = data;
+    media = applyLocalStarRatingOverrides(data);
     libraryLoading = false;
     page = 0;
     librarySearch = '';
@@ -3481,6 +3624,7 @@
     }
       darkModeEnabled = localStorage.getItem(DARK_MODE_KEY) === 'true';
       loadWishlistsFromStorage();
+      loadLocalStarRatingOverrides();
       await loadSystemsFromAPI();
 
       await loadAllMedia();
@@ -4233,10 +4377,24 @@
             <div class="details-star-ratings" aria-label="Star rating">
               <div class="details-star-row">
                 <span class="details-star-label">MY RATING</span>
-                {#if detailCombinedStarRating != null}
-                  <span class="details-stars" aria-label="{detailCombinedStarRating} out of 5 stars">{renderStars(detailCombinedStarRating)} ({detailCombinedStarRating}/5)</span>
-                {:else}
-                  <span class="details-stars" aria-label="No star rating assigned">Not Rated</span>
+                <div class="details-star-picker" role="group" aria-label="Set star rating">
+                  {#each [1, 2, 3, 4, 5] as n}
+                    <button
+                      type="button"
+                      class="star-btn details-star-btn"
+                      class:filled={detailEditedStarRating !== null && n <= detailEditedStarRating}
+                      aria-label="{n} star{n !== 1 ? 's' : ''}"
+                      on:click={() => setDetailStarRating(n)}
+                    >★</button>
+                  {/each}
+                </div>
+              </div>
+              <div class="details-star-row details-star-row--meta">
+                <span class="details-stars" aria-label={detailEditedStarRating != null ? `${detailEditedStarRating} out of 5 stars` : 'No star rating assigned'}>
+                  {starDisplay(detailEditedStarRating)}{detailEditedStarRating != null ? ` (${detailEditedStarRating}/5)` : ''}
+                </span>
+                {#if detailRatingMessage}
+                  <span class="details-rating-message">{detailRatingMessage}</span>
                 {/if}
               </div>
             </div>
@@ -4245,18 +4403,29 @@
         </div>
 
         <div class="details-actions">
-          {#if isAdmin}
-            <div class="details-admin-actions">
-              {#if detailIsWishlist && selectedWishlistItem}
-                <button type="button" on:click={() => selectedWishlistItem && addWishlistMediaToLibrary(selectedWishlistItem)}>Add to Library</button>
-                <button type="button" on:click={() => selectedWishlistItem && startEditWishlistMedia(selectedWishlistItem)}>Edit</button>
-                <button type="button" class="danger" on:click={() => selectedWishlistItem && deleteWishlistSelection(selectedWishlistItem.wishlistKind, selectedWishlistItem.wishlistId)}>Delete</button>
-              {:else}
-                <button type="button" on:click={() => openEditConfirm(detailItem, true)}>Edit</button>
-                <button type="button" class="danger" on:click={() => openDeleteConfirm(detailItem)}>Delete</button>
-              {/if}
-            </div>
-          {/if}
+          <div class="details-actions-right">
+            {#if detailRatingDirty}
+              <button
+                type="button"
+                class="details-save-rating"
+                on:click={saveDetailRatingChanges}
+                disabled={detailRatingSaving}
+                transition:fade={{ duration: 240 }}
+              >{detailRatingSaving ? 'Saving...' : 'Save Changes'}</button>
+            {/if}
+            {#if isAdmin}
+              <div class="details-admin-actions">
+                {#if detailIsWishlist && selectedWishlistItem}
+                  <button type="button" on:click={() => selectedWishlistItem && addWishlistMediaToLibrary(selectedWishlistItem)}>Add to Library</button>
+                  <button type="button" on:click={() => selectedWishlistItem && startEditWishlistMedia(selectedWishlistItem)}>Edit</button>
+                  <button type="button" class="danger" on:click={() => selectedWishlistItem && deleteWishlistSelection(selectedWishlistItem.wishlistKind, selectedWishlistItem.wishlistId)}>Delete</button>
+                {:else}
+                  <button type="button" on:click={() => openEditConfirm(detailItem, true)}>Edit</button>
+                  <button type="button" class="danger" on:click={() => openDeleteConfirm(detailItem)}>Delete</button>
+                {/if}
+              </div>
+            {/if}
+          </div>
         </div>
       </section>
     {/if}
@@ -5201,6 +5370,9 @@
                           <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, starRating: null }; }} aria-label="Clear star rating">×</button>
                         {/if}
                       </div>
+                      <p class="star-picker-preview" aria-live="polite">
+                        {starDisplay(adminForm.starRating)}{adminForm.starRating !== null ? ` (${adminForm.starRating}/5)` : ''}
+                      </p>
                     </div>
                   {:else}
                     <div class="form-field">
@@ -5250,6 +5422,9 @@
                           <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, starRating: null }; }} aria-label="Clear star rating">×</button>
                         {/if}
                       </div>
+                      <p class="star-picker-preview" aria-live="polite">
+                        {starDisplay(adminForm.starRating)}{adminForm.starRating !== null ? ` (${adminForm.starRating}/5)` : ''}
+                      </p>
                     </div>
                   {/if}
                   <div class="form-field">
