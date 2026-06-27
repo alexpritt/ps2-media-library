@@ -1791,7 +1791,7 @@
           endpointLoop: for (let endpointIndex = 0; endpointIndex < endpointCandidates.length; endpointIndex += 1) {
             const endpoint = endpointCandidates[endpointIndex];
             for (const attemptedPlatform of platformCandidates) {
-              const nextResponse = await fetch(endpoint, {
+              const nextResponse = await fetch(apiPath(endpoint), {
                 method: 'POST',
                 headers: mediaHeaders(),
                 body: JSON.stringify(
@@ -1915,7 +1915,7 @@
 
       outer: for (const endpoint of endpointCandidates) {
         for (const platform of platformCandidates) {
-          const nextResponse = await fetch(endpoint, {
+          const nextResponse = await fetch(apiPath(endpoint), {
             method: 'POST',
             headers: mediaHeaders(),
             body: JSON.stringify({
@@ -2742,7 +2742,7 @@
   async function removeSystem(systemId: string) {
     const removedSystem = editableSystems.find((s) => s.id === systemId);
     try {
-      const response = await fetch(`/api/systems/${encodeURIComponent(systemId)}`, {
+      const response = await fetch(apiPath(`/api/systems/${encodeURIComponent(systemId)}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${adminToken}` },
       });
@@ -2771,7 +2771,7 @@
       const system = editableSystems.find((s) => s.id === systemId);
       if (!system) return;
       
-      const response = await fetch(`/api/systems/${encodeURIComponent(systemId)}`, {
+      const response = await fetch(apiPath(`/api/systems/${encodeURIComponent(systemId)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
         body: JSON.stringify({
@@ -2979,7 +2979,7 @@
       let apiError = '';
 
       for (const endpoint of apiEndpoints) {
-        const response = await fetch(endpoint, {
+        const response = await fetch(apiPath(endpoint), {
           method: 'POST',
           headers: mediaHeaders(),
           body: JSON.stringify({ name }),
@@ -3270,7 +3270,7 @@
     };
 
     try {
-      const response = await fetch(adminForm.id ? `/api/media/${adminForm.id}` : '/api/media', {
+      const response = await fetch(apiPath(adminForm.id ? `/api/media/${adminForm.id}` : '/api/media'), {
         method: adminForm.id ? 'PUT' : 'POST',
         headers: mediaHeaders(),
         body: JSON.stringify(payload),
@@ -3309,7 +3309,7 @@
     adminMessage = '';
     adminBusy = true;
     try {
-      const response = await fetch(`/api/media/${item.id}`, {
+      const response = await fetch(apiPath(`/api/media/${item.id}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${adminToken}` },
       });
