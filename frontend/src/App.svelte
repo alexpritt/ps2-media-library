@@ -3914,7 +3914,7 @@
                 <button
                   type="button"
                   class="star-filter-btn filter-icon-label-host"
-                  data-hover-label="STARS"
+                  data-hover-label="STAR RATING"
                   class:is-active={libraryStarFilter !== null}
                   on:click={() => { starDropdownOpen = !starDropdownOpen; playersDropdownOpen = false; }}
                   aria-label="Filter by star rating"
