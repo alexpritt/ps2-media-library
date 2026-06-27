@@ -1174,6 +1174,16 @@ a,
   text-shadow: 0 0 8px rgba(65, 200, 255, 0.45);
 }
 
+.admin-form .star-btn {
+  color: rgba(200, 200, 220, 0.35);
+  text-shadow: none;
+}
+
+.admin-form .star-btn.filled {
+  color: var(--hud-blue);
+  text-shadow: 0 0 8px rgba(65, 200, 255, 0.45);
+}
+
 .star-clear {
   background: transparent;
   border: none;

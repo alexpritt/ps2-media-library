@@ -355,12 +355,26 @@
   let confirmMode: 'edit' | 'delete' = 'delete';
   let confirmItem: MediaItem | null = null;
   let confirmWishlistKind: WishlistKind | null = null;
+  let detailCombinedStarRating: number | null = null;
 
   function combinedStarRating(item: MediaItem): number | null {
-    if (item.category === 'Games') {
-      return item.star_rating ?? null;
+    if (item.star_rating != null) {
+      return item.star_rating;
     }
-    return item.star_rating ?? null;
+
+    if (item.category === 'Games') {
+      if (item.gameplay_rating != null && item.plot_rating != null) {
+        return Math.round((item.gameplay_rating + item.plot_rating) / 2);
+      }
+      if (item.gameplay_rating != null) {
+        return item.gameplay_rating;
+      }
+      if (item.plot_rating != null) {
+        return item.plot_rating;
+      }
+    }
+
+    return null;
   }
 
   $: isAdmin = adminToken.length > 0;
@@ -369,6 +383,7 @@
   $: activeConsole = availableConsoles[0] ?? fallbackConsoles[0];
   $: activeWishlistConsole = activeConsoleSource[0] ?? null;
   $: detailItem = selectedWishlistItem ?? selectedItem;
+  $: detailCombinedStarRating = detailItem ? combinedStarRating(detailItem) : null;
   $: detailIsWishlist = selectedWishlistItem !== null;
   $: consoleHeaderSelection = hoveredConsole ?? (stage === 'console' ? selectedConsole : null);
   $: consoleHeaderOption = availableConsoles.find((item) => item.name === consoleHeaderSelection) ?? null;
@@ -4265,18 +4280,32 @@
               </button>
             {/each}
           </div>
-          {#if detailItem.category === 'Games' && detailItem.star_rating != null}
+          {#if detailItem.category === 'Games' && (detailCombinedStarRating != null || detailItem.gameplay_rating != null || detailItem.plot_rating != null)}
             <div class="details-star-ratings" aria-label="Star rating">
-              <div class="details-star-row">
-                <span class="details-star-label">Rating</span>
-                <span class="details-stars" aria-label="{detailItem.star_rating} out of 5 stars">{renderStars(detailItem.star_rating)}</span>
-              </div>
+              {#if detailCombinedStarRating != null}
+                <div class="details-star-row">
+                  <span class="details-star-label">Rating</span>
+                  <span class="details-stars" aria-label="{detailCombinedStarRating} out of 5 stars">{renderStars(detailCombinedStarRating)}</span>
+                </div>
+              {/if}
+              {#if detailItem.gameplay_rating != null}
+                <div class="details-star-row">
+                  <span class="details-star-label">Gameplay</span>
+                  <span class="details-stars" aria-label="{detailItem.gameplay_rating} out of 5 stars">{renderStars(detailItem.gameplay_rating)}</span>
+                </div>
+              {/if}
+              {#if detailItem.plot_rating != null}
+                <div class="details-star-row">
+                  <span class="details-star-label">Plot</span>
+                  <span class="details-stars" aria-label="{detailItem.plot_rating} out of 5 stars">{renderStars(detailItem.plot_rating)}</span>
+                </div>
+              {/if}
             </div>
-          {:else if detailItem.category === 'Music' && detailItem.star_rating != null}
+          {:else if detailItem.category === 'Music' && detailCombinedStarRating != null}
             <div class="details-star-ratings" aria-label="Star rating">
               <div class="details-star-row">
                 <span class="details-star-label">Rating</span>
-                <span class="details-stars" aria-label="{detailItem.star_rating} out of 5 stars">{renderStars(detailItem.star_rating)}</span>
+                <span class="details-stars" aria-label="{detailCombinedStarRating} out of 5 stars">{renderStars(detailCombinedStarRating)}</span>
               </div>
             </div>
           {/if}
