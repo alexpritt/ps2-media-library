@@ -4259,7 +4259,6 @@
         </div>
 
         <div class="details-actions">
-          <button type="button" class="details-back" on:click={closeDetails}>Back</button>
           {#if isAdmin}
             <div class="details-admin-actions">
               {#if detailIsWishlist && selectedWishlistItem}
@@ -4300,7 +4299,6 @@
           <p class="details-line-5">{selectedWishlistConsole.caseType ? `${selectedWishlistConsole.caseType[0].toUpperCase()}${selectedWishlistConsole.caseType.slice(1)} system` : 'Wish list console'}</p>
         </div>
         <div class="details-actions">
-          <button type="button" class="details-back" on:click={closeWishlistConsoleDetails}>Back</button>
           {#if isAdmin}
             <div class="details-admin-actions">
               <button type="button" on:click={() => selectedWishlistConsole && addWishlistConsoleToLibrary(selectedWishlistConsole)}>Add to Library</button>
