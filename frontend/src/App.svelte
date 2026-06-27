@@ -51,8 +51,6 @@
     spine_image: string | null;
     disc_image: string | null;
     notes: string;
-    gameplayRating: number | null;
-    plotRating: number | null;
     starRating: number | null;
   };
 
@@ -358,23 +356,7 @@
   let detailCombinedStarRating: number | null = null;
 
   function combinedStarRating(item: MediaItem): number | null {
-    if (item.star_rating != null) {
-      return item.star_rating;
-    }
-
-    if (item.category === 'Games') {
-      if (item.gameplay_rating != null && item.plot_rating != null) {
-        return Math.round((item.gameplay_rating + item.plot_rating) / 2);
-      }
-      if (item.gameplay_rating != null) {
-        return item.gameplay_rating;
-      }
-      if (item.plot_rating != null) {
-        return item.plot_rating;
-      }
-    }
-
-    return null;
+    return item.star_rating ?? null;
   }
 
   $: isAdmin = adminToken.length > 0;
@@ -825,18 +807,6 @@
   function populateAdminFormFromWishlistItem(item: WishlistMediaItem) {
     adminContextItem = item;
     const isGames = item.category === 'Games';
-    let consolidatedStarRating: number | null = null;
-    if (isGames) {
-      if (item.star_rating != null) {
-        consolidatedStarRating = item.star_rating;
-      } else if (item.gameplay_rating != null && item.plot_rating != null) {
-        consolidatedStarRating = Math.round((item.gameplay_rating + item.plot_rating) / 2);
-      } else if (item.gameplay_rating != null) {
-        consolidatedStarRating = item.gameplay_rating;
-      } else if (item.plot_rating != null) {
-        consolidatedStarRating = item.plot_rating;
-      }
-    }
     adminForm = {
       id: item.id,
       title: item.title,
@@ -855,9 +825,7 @@
       spine_image: item.spine_image ?? null,
       disc_image: item.disc_image ?? null,
       notes: item.notes ?? '',
-      gameplayRating: null,
-      plotRating: null,
-      starRating: isGames ? consolidatedStarRating : (item.star_rating ?? null),
+      starRating: item.star_rating ?? null,
     };
     adminPublisherChoice = '';
     adminGameGenreChoice = '';
@@ -931,8 +899,6 @@
       tags: null,
       notes: adminForm.notes.trim() || null,
       star_rating: adminForm.starRating,
-      gameplay_rating: null,
-      plot_rating: null,
     };
   }
 
@@ -1200,8 +1166,6 @@
       spine_image: null,
       disc_image: null,
       notes: '',
-      gameplayRating: null,
-      plotRating: null,
       starRating: null,
     };
   }
@@ -3205,18 +3169,6 @@
     adminListPage = 0;
     adminEditingId = item.id;
     const isGames = item.category === 'Games';
-    let consolidatedStarRating: number | null = null;
-    if (isGames) {
-      if (item.star_rating != null) {
-        consolidatedStarRating = item.star_rating;
-      } else if (item.gameplay_rating != null && item.plot_rating != null) {
-        consolidatedStarRating = Math.round((item.gameplay_rating + item.plot_rating) / 2);
-      } else if (item.gameplay_rating != null) {
-        consolidatedStarRating = item.gameplay_rating;
-      } else if (item.plot_rating != null) {
-        consolidatedStarRating = item.plot_rating;
-      }
-    }
     adminForm = {
       id: item.id,
       title: item.title,
@@ -3235,9 +3187,7 @@
       spine_image: item.spine_image ?? null,
       disc_image: item.disc_image ?? null,
       notes: item.notes ?? '',
-      gameplayRating: null,
-      plotRating: null,
-      starRating: isGames ? consolidatedStarRating : (item.star_rating ?? null),
+      starRating: item.star_rating ?? null,
     };
     adminPublisherChoice = '';
     adminGameGenreChoice = '';
@@ -3356,8 +3306,6 @@
       disc_image: isGames ? adminForm.disc_image ?? existingItem?.disc_image ?? null : existingItem?.disc_image ?? null,
       tags: existingItem?.tags ?? null,
       notes: adminForm.notes.trim() || null,
-      gameplay_rating: null,
-      plot_rating: null,
       star_rating: adminForm.starRating,
     };
 
@@ -4280,26 +4228,12 @@
               </button>
             {/each}
           </div>
-          {#if detailItem.category === 'Games' && (detailCombinedStarRating != null || detailItem.gameplay_rating != null || detailItem.plot_rating != null)}
+          {#if detailItem.category === 'Games' && detailCombinedStarRating != null}
             <div class="details-star-ratings" aria-label="Star rating">
-              {#if detailCombinedStarRating != null}
-                <div class="details-star-row">
-                  <span class="details-star-label">Rating</span>
-                  <span class="details-stars" aria-label="{detailCombinedStarRating} out of 5 stars">{renderStars(detailCombinedStarRating)}</span>
-                </div>
-              {/if}
-              {#if detailItem.gameplay_rating != null}
-                <div class="details-star-row">
-                  <span class="details-star-label">Gameplay</span>
-                  <span class="details-stars" aria-label="{detailItem.gameplay_rating} out of 5 stars">{renderStars(detailItem.gameplay_rating)}</span>
-                </div>
-              {/if}
-              {#if detailItem.plot_rating != null}
-                <div class="details-star-row">
-                  <span class="details-star-label">Plot</span>
-                  <span class="details-stars" aria-label="{detailItem.plot_rating} out of 5 stars">{renderStars(detailItem.plot_rating)}</span>
-                </div>
-              {/if}
+              <div class="details-star-row">
+                <span class="details-star-label">Rating</span>
+                <span class="details-stars" aria-label="{detailCombinedStarRating} out of 5 stars">{renderStars(detailCombinedStarRating)}</span>
+              </div>
             </div>
           {:else if detailItem.category === 'Music' && detailCombinedStarRating != null}
             <div class="details-star-ratings" aria-label="Star rating">

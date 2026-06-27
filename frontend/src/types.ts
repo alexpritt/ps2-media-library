@@ -20,8 +20,6 @@ export interface MediaItem {
   tags: string | null;
   notes: string | null;
   star_rating: number | null;
-  gameplay_rating: number | null;
-  plot_rating: number | null;
 }
 
 export interface EditableSystem {
