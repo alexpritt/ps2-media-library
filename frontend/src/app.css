@@ -4996,8 +4996,12 @@ select option {
   }
 
   .systems-row {
-    align-items: start;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .systems-row-handle {
+    display: none;
   }
 
   .library-hud-right {
