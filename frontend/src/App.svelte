@@ -469,7 +469,9 @@
     : null;
 
   $: selectedLibraryConsole = (libraryView === 'wishlist'
-    ? consoleWishlist.find((item) => item.name === (selectedConsole ?? activeWishlistConsole?.name ?? ''))
+    ? category === 'Games'
+      ? availableConsoles.find((item) => item.name === (selectedConsole ?? activeConsole.name))
+      : consoleWishlist.find((item) => item.name === (selectedConsole ?? activeWishlistConsole?.name ?? ''))
     : availableConsoles.find((item) => item.name === (selectedConsole ?? activeConsole.name))) ?? activeConsole;
   $: libraryHeaderLeft = category === 'Music'
     ? `Music ${libraryView === 'wishlist' ? 'Wish List' : 'Library'}`
