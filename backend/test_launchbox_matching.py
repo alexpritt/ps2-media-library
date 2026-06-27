@@ -3,7 +3,12 @@ import unittest
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
-from main import choose_launchbox_candidate, normalize_launchbox_detail_url, section_images_from_titles
+from main import (
+    build_launchbox_results_search_url,
+    choose_launchbox_candidate,
+    normalize_launchbox_detail_url,
+    section_images_from_titles,
+)
 
 
 class LaunchboxCandidateSelectionTests(unittest.TestCase):
@@ -38,6 +43,23 @@ class LaunchboxCandidateSelectionTests(unittest.TestCase):
             choose_launchbox_candidate(candidates, "Silent Hill 2", "PlayStation 2")
 
         self.assertEqual(context.exception.status_code, 404)
+
+    def test_ignores_empty_normalized_titles_for_substring_bonus(self):
+        candidates = [
+            {"title": "!!!", "platform": "MS-DOS", "href": "/games/details/unknown"},
+            {"title": "Borderlands 3", "platform": "Sony Playstation 4", "href": "/games/details/b3"},
+        ]
+
+        chosen = choose_launchbox_candidate(candidates, "Borderlands 3", "PlayStation 4")
+        self.assertEqual(chosen["href"], "/games/details/b3")
+
+
+class LaunchboxSearchUrlTests(unittest.TestCase):
+    def test_build_results_search_url_uses_path_segment(self):
+        url = build_launchbox_results_search_url("Ratchet & Clank: Into the Nexus")
+        self.assertTrue(url.startswith("https://gamesdb.launchbox-app.com/games/results/"))
+        self.assertIn("ratchet%20and%20clank%20into%20the%20nexus", url)
+        self.assertNotIn("?search=", url)
 
     def test_missing_art_section_returns_empty_list(self):
         html = """

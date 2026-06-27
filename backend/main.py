@@ -1250,7 +1250,7 @@ def choose_launchbox_candidate(candidates: list, title: str, platform: str) -> d
 
         if candidate_title == target_title:
             candidate_score += 140
-        elif target_title in candidate_title or candidate_title in target_title:
+        elif target_title and candidate_title and (target_title in candidate_title or candidate_title in target_title):
             candidate_score += 90
 
         if target_tokens and candidate_tokens:
@@ -1291,8 +1291,13 @@ def choose_launchbox_candidate(candidates: list, title: str, platform: str) -> d
     return best_match
 
 
+def build_launchbox_results_search_url(title: str) -> str:
+    search_term = normalize_title_for_match(title) or title.strip()
+    return f"https://gamesdb.launchbox-app.com/games/results/{quote(search_term)}"
+
+
 def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
-    search_url = f"https://gamesdb.launchbox-app.com/games/results?search={quote(title.strip().lower())}"
+    search_url = build_launchbox_results_search_url(title)
     search_response = requests.get(search_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
     search_response.raise_for_status()
     search_soup = BeautifulSoup(search_response.text, "html.parser")
