@@ -231,6 +231,7 @@
   let bootRescueTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootPlaybackRetryInterval: ReturnType<typeof setInterval> | null = null;
   let bootLastTouchAt = 0;
+  let bootSkipTapTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const bootSkipHintText = isMobile ? 'Tap to skip intro' : 'Press spacebar to skip intro';
   $: bootMuteHintText = bootMuted
@@ -1113,11 +1114,25 @@
 
     const now = Date.now();
     if (now - bootLastTouchAt <= 330) {
+      if (bootSkipTapTimeout) {
+        clearTimeout(bootSkipTapTimeout);
+        bootSkipTapTimeout = null;
+      }
       toggleBootMute();
       bootLastTouchAt = 0;
       return;
     }
     bootLastTouchAt = now;
+    if (bootSkipTapTimeout) {
+      clearTimeout(bootSkipTapTimeout);
+    }
+    bootSkipTapTimeout = setTimeout(() => {
+      bootSkipTapTimeout = null;
+      bootLastTouchAt = 0;
+      if (stage === 'boot' && !bootTextVisible) {
+        skipBootIntro();
+      }
+    }, 340);
   }
 
   function handleBootScreenClick(event: MouseEvent) {
@@ -3463,6 +3478,9 @@
       clearBootHardFailTimer();
       if (bootSoundIndicatorTimeout) {
         clearTimeout(bootSoundIndicatorTimeout);
+      }
+      if (bootSkipTapTimeout) {
+        clearTimeout(bootSkipTapTimeout);
       }
       if (detailsInertiaFrame !== null) {
         cancelAnimationFrame(detailsInertiaFrame);
