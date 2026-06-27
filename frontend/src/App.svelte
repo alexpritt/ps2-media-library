@@ -4232,7 +4232,7 @@
           {#if detailItem.category === 'Games' || detailItem.category === 'Music'}
             <div class="details-star-ratings" aria-label="Star rating">
               <div class="details-star-row">
-                <span class="details-star-label">Rating</span>
+                <span class="details-star-label">MY RATING</span>
                 {#if detailCombinedStarRating != null}
                   <span class="details-stars" aria-label="{detailCombinedStarRating} out of 5 stars">{renderStars(detailCombinedStarRating)} ({detailCombinedStarRating}/5)</span>
                 {:else}
