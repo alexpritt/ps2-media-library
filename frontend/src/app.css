@@ -1447,31 +1447,19 @@ a,
   margin-left: auto;
   grid-template-rows: auto auto;
   min-height: 80px;
-  justify-content: end;
-  transition: justify-content 220ms ease;
+  justify-content: center;
 }
 
-.console-hover-meta:has(.console-header-logo--hidden) {
+.console-hover-meta.console-hover-meta--active {
   justify-content: center;
 }
 
 .console-hover-meta .console-header-copy {
   text-align: center;
-  transition: opacity 220ms ease;
 }
 
 .console-hover-meta .console-header-logo {
-  transition: opacity 220ms ease;
-}
-
-.console-header-logo--hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.console-header-copy--hidden {
-  opacity: 0;
-  pointer-events: none;
+  display: block;
 }
 
 .console-header-static-copy {

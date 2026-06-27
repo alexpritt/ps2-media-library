@@ -4231,25 +4231,28 @@
             </button>
           </div>
           <div class="library-hud-right console-header-count console-header-right">
-            <div class="console-hover-meta">
-              {#if consoleHeaderOption?.logoImage}
-                <img
-                  src={consoleHeaderOption.logoImage}
-                  alt={consoleHeaderOption.name}
-                  class="console-header-logo"
-                  class:console-header-logo--hidden={!hoveredConsoleFadeVisible}
-                  transition:fade={{ duration: 220, easing: cubicOut }}
-                  draggable="false"
-                />
-              {/if}
+            {#if hoveredConsoleFadeVisible}
+              <div class="console-hover-meta console-hover-meta--active" transition:fade={{ duration: 220, easing: cubicOut }}>
+                {#if consoleHeaderOption?.logoImage}
+                  <img
+                    src={consoleHeaderOption.logoImage}
+                    alt={consoleHeaderOption.name}
+                    class="console-header-logo"
+                    draggable="false"
+                  />
+                {/if}
+                <span class="console-header-copy console-header-count-copy console-header-subcopy">
+                  {hoveredConsoleCountLabel}
+                </span>
+              </div>
+            {:else}
               <span
                 class="console-header-copy console-header-count-copy console-header-subcopy"
-                class:console-header-copy--hidden={hoveredConsoleFadeVisible}
                 transition:fade={{ duration: 220, easing: cubicOut }}
               >
-                {hoveredConsoleFadeVisible ? hoveredConsoleCountLabel : consoleCountCopy}
+                {consoleCountCopy}
               </span>
-            </div>
+            {/if}
           </div>
         </div>
         <div class="console-grid">
