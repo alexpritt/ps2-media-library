@@ -473,9 +473,9 @@ def find_launchbox_metadata_match(title: str, platform: str) -> Optional[dict]:
         candidate_platform_key = normalize_launchbox_key(candidate_platform)
 
         score = 0
-        if candidate_title_key == target_title:
+        if candidate_title_key and candidate_title_key == target_title:
             score += 140
-        elif target_title and (target_title in candidate_title_key or candidate_title_key in target_title):
+        elif candidate_title_key and target_title and (target_title in candidate_title_key or candidate_title_key in target_title):
             score += 90
 
         if target_tokens and candidate_tokens:
@@ -488,7 +488,7 @@ def find_launchbox_metadata_match(title: str, platform: str) -> Optional[dict]:
             similarity = SequenceMatcher(None, target_title_loose, candidate_title_loose).ratio()
             score += int(similarity * 50)
 
-        if target_platform and (target_platform in candidate_platform_key or candidate_platform_key in target_platform):
+        if target_platform and candidate_platform_key and (target_platform in candidate_platform_key or candidate_platform_key in target_platform):
             score += 35
 
         if score > best_score:
@@ -1326,6 +1326,11 @@ def launchbox_detail_payload(title: str, platform: str, launchbox_url: Optional[
 
     errors: List[str] = []
 
+    try:
+        return fetch_launchbox_game_data(title, platform)
+    except Exception as exc:
+        errors.append(str(exc))
+
     metadata_match = find_launchbox_metadata_match(title, platform)
     if metadata_match:
         metadata_match["title"] = metadata_match.get("title") or title
@@ -1335,11 +1340,6 @@ def launchbox_detail_payload(title: str, platform: str, launchbox_url: Optional[
         metadata_match["discImage"] = None
         metadata_match["metadata_source"] = metadata_match.get("metadata_source") or "launchbox-metadata-zip"
         return metadata_match
-
-    try:
-        return fetch_launchbox_game_data(title, platform)
-    except Exception as exc:
-        errors.append(str(exc))
 
     if errors:
         raise HTTPException(status_code=502, detail=f"LaunchBox detail lookup failed: {errors[-1]}")
@@ -1354,10 +1354,20 @@ def apply_cover_priority(title: str, platform: str, payload: dict) -> dict:
     return payload
 
 
+def fill_missing_primary_art(payload: dict) -> dict:
+    cover_image = payload.get("coverImage")
+    if cover_image and not payload.get("discImage"):
+        payload["discImage"] = cover_image
+    if cover_image and not payload.get("spineImage"):
+        payload["spineImage"] = cover_image
+    return payload
+
+
 def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
     try:
         payload = launchbox_detail_payload(title, platform)
         payload = apply_cover_priority(title, platform, payload)
+        payload = fill_missing_primary_art(payload)
         payload["data_source"] = "launchbox"
         payload["is_partial_fallback"] = False
         payload["completeness"] = {
@@ -1372,6 +1382,7 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
         igdb_payload = fetch_igdb_game_data(title, platform)
         if igdb_payload:
             igdb_payload = apply_cover_priority(title, platform, igdb_payload)
+            igdb_payload = fill_missing_primary_art(igdb_payload)
             return igdb_payload
 
         if ENABLE_KEYLESS_METADATA_FALLBACK:
@@ -1379,6 +1390,7 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
                 metadata_payload = fetch_wikidata_game_data(title, platform)
                 if metadata_payload:
                     metadata_payload = apply_cover_priority(title, platform, metadata_payload)
+                    metadata_payload = fill_missing_primary_art(metadata_payload)
                     return metadata_payload
             except Exception:
                 pass
@@ -1446,9 +1458,8 @@ def apply_fetched_game_data_to_item(item: MediaItem, fetched: dict) -> None:
     is_launchbox_source = source == "launchbox"
 
     item.cover_image = fetched.get("coverImage") or item.cover_image
-    if is_launchbox_source:
-        item.spine_image = fetched.get("spineImage") or item.spine_image
-        item.disc_image = fetched.get("discImage") or item.disc_image
+    item.spine_image = fetched.get("spineImage") or item.spine_image
+    item.disc_image = fetched.get("discImage") or item.disc_image
 
     incoming_release_date = normalize_release_date(fetched.get("release_date"))
     incoming_year_released = fetched.get("year_released")
@@ -2007,9 +2018,9 @@ def choose_launchbox_candidate(candidates: list, title: str, platform: str) -> d
         candidate_platform = normalize_launchbox_key(candidate["platform"])
         candidate_score = 0
 
-        if candidate_title == target_title:
+        if candidate_title and candidate_title == target_title:
             candidate_score += 140
-        elif target_title in candidate_title or candidate_title in target_title:
+        elif candidate_title and target_title and (target_title in candidate_title or candidate_title in target_title):
             candidate_score += 90
 
         if target_tokens and candidate_tokens:
@@ -2022,11 +2033,21 @@ def choose_launchbox_candidate(candidates: list, title: str, platform: str) -> d
             similarity = SequenceMatcher(None, target_title_loose, candidate_title_loose).ratio()
             candidate_score += int(similarity * 50)
 
-        if target_platform and (target_platform in candidate_platform or candidate_platform in target_platform):
+        if target_platform and candidate_platform and (target_platform in candidate_platform or candidate_platform in target_platform):
             candidate_score += 35
         if candidate["title"].strip().lower() == title.strip().lower():
             candidate_score += 10
         return candidate_score
+
+    def is_exact_title_and_platform(candidate: dict) -> bool:
+        candidate_title_loose = normalize_title_for_match(candidate.get("title", ""))
+        candidate_platform_key = normalize_launchbox_key(candidate.get("platform", ""))
+        return (
+            bool(candidate_title_loose)
+            and candidate_title_loose == target_title_loose
+            and bool(candidate_platform_key)
+            and (candidate_platform_key in target_platform or target_platform in candidate_platform_key)
+        )
 
     sorted_candidates = sorted(candidates, key=score, reverse=True)
     best_match = sorted_candidates[0]
@@ -2039,6 +2060,13 @@ def choose_launchbox_candidate(candidates: list, title: str, platform: str) -> d
 
     if len(sorted_candidates) > 1:
         second_score = score(sorted_candidates[1])
+        best_is_exact = is_exact_title_and_platform(best_match)
+        second_is_exact = is_exact_title_and_platform(sorted_candidates[1])
+
+        # If a single candidate has exact title+platform alignment, trust it.
+        if best_is_exact and not second_is_exact:
+            return best_match
+
         # A gap < 30 points between the top two candidates means neither stands out
         # clearly enough to auto-select; surface a 409 so the caller can disambiguate.
         if second_score >= 55 and (best_score - second_score) < 30:

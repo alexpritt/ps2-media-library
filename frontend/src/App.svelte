@@ -2320,11 +2320,13 @@
     }
   }
 
-  async function fetchLaunchBoxGameData(launchboxUrlOverride?: string) {
+  async function fetchLaunchBoxGameData(launchboxUrlOverride?: string | Event) {
     launchboxFetchError = '';
     adminError = '';
     adminMessage = '';
-    const manualLaunchboxUrl = (launchboxUrlOverride ?? '').trim();
+    const manualLaunchboxUrl = typeof launchboxUrlOverride === 'string'
+      ? launchboxUrlOverride.trim()
+      : '';
     if (!manualLaunchboxUrl && !canFetchLaunchBoxGameData()) {
       launchboxFetchError = 'Enter a game title and select a platform first.';
       return;
