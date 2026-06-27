@@ -4229,18 +4229,15 @@
               </button>
             {/each}
           </div>
-          {#if detailItem.category === 'Games' && detailCombinedStarRating != null}
+          {#if detailItem.category === 'Games' || detailItem.category === 'Music'}
             <div class="details-star-ratings" aria-label="Star rating">
               <div class="details-star-row">
                 <span class="details-star-label">Rating</span>
-                <span class="details-stars" aria-label="{detailCombinedStarRating} out of 5 stars">{renderStars(detailCombinedStarRating)}</span>
-              </div>
-            </div>
-          {:else if detailItem.category === 'Music' && detailCombinedStarRating != null}
-            <div class="details-star-ratings" aria-label="Star rating">
-              <div class="details-star-row">
-                <span class="details-star-label">Rating</span>
-                <span class="details-stars" aria-label="{detailCombinedStarRating} out of 5 stars">{renderStars(detailCombinedStarRating)}</span>
+                {#if detailCombinedStarRating != null}
+                  <span class="details-stars" aria-label="{detailCombinedStarRating} out of 5 stars">{renderStars(detailCombinedStarRating)} ({detailCombinedStarRating}/5)</span>
+                {:else}
+                  <span class="details-stars" aria-label="No star rating assigned">Not Rated</span>
+                {/if}
               </div>
             </div>
           {/if}
