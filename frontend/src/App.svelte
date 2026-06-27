@@ -198,6 +198,7 @@
   const CONSOLE_WISHLIST_KEY = 'ps2-console-wishlist';
   const GAME_WISHLIST_KEY = 'ps2-game-wishlist';
   const MUSIC_WISHLIST_KEY = 'ps2-music-wishlist';
+  const DARK_MODE_KEY = 'ps2-dark-mode-enabled';
 
   function apiPath(path: string) {
     if (!API_BASE_URL) return path;
@@ -216,6 +217,7 @@
   let consoleWishlist: WishlistSystemItem[] = [];
   let gameWishlist: WishlistMediaItem[] = [];
   let musicWishlist: WishlistMediaItem[] = [];
+  let darkModeEnabled = false;
 
   let bootVideoRef: HTMLVideoElement | null = null;
   let bootMuted = true;  // true = muted until first user interaction
@@ -744,6 +746,15 @@
     if (stage === 'console') return libraryView === 'wishlist' ? 'Show Console Library' : 'Show Console Wish List';
     if (category === 'Music') return libraryView === 'wishlist' ? 'Show Music Library' : 'Show Music Wish List';
     return libraryView === 'wishlist' ? 'Show Game Library' : 'Show Game Wish List';
+  }
+
+  function toggleDarkMode() {
+    darkModeEnabled = !darkModeEnabled;
+    localStorage.setItem(DARK_MODE_KEY, darkModeEnabled ? 'true' : 'false');
+  }
+
+  function darkModeToggleLabel() {
+    return darkModeEnabled ? 'Disable dark mode' : 'Enable dark mode';
   }
 
   function switchLibraryView(nextView: LibraryView) {
@@ -3458,6 +3469,7 @@
     if (savedToken) {
       adminToken = savedToken;
     }
+      darkModeEnabled = localStorage.getItem(DARK_MODE_KEY) === 'true';
       loadWishlistsFromStorage();
       await loadSystemsFromAPI();
 
@@ -3669,7 +3681,11 @@
     </div>
   </div>
 {:else}
-  <div class="ps2-screen" class:transitioning={isTransitioning}>
+  <div
+    class="ps2-screen"
+    class:transitioning={isTransitioning}
+    class:dark-mode={darkModeEnabled && (stage === 'console' || stage === 'library')}
+  >
     <div class="screen-fog"></div>
     {#if transitionOverlay}
       <div class="transition-overlay" class:to-black={transitionToBlack} style="opacity: {transitionOpacity};" aria-hidden="true"></div>
@@ -3721,6 +3737,23 @@
                 <span class="wishlist-toggle-label">{wishlistToggleContextLabel}</span>
               </span>
               <span class="wishlist-toggle-footer">WISH LIST</span>
+            </button>
+            <span class="toolbar-divider" aria-hidden="true">|</span>
+            <button
+              type="button"
+              class="dark-mode-toggle filter-icon-label-host"
+              data-hover-label="DARK MODE"
+              class:is-active={darkModeEnabled}
+              on:click={toggleDarkMode}
+              aria-label={darkModeToggleLabel()}
+              transition:fade={{ duration: 320, easing: cubicOut }}
+            >
+              <span class="dark-mode-toggle-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3.4a.8.8 0 0 1 .8.8v1.65a.8.8 0 1 1-1.6 0V4.2a.8.8 0 0 1 .8-.8Zm0 14.75a.8.8 0 0 1 .8.8v1.65a.8.8 0 1 1-1.6 0V18.95a.8.8 0 0 1 .8-.8ZM5.82 6.95a.8.8 0 0 1 1.13 0l1.17 1.17a.8.8 0 1 1-1.13 1.13L5.82 8.08a.8.8 0 0 1 0-1.13Zm10.06 10.06a.8.8 0 0 1 1.13 0l1.17 1.17a.8.8 0 0 1-1.13 1.13l-1.17-1.17a.8.8 0 0 1 0-1.13ZM3.4 12a.8.8 0 0 1 .8-.8h1.65a.8.8 0 1 1 0 1.6H4.2a.8.8 0 0 1-.8-.8Zm14.75 0a.8.8 0 0 1 .8-.8h1.65a.8.8 0 1 1 0 1.6h-1.65a.8.8 0 0 1-.8-.8ZM6.95 18.18a.8.8 0 0 1 0-1.13l1.17-1.17a.8.8 0 0 1 1.13 1.13l-1.17 1.17a.8.8 0 0 1-1.13 0Zm10.06-10.06a.8.8 0 0 1 0-1.13l1.17-1.17a.8.8 0 1 1 1.13 1.13l-1.17 1.17a.8.8 0 0 1-1.13 0Z" fill="currentColor"></path>
+                  <path d="M12 7.05a4.95 4.95 0 1 0 0 9.9 4.95 4.95 0 0 0 0-9.9Zm0 1.6a3.35 3.35 0 0 1 0 6.7 3.35 3.35 0 0 1 0-6.7Z" fill="currentColor"></path>
+                </svg>
+              </span>
             </button>
           </div>
           <div class="library-hud-right console-header-count console-header-right">
@@ -3947,6 +3980,22 @@
                   spellcheck="false"
                 />
               </div>
+              <span class="toolbar-divider" aria-hidden="true">|</span>
+              <button
+                type="button"
+                class="dark-mode-toggle filter-icon-label-host"
+                data-hover-label="DARK MODE"
+                class:is-active={darkModeEnabled}
+                on:click={toggleDarkMode}
+                aria-label={darkModeToggleLabel()}
+              >
+                <span class="dark-mode-toggle-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3.4a.8.8 0 0 1 .8.8v1.65a.8.8 0 1 1-1.6 0V4.2a.8.8 0 0 1 .8-.8Zm0 14.75a.8.8 0 0 1 .8.8v1.65a.8.8 0 1 1-1.6 0V18.95a.8.8 0 0 1 .8-.8ZM5.82 6.95a.8.8 0 0 1 1.13 0l1.17 1.17a.8.8 0 1 1-1.13 1.13L5.82 8.08a.8.8 0 0 1 0-1.13Zm10.06 10.06a.8.8 0 0 1 1.13 0l1.17 1.17a.8.8 0 0 1-1.13 1.13l-1.17-1.17a.8.8 0 0 1 0-1.13ZM3.4 12a.8.8 0 0 1 .8-.8h1.65a.8.8 0 1 1 0 1.6H4.2a.8.8 0 0 1-.8-.8Zm14.75 0a.8.8 0 0 1 .8-.8h1.65a.8.8 0 1 1 0 1.6h-1.65a.8.8 0 0 1-.8-.8ZM6.95 18.18a.8.8 0 0 1 0-1.13l1.17-1.17a.8.8 0 0 1 1.13 1.13l-1.17 1.17a.8.8 0 0 1-1.13 0Zm10.06-10.06a.8.8 0 0 1 0-1.13l1.17-1.17a.8.8 0 1 1 1.13 1.13l-1.17 1.17a.8.8 0 0 1-1.13 0Z" fill="currentColor"></path>
+                    <path d="M12 7.05a4.95 4.95 0 1 0 0 9.9 4.95 4.95 0 0 0 0-9.9Zm0 1.6a3.35 3.35 0 0 1 0 6.7 3.35 3.35 0 0 1 0-6.7Z" fill="currentColor"></path>
+                  </svg>
+                </span>
+              </button>
             </div>
           {/if}
 

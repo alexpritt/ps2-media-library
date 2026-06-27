@@ -230,6 +230,13 @@ a,
     linear-gradient(120deg, rgba(172, 172, 172, 0.9), rgba(133, 133, 133, 0.92));
 }
 
+.ps2-screen.dark-mode {
+  background:
+    radial-gradient(circle at 18% 16%, rgba(123, 178, 255, 0.16), transparent 36%),
+    radial-gradient(circle at 80% 26%, rgba(34, 49, 84, 0.45), transparent 56%),
+    linear-gradient(120deg, rgba(18, 25, 44, 0.98), rgba(8, 14, 28, 0.98));
+}
+
 /* Breathing overlay: opacity-only animation on a pseudo-element so CSS can
    smoothly interpolate the value. Uses alternate direction so the loop
    reverses in-place — no velocity discontinuity at the wrap point. */
@@ -255,6 +262,12 @@ a,
     radial-gradient(circle at 11% 88%, rgba(56, 65, 255, 0.22), transparent 28%),
     radial-gradient(circle at 90% 12%, rgba(208, 190, 68, 0.18), transparent 22%);
   mix-blend-mode: screen;
+}
+
+.ps2-screen.dark-mode .screen-fog {
+  background:
+    radial-gradient(circle at 12% 88%, rgba(59, 106, 255, 0.18), transparent 30%),
+    radial-gradient(circle at 88% 14%, rgba(89, 178, 255, 0.15), transparent 26%);
 }
 
 .footer {
@@ -693,6 +706,53 @@ a,
 .library-search-shell.filter-icon-label-host:focus-within::after {
   opacity: 1;
   transform: translate(-50%, -4px);
+}
+
+.dark-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--hud-white);
+  padding: 0;
+  cursor: pointer;
+  transition: color 180ms ease;
+  text-shadow: none;
+}
+
+.dark-mode-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dark-mode-toggle-icon svg {
+  width: 24px;
+  height: 24px;
+  opacity: 0.86;
+  transition: opacity 220ms ease;
+}
+
+.dark-mode-toggle:hover,
+.dark-mode-toggle:focus-visible {
+  color: #7ecbff;
+}
+
+.dark-mode-toggle:hover .dark-mode-toggle-icon svg,
+.dark-mode-toggle:focus-visible .dark-mode-toggle-icon svg {
+  opacity: 1;
+}
+
+.dark-mode-toggle.is-active {
+  color: #7ecbff;
+}
+
+.dark-mode-toggle.is-active .dark-mode-toggle-icon svg {
+  opacity: 1;
 }
 
   .wishlist-toggle {
