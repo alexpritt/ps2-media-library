@@ -1387,7 +1387,7 @@
   }
 
   function setPage(nextPage: number) {
-    page = Math.max(0, Math.min(totalPages - 1, nextPage));
+    page = Math.max(0, Math.min(activeStageTotalPages - 1, nextPage));
     history.pushState(currentHistoryState(), '');
   }
 
