@@ -4135,7 +4135,7 @@
         transition:popupOverlayTransition
       ></button>
 
-      <section class="details-screen" transition:popupPanelTransition>
+      <section class="details-screen" class:dark-mode={darkModeEnabled} transition:popupPanelTransition>
         <button type="button" class="popup-close details-close" aria-label="Close details" on:click={closeDetails}>×</button>
         {#if detailsConsoleLogo}
           <img src={detailsConsoleLogo} alt="" class="details-console-logo-bg" aria-hidden="true" draggable="false" />
@@ -4283,7 +4283,7 @@
         on:click={closeWishlistConsoleDetails}
         transition:popupOverlayTransition
       ></button>
-      <section class="details-screen details-screen--console-wishlist" transition:popupPanelTransition>
+      <section class="details-screen details-screen--console-wishlist" class:dark-mode={darkModeEnabled} transition:popupPanelTransition>
         <button type="button" class="popup-close details-close" aria-label="Close console details" on:click={closeWishlistConsoleDetails}>×</button>
         <div class="details-left details-left--console-wishlist">
           <div class="systems-logo-container systems-logo-container--detail">
