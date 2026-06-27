@@ -13,10 +13,11 @@ Small freeware-style app for managing a physical game/music collection today, wi
 
 ## Recent Updates
 
-- ⭐ Added star ratings for games (gameplay + plot) and albums, plus star-based filtering.
-- 🎬 Hardened boot intro playback: R2-first source, improved failover, iOS inline compatibility, and mobile intro fallback support.
-- 🎛️ Refined library HUD and popup controls across desktop/mobile for better consistency and usability.
-- 🛠️ Fixed admin game add/edit + bulk upload reliability by improving platform fallback/validation when system options are empty.
+- ⭐ Simplified game ratings into a single star value, improved fallback behavior, and made the selected rating always visible in detail popups.
+- 🌙 Added dark mode toggle polish with smooth background/fog transitions and fixed persistence in popup/detail views.
+- 🧰 Expanded admin game workflow with manual LaunchBox URL fetch support and clearer fetch labeling.
+- 📱 Improved mobile ergonomics across admin/detail screens (larger close targets, better header/footer spacing, cleaner action placement).
+- 🖼️ Refined library visuals: better console logo readability/placement, wishlist logo accuracy by selected console, and subtle header-logo hover fade behavior.
 
 ## Stack
 
