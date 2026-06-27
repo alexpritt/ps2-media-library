@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 import main
 
 
@@ -59,7 +61,48 @@ class CoverPriorityTests(unittest.TestCase):
             payload = main.fetch_game_art_options_with_fallback("God of War", "PlayStation 2", "cover")
 
         self.assertEqual(payload["options"], ["lb1", "lb2", "igdb1", "lib1"])
-        self.assertEqual(payload["data_source"], "launchbox-igdb-libretro")
+        self.assertEqual(payload["data_source"], "launchbox-with-fallbacks")
+
+    def test_launchbox_missing_disc_and_spine_remain_empty(self):
+        launchbox_payload = {
+            "title": "Uncharted 2: Among Thieves",
+            "platform": "PlayStation 3",
+            "coverImage": "launchbox-cover",
+            "discImage": None,
+            "spineImage": None,
+            "publishers": [],
+            "gameGenres": [],
+            "notes": None,
+            "rating": None,
+            "players": None,
+            "cooperative": None,
+            "release_date": None,
+            "year_released": None,
+        }
+
+        with patch.object(main, "launchbox_detail_payload", return_value=launchbox_payload), patch.object(
+            main,
+            "resolve_cover_image_with_priority",
+            return_value=("launchbox-cover", "launchbox"),
+        ):
+            payload = main.fetch_game_data_with_fallback("Uncharted 2: Among Thieves", "PlayStation 3")
+
+        self.assertEqual(payload["coverImage"], "launchbox-cover")
+        self.assertIsNone(payload["discImage"])
+        self.assertIsNone(payload["spineImage"])
+        self.assertIn("disc", payload["launchbox_unavailable_resources"])
+        self.assertIn("spine", payload["launchbox_unavailable_resources"])
+
+    def test_art_options_returns_status_when_launchbox_unavailable(self):
+        with patch.object(
+            main,
+            "fetch_launchbox_game_art_options",
+            side_effect=HTTPException(status_code=404, detail="No LaunchBox art options found for that category."),
+        ):
+            payload = main.fetch_game_art_options_with_fallback("Resistance 3", "PlayStation 3", "spine")
+
+        self.assertEqual(payload["options"], [])
+        self.assertIn("LaunchBox has no spine art", payload["status_message"])
 
 
 if __name__ == "__main__":

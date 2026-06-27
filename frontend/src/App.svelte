@@ -67,7 +67,7 @@
 
   type GameArtField = 'cover_image' | 'spine_image' | 'disc_image';
   type LaunchboxArtKind = 'cover' | 'disc' | 'spine';
-  type DataSource = 'launchbox' | 'mobygames' | 'rawg' | 'cache' | 'unknown';
+  type DataSource = 'launchbox' | 'mobygames' | 'rawg' | 'igdb' | 'libretro' | 'wikidata' | 'cache' | 'unknown';
   type DetailTagTone = 'blue' | 'cyan' | 'green' | 'amber' | 'rose' | 'violet';
 
   type DetailTag = {
@@ -1830,8 +1830,35 @@
     if (source === 'mobygames') return 'MobyGames';
     if (source === 'rawg') return 'RAWG';
     if (source === 'igdb') return 'IGDB';
+    if (source === 'libretro') return 'Libretro';
+    if (source === 'wikidata') return 'Wikidata';
     if (source === 'cache') return 'cache';
     return 'backup source';
+  }
+
+  function unavailableArtLabel(resource: string, platform: string) {
+    const normalized = resource.trim().toLowerCase();
+    if (normalized === 'cover') return 'Box Art';
+    if (normalized === 'spine') return 'Spine Art';
+    if (normalized === 'cart') return 'Cart Art';
+    if (normalized === 'disc') {
+      const platformKey = platform.trim().toLowerCase();
+      if (platformKey.includes('nintendo ds') || platformKey.includes('3ds') || platformKey.includes('game boy')) {
+        return 'Cart Art';
+      }
+      return 'Disc Art';
+    }
+    return '';
+  }
+
+  function formatLaunchboxUnavailableStatus(resources: unknown, platform: string) {
+    if (!Array.isArray(resources)) return '';
+    const labels = resources
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => unavailableArtLabel(entry, platform))
+      .filter((entry) => entry.trim().length > 0);
+    if (!labels.length) return '';
+    return `LaunchBox did not have ${labels.join(', ')} for this game. Missing fields were left unchanged.`;
   }
 
   function closeLaunchboxArtPicker() {
@@ -1884,12 +1911,16 @@
         return;
       }
 
+      const statusMessage = typeof data?.status_message === 'string' ? data.status_message.trim() : '';
+
       launchboxArtOptions = Array.isArray(data?.options)
         ? data.options.filter((entry: unknown) => typeof entry === 'string' && entry.trim())
         : [];
 
       if (!launchboxArtOptions.length) {
-        launchboxArtPickerError = 'No art options were returned for this category.';
+        launchboxArtPickerError = statusMessage || 'No art options were returned for this category.';
+      } else if (statusMessage) {
+        launchboxArtPickerError = statusMessage;
       }
     } catch {
       launchboxArtPickerError = 'Could not fetch art options from any source.';
@@ -1905,7 +1936,7 @@
       ...adminForm,
       [launchboxArtPickerField]: imageData,
     } as AdminForm;
-    adminMessage = `${label} selected from LaunchBox.`;
+    adminMessage = `${label} selected from available sources.`;
     adminError = '';
     launchboxFetchError = '';
     closeLaunchboxArtPicker();
@@ -2204,6 +2235,7 @@
     const nextResults: { line: string; status: 'success' | 'error'; message: string }[] = [];
     let successCount = 0;
     let errorCount = 0;
+    let unavailableResourceCount = 0;
 
     try {
       for (const line of lines) {
@@ -2273,8 +2305,15 @@
           } else {
             const singleResult = Array.isArray(data?.results) && data.results.length ? data.results[0] : null;
             const status = singleResult?.status === 'success' ? 'success' : 'error';
+            const statusNote = typeof singleResult?.status_note === 'string' ? singleResult.status_note.trim() : '';
+            const unavailableResources = Array.isArray(singleResult?.unavailable_resources)
+              ? singleResult.unavailable_resources.filter((entry: unknown) => typeof entry === 'string' && entry.trim())
+              : [];
             if (status === 'success') {
               successCount += 1;
+              if (statusNote || unavailableResources.length) {
+                unavailableResourceCount += 1;
+              }
             } else {
               errorCount += 1;
             }
@@ -2282,7 +2321,9 @@
               line: singleResult?.line ?? line,
               status,
               message: status === 'success'
-                ? `Added: ${singleResult?.title ?? 'Created item'}`
+                ? (statusNote
+                  ? `Added: ${singleResult?.title ?? 'Created item'} (${statusNote})`
+                  : `Added: ${singleResult?.title ?? 'Created item'}`)
                 : `Error: ${singleResult?.error ?? 'Unknown upload error'}`,
             });
           }
@@ -2305,7 +2346,9 @@
       if (!bulkStatusText && bulkTotalCount > 0) {
         bulkStatusText = `Processed ${bulkProcessedCount}/${bulkTotalCount}. ${successCount} succeeded, ${errorCount} failed.`;
       }
-      if (errorCount > 0) {
+      if (unavailableResourceCount > 0) {
+        bulkErrorText = `${unavailableResourceCount} successful item${unavailableResourceCount === 1 ? '' : 's'} had missing LaunchBox artwork resources. See details below.`;
+      } else if (errorCount > 0) {
         bulkErrorText = `${errorCount} item${errorCount === 1 ? '' : 's'} failed. See details below.`;
       }
       await Promise.all([loadAllMedia(), loadMedia()]);
@@ -2402,6 +2445,10 @@
       }
 
       const sourceLabel = formatDataSourceLabel(data?.data_source);
+      const unavailableStatus = formatLaunchboxUnavailableStatus(
+        data?.launchbox_unavailable_resources,
+        requestedPlatform,
+      );
 
       adminForm = {
         ...adminForm,
@@ -2429,6 +2476,7 @@
         adminGameGenreChoice = '';
       }
       adminMessage = `Game data loaded from ${sourceLabel}.`;
+      launchboxFetchError = unavailableStatus;
     } catch {
       launchboxFetchError = 'Could not fetch game data from available sources.';
     } finally {

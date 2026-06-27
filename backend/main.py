@@ -1355,17 +1355,72 @@ def apply_cover_priority(title: str, platform: str, payload: dict) -> dict:
 
 
 def fill_missing_primary_art(payload: dict) -> dict:
-    cover_image = payload.get("coverImage")
-    if cover_image and not payload.get("discImage"):
-        payload["discImage"] = cover_image
-    if cover_image and not payload.get("spineImage"):
-        payload["spineImage"] = cover_image
+    # Disc/cart and spine artwork should only be set from explicit matches.
+    # Do not infer them from cover art.
     return payload
+
+
+def launchbox_completeness_from_payload(payload: dict, platform: str) -> dict:
+    is_cartridge_platform = is_cartridge_platform_name(platform)
+    has_disc = bool(payload.get("discImage"))
+    has_cart = has_disc if is_cartridge_platform else False
+    return {
+        "metadata": True,
+        "cover": bool(payload.get("coverImage")),
+        "disc": has_disc,
+        "spine": bool(payload.get("spineImage")),
+        "cart": has_cart,
+    }
+
+
+def launchbox_unavailable_resources(completeness: Optional[dict], platform: str) -> List[str]:
+    if not isinstance(completeness, dict):
+        return []
+
+    missing: List[str] = []
+    if not bool(completeness.get("cover")):
+        missing.append("cover")
+
+    is_cartridge_platform = is_cartridge_platform_name(platform)
+    if is_cartridge_platform:
+        if not (bool(completeness.get("cart")) or bool(completeness.get("disc"))):
+            missing.append("cart")
+    elif not bool(completeness.get("disc")):
+        missing.append("disc")
+
+    if not bool(completeness.get("spine")):
+        missing.append("spine")
+    return missing
+
+
+def launchbox_unavailable_status_message(resources: List[str], platform: str) -> str:
+    if not resources:
+        return ""
+    labels: List[str] = []
+    for resource in resources:
+        if resource == "cover":
+            labels.append("Box Art")
+        elif resource == "disc":
+            labels.append("Disc Art")
+        elif resource == "cart":
+            labels.append("Cart Art")
+        elif resource == "spine":
+            labels.append("Spine Art")
+
+    if not labels:
+        return ""
+    return (
+        "LaunchBox did not have "
+        + ", ".join(labels)
+        + f" for {platform}. Any missing fields were left unchanged."
+    )
 
 
 def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
     try:
         payload = launchbox_detail_payload(title, platform)
+        lb_completeness = launchbox_completeness_from_payload(payload, platform)
+        payload["launchbox_completeness"] = lb_completeness
         payload = apply_cover_priority(title, platform, payload)
         payload = fill_missing_primary_art(payload)
         payload["data_source"] = "launchbox"
@@ -1377,12 +1432,24 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
             "spine": bool(payload.get("spineImage")),
             "cart": False,
         }
+        unavailable_resources = launchbox_unavailable_resources(lb_completeness, platform)
+        payload["launchbox_unavailable_resources"] = unavailable_resources
+        payload["launchbox_status"] = launchbox_unavailable_status_message(unavailable_resources, platform)
         return payload
     except Exception as exc:
         igdb_payload = fetch_igdb_game_data(title, platform)
         if igdb_payload:
             igdb_payload = apply_cover_priority(title, platform, igdb_payload)
             igdb_payload = fill_missing_primary_art(igdb_payload)
+            igdb_payload["launchbox_completeness"] = {
+                "metadata": False,
+                "cover": False,
+                "disc": False,
+                "spine": False,
+                "cart": False,
+            }
+            igdb_payload["launchbox_unavailable_resources"] = []
+            igdb_payload["launchbox_status"] = ""
             return igdb_payload
 
         if ENABLE_KEYLESS_METADATA_FALLBACK:
@@ -1391,6 +1458,15 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
                 if metadata_payload:
                     metadata_payload = apply_cover_priority(title, platform, metadata_payload)
                     metadata_payload = fill_missing_primary_art(metadata_payload)
+                    metadata_payload["launchbox_completeness"] = {
+                        "metadata": False,
+                        "cover": False,
+                        "disc": False,
+                        "spine": False,
+                        "cart": False,
+                    }
+                    metadata_payload["launchbox_unavailable_resources"] = []
+                    metadata_payload["launchbox_status"] = ""
                     return metadata_payload
             except Exception:
                 pass
@@ -1405,53 +1481,71 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
 
 
 def fetch_game_art_options_with_fallback(title: str, platform: str, art_type: str) -> dict:
+    if art_type not in {"cover", "disc", "spine", "cart"}:
+        raise HTTPException(status_code=400, detail="Invalid art_type. Use cover, disc, spine, or cart.")
+
+    def append_unique(target: List[str], entries: List[str]) -> int:
+        added = 0
+        for entry in entries:
+            if isinstance(entry, str) and entry and entry not in target:
+                target.append(entry)
+                added += 1
+        return added
+
+    options: List[str] = []
+    source_counts: Dict[str, int] = {}
+    status_notes: List[str] = []
+
+    try:
+        launchbox_payload = fetch_launchbox_game_art_options(title, platform, art_type)
+        launchbox_list = launchbox_payload.get("options", []) if isinstance(launchbox_payload, dict) else []
+        source_counts["launchbox"] = append_unique(options, launchbox_list)
+    except Exception:
+        source_counts["launchbox"] = 0
+        status_notes.append(f"LaunchBox has no {art_type} art for this match.")
+
     if art_type == "cover":
-        options: List[str] = []
-
-        try:
-            launchbox_options = fetch_launchbox_game_art_options(title, platform, art_type)
-            launchbox_list = launchbox_options.get("options", []) if isinstance(launchbox_options, dict) else []
-            for launchbox_cover in launchbox_list:
-                if isinstance(launchbox_cover, str) and launchbox_cover and launchbox_cover not in options:
-                    options.append(launchbox_cover)
-        except Exception:
-            pass
-
-        for igdb_cover in fetch_igdb_cover_options(title, platform, limit=8):
-            if igdb_cover not in options:
-                options.append(igdb_cover)
+        source_counts["igdb"] = append_unique(options, fetch_igdb_cover_options(title, platform, limit=8))
 
         libretro_cover = fetch_libretro_cover_image(title, platform)
-        if libretro_cover and libretro_cover not in options:
-            options.append(libretro_cover)
+        source_counts["libretro"] = append_unique(options, [libretro_cover] if libretro_cover else [])
 
-        if options:
-            return {
-                "title": title,
-                "platform": platform,
-                "artType": art_type,
-                "options": options,
-                "data_source": "launchbox-igdb-libretro",
-            }
+    if ENABLE_MOBYGAMES_SCRAPE_FALLBACK:
+        try:
+            moby_payload = fetch_mobygames_game_art_options(title, platform, art_type)
+            moby_list = moby_payload.get("options", []) if isinstance(moby_payload, dict) else []
+            source_counts["mobygames"] = append_unique(options, moby_list)
+        except Exception:
+            source_counts["mobygames"] = 0
+    else:
+        source_counts["mobygames"] = 0
 
-        raise HTTPException(
-            status_code=404,
-            detail="Could not fetch cover art from LaunchBox, IGDB, or Libretro.",
-        )
+    if not options:
+        status_notes.append("No approved fallback source returned images for this category.")
 
-    # Disc/spine/cart remain LaunchBox-only by policy.
-    try:
-        launchbox_options = fetch_launchbox_game_art_options(title, platform, art_type)
-        launchbox_options["data_source"] = "launchbox"
-        return launchbox_options
-    except Exception as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"Could not fetch {art_type} art. LaunchBox art is unavailable. "
-                "Disc/spine/cart art are LaunchBox-only. Use manual upload while LaunchBox is down."
-            ),
-        ) from exc
+    is_cartridge_platform = is_cartridge_platform_name(platform)
+    if art_type == "cover":
+        art_label = "Box Art"
+    elif art_type == "spine":
+        art_label = "Spine Art"
+    elif art_type == "cart" or (art_type == "disc" and is_cartridge_platform):
+        art_label = "Cart Art"
+    else:
+        art_label = "Disc Art"
+
+    status_message = ""
+    if status_notes:
+        status_message = f"{art_label} status: " + " ".join(status_notes)
+
+    return {
+        "title": title,
+        "platform": platform,
+        "artType": art_type,
+        "options": options,
+        "data_source": "launchbox-with-fallbacks",
+        "source_breakdown": source_counts,
+        "status_message": status_message,
+    }
 
 
 def apply_fetched_game_data_to_item(item: MediaItem, fetched: dict) -> None:
@@ -2728,6 +2822,11 @@ def fetch_game_data(payload: LaunchboxGameDataRequest, authorization: Optional[s
 
     if launchbox_url:
         fetched = fetch_launchbox_game_data_from_url(launchbox_url, platform, title)
+        lb_completeness = launchbox_completeness_from_payload(fetched, platform)
+        fetched["launchbox_completeness"] = lb_completeness
+        unavailable_resources = launchbox_unavailable_resources(lb_completeness, platform)
+        fetched["launchbox_unavailable_resources"] = unavailable_resources
+        fetched["launchbox_status"] = launchbox_unavailable_status_message(unavailable_resources, platform)
         fetched = apply_cover_priority(title, platform, fetched)
         fetched["data_source"] = "launchbox"
     else:
@@ -2745,8 +2844,14 @@ def fetch_game_data(payload: LaunchboxGameDataRequest, authorization: Optional[s
             data["data_source"] = fetched.get("data_source", "launchbox")
             data["is_partial_fallback"] = bool(fetched.get("is_partial_fallback"))
             data["completeness"] = fetched.get("completeness")
+            data["launchbox_completeness"] = fetched.get("launchbox_completeness")
+            data["launchbox_unavailable_resources"] = fetched.get("launchbox_unavailable_resources", [])
+            data["launchbox_status"] = fetched.get("launchbox_status", "")
             return data
 
+    fetched["launchbox_completeness"] = fetched.get("launchbox_completeness")
+    fetched["launchbox_unavailable_resources"] = fetched.get("launchbox_unavailable_resources", [])
+    fetched["launchbox_status"] = fetched.get("launchbox_status", "")
     return fetched
 
 
@@ -2773,6 +2878,9 @@ def refresh_game_data(item_id: int, authorization: Optional[str] = Header(defaul
         data["data_source"] = fetched.get("data_source", "launchbox")
         data["is_partial_fallback"] = bool(fetched.get("is_partial_fallback"))
         data["completeness"] = fetched.get("completeness")
+        data["launchbox_completeness"] = fetched.get("launchbox_completeness")
+        data["launchbox_unavailable_resources"] = fetched.get("launchbox_unavailable_resources", [])
+        data["launchbox_status"] = fetched.get("launchbox_status", "")
         return data
 
 
@@ -2871,7 +2979,16 @@ def bulk_upload_games(payload: BulkGamesRequest, authorization: Optional[str] = 
             session.add(item)
             session.commit()
             session.refresh(item)
-            results.append({"line": line, "status": "success", "id": item.id, "title": item.title})
+            results.append(
+                {
+                    "line": line,
+                    "status": "success",
+                    "id": item.id,
+                    "title": item.title,
+                    "unavailable_resources": fetched.get("launchbox_unavailable_resources", []),
+                    "status_note": fetched.get("launchbox_status", ""),
+                }
+            )
 
     return {"results": results}
 
