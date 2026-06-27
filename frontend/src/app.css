@@ -1439,33 +1439,21 @@ a,
 
   .console-hud .console-toolbar,
   .library-hud .library-toolbar {
-    margin-right: 6px;
-  }
-
-  .library-hud .library-toolbar {
     margin-right: 24px;
   }
 
   .console-hud .console-header-right,
   .library-hud .console-header-right {
-    padding-left: 10px;
-  }
-
-  .library-hud .console-header-right {
     min-width: 0;
     padding-left: 0;
   }
 
+  .console-hud .console-hover-meta,
   .library-hud .console-hover-meta {
     margin-left: 0;
   }
 
-  .console-hud .console-header-right {
-    height: 116px;
-    min-height: 116px;
-    box-sizing: border-box;
-  }
-
+  .console-hud .console-header-right,
   .library-hud .console-header-right {
     height: 116px;
     min-height: 116px;
