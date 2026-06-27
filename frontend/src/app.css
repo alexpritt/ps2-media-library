@@ -4615,14 +4615,51 @@ select option {
   }
 
   .details-screen {
-    inset: 12% 4% 17% 4%;
-    padding: 14px 12px 68px;
-    gap: 10px;
+    inset: max(8px, env(safe-area-inset-top, 0px) + 8px) 8px max(8px, env(safe-area-inset-bottom, 0px) + 8px) 8px;
+    grid-template-columns: 1fr;
+    align-content: start;
+    align-items: start;
+    gap: 14px;
+    padding: 18px 14px 16px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .details-left {
+    width: 100%;
+  }
+
+  .details-console-logo-bg {
+    display: none;
+  }
+
+  .details-rotator-control,
+  .details-rotator {
+    width: min(170px, 46vw);
+    height: min(170px, 46vw);
+  }
+
+  .details-vinyl {
+    width: min(152px, 42vw);
+    height: min(152px, 42vw);
+  }
+
+  .details-vinyl .vinyl-sleeve {
+    width: calc(min(152px, 42vw) - 8px);
+    height: calc(min(152px, 42vw) - 8px);
+  }
+
+  .details-vinyl .vinyl-record {
+    width: calc(min(152px, 42vw) - 28px);
+    height: calc(min(152px, 42vw) - 28px);
   }
 
   .details-right {
     padding: 0;
     max-width: 100%;
+    width: 100%;
   }
 
   .details-tags {
@@ -4637,13 +4674,37 @@ select option {
 
   .details-line-5 {
     line-height: 1.45;
-    max-height: 24vh;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .details-admin-actions {
     width: 100%;
-    justify-content: flex-end;
+    justify-content: flex-start;
     gap: 12px;
+  }
+
+  .details-actions {
+    position: static;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+    margin-top: 4px;
+    padding-top: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+
+  .details-back {
+    width: 100%;
+    text-align: left;
+  }
+
+  .details-admin-actions button {
+    flex: 1 1 120px;
   }
 
   .confirm-actions {
@@ -5154,12 +5215,37 @@ select option {
 
   .details-vinyl {
     width: 138px;
-    height: 138px;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .details-actions {
+    position: static;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+    margin-top: 4px;
+    padding-top: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+
+  .details-back {
+    width: 100%;
+    text-align: left;
   }
 
   .details-vinyl .vinyl-sleeve {
     width: 128px;
-    height: 128px;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .details-admin-actions button {
+    flex: 1 1 120px;
   }
 
   .details-vinyl .vinyl-record {
