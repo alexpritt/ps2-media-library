@@ -4238,12 +4238,14 @@
                   alt={consoleHeaderOption.name}
                   class="console-header-logo"
                   class:console-header-logo--hidden={!hoveredConsoleFadeVisible}
+                  transition:fade={{ duration: 220, easing: cubicOut }}
                   draggable="false"
                 />
               {/if}
               <span
                 class="console-header-copy console-header-count-copy console-header-subcopy"
                 class:console-header-copy--hidden={hoveredConsoleFadeVisible}
+                transition:fade={{ duration: 220, easing: cubicOut }}
               >
                 {hoveredConsoleFadeVisible ? hoveredConsoleCountLabel : consoleCountCopy}
               </span>
