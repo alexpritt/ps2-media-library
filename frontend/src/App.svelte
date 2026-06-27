@@ -87,9 +87,11 @@
   };
 
   const ZOOM_TRANSITION_MS = 900;
-  const API_BASE_URL = import.meta.env.DEV
-    ? (import.meta.env.VITE_API_BASE_URL || '')
-    : (import.meta.env.VITE_API_BASE_URL || 'https://ps2-media-library-api.fly.dev');
+  const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim();
+  const isLocalPreviewHost = typeof window !== 'undefined'
+    && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+  const API_BASE_URL = configuredApiBaseUrl
+    || (isLocalPreviewHost ? '' : 'https://ps2-media-library-api.fly.dev');
 
   const fallbackConsoles: ConsoleOption[] = [
     { name: 'PlayStation 2', shortName: 'PS2', logo: 'PS2',
@@ -161,8 +163,8 @@
   ];
   const cooperativeOptions = ['No', 'Yes'];
   const SITE_LOGO_SRC = '/brand-logo.png';
-  const BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro1080.mp4';
-  const BOOT_MOBILE_VIDEO_SRC = (import.meta.env.VITE_BOOT_MOBILE_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro720.mp4';
+  const BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro.mov';
+  const BOOT_MOBILE_VIDEO_SRC = (import.meta.env.VITE_BOOT_MOBILE_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro.mov';
 
   function isMobileClient() {
     if (typeof navigator === 'undefined') return false;
@@ -228,11 +230,12 @@
   let bootResumeAtSix = false;
   let bootRescueTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootPlaybackRetryInterval: ReturnType<typeof setInterval> | null = null;
+  let bootLastTouchAt = 0;
 
   const bootSkipHintText = isMobile ? 'Tap to skip intro' : 'Press spacebar to skip intro';
   $: bootMuteHintText = bootMuted
-    ? (isMobile ? 'Tap to enable audio' : 'Click to enable audio')
-    : (isMobile ? 'Tap to mute' : 'Click to mute');
+    ? (isMobile ? 'Double tap to enable audio' : 'Press M to enable audio')
+    : (isMobile ? 'Double tap to mute' : 'Press M to mute');
   let bootHardFailTimeout: ReturnType<typeof setTimeout> | null = null;
   let bootSourceIndex = 0;
   let bootVideoSource = BOOT_VIDEO_SOURCES[0] ?? BOOT_VIDEO_SRC;
@@ -1103,10 +1106,25 @@
     setBootMuted(!bootMuted, true);
   }
 
+  function handleBootScreenTouchEnd(event: TouchEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.boot-option')) return;
+    if (!isMobile) return;
+
+    const now = Date.now();
+    if (now - bootLastTouchAt <= 330) {
+      toggleBootMute();
+      bootLastTouchAt = 0;
+      return;
+    }
+    bootLastTouchAt = now;
+  }
+
   function handleBootScreenClick(event: MouseEvent) {
     const target = event.target as HTMLElement | null;
     if (target?.closest('.boot-option')) return;
-    toggleBootMute();
+    if (isMobile) return;
+    // Desktop mute is controlled by the M key.
   }
 
 
@@ -2417,8 +2435,6 @@
 
   function skipBootIntro() {
     if (stage !== 'boot' || bootTextVisible) return;
-
-    unlockBootAudio();
     bootResumeAtSix = true;
     bootStartAt = BOOT_SKIP_TIME;
 
@@ -2460,9 +2476,12 @@
     return event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar';
   }
 
+  function isBootMuteKey(event: KeyboardEvent) {
+    return event.key.toLowerCase() === 'm';
+  }
+
   async function handleBootPick(categoryName: Category) {
     bootHover = categoryName;
-    unlockBootAudio();
     libraryView = 'owned';
     selectedWishlistConsole = null;
     selectedWishlistItem = null;
@@ -3139,11 +3158,14 @@
     adminBusy = true;
     adminError = '';
     adminMessage = '';
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
       const response = await fetch(apiPath('/api/admin/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: adminPassword }),
+        signal: controller.signal,
       });
       if (!response.ok) {
         adminError = 'Incorrect password.';
@@ -3155,9 +3177,14 @@
       adminPassword = '';
       adminMessage = 'Admin mode enabled.';
       await loadAllMedia();
-    } catch {
-      adminError = 'Admin login failed.';
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        adminError = 'Admin login timed out. Please try again.';
+      } else {
+        adminError = 'Admin login failed.';
+      }
     } finally {
+      clearTimeout(timeoutId);
       adminBusy = false;
     }
   }
@@ -3341,11 +3368,17 @@
   }
 
   function handleGlobalBootKeydown(event: KeyboardEvent) {
-    if (!isBootSpaceKey(event)) return;
     if (stage !== 'boot' || bootTextVisible) return;
-    event.preventDefault();
-    unlockBootAudio();
-    skipBootIntro();
+    if (isBootMuteKey(event)) {
+      event.preventDefault();
+      toggleBootMute();
+      return;
+    }
+    if (isBootSpaceKey(event)) {
+      event.preventDefault();
+      unlockBootAudio();
+      skipBootIntro();
+    }
   }
 
   function handleGlobalEscapeKeydown(event: KeyboardEvent) {
@@ -3486,17 +3519,17 @@
     class="boot-screen"
     role="button"
     tabindex="0"
-    aria-label="Toggle boot audio mute"
+    aria-label={isMobile ? 'Double tap to toggle boot audio' : 'Press M to toggle boot audio'}
     on:click={handleBootScreenClick}
+    on:touchend={handleBootScreenTouchEnd}
     on:keydown={(event) => {
-      if (event.key === 'Enter') {
+      if (event.key.toLowerCase() === 'm') {
         event.preventDefault();
         toggleBootMute();
         return;
       }
       if (event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar') {
         event.preventDefault();
-        unlockBootAudio();
         skipBootIntro();
       }
     }}
@@ -3625,32 +3658,36 @@
         <div class="console-hud">
           <div class="library-hud-left console-header-shell">
             <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
+            <span class="wishlist-context-copy" transition:fade={{ duration: 320, easing: cubicOut }}>{wishlistToggleContextLabel}</span>
             <button
               type="button"
               class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-header"
               class:is-active={libraryView === 'wishlist'}
               on:click={toggleWishlistView}
               aria-label={wishlistIconLabel()}
+              transition:fade={{ duration: 320, easing: cubicOut }}
             >
               <span class="wishlist-toggle-toprow">
-                <span class="wishlist-toggle-icon" aria-hidden="true">
+                <span class="wishlist-toggle-icon wishlist-toggle-icon--header" aria-hidden="true">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
                     <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
                   </svg>
+                  <span class="wishlist-toggle-footer wishlist-toggle-footer--under-icon">WISH LIST</span>
                 </span>
                 <span class="wishlist-toggle-label">{wishlistToggleContextLabel}</span>
               </span>
-              <span class="wishlist-toggle-footer">WISH LIST</span>
             </button>
           </div>
-          <div class="console-toolbar">
+          <div class="console-toolbar" transition:fade={{ duration: 320, easing: cubicOut }}>
             <button
               type="button"
-              class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar"
+              class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar filter-icon-label-host"
+              data-hover-label="WISH LIST"
               class:is-active={libraryView === 'wishlist'}
               on:click={toggleWishlistView}
               aria-label={wishlistIconLabel()}
+              transition:fade={{ duration: 320, easing: cubicOut }}
             >
               <span class="wishlist-toggle-toprow">
                 <span class="wishlist-toggle-icon" aria-hidden="true">
@@ -3729,37 +3766,43 @@
         <div class="library-hud">
           <div class="library-hud-left">
             <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
-            {#if stage === 'library'}
+            {#if stage !== 'console'}
+              <span class="wishlist-context-copy" transition:fade={{ duration: 320, easing: cubicOut }}>{wishlistToggleContextLabel}</span>
+            {/if}
+            {#if stage !== 'console'}
               <button
                 type="button"
                 class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-header"
                 class:is-active={libraryView === 'wishlist'}
                 on:click={toggleWishlistView}
                 aria-label={wishlistIconLabel()}
+                transition:fade={{ duration: 320, easing: cubicOut }}
               >
                 <span class="wishlist-toggle-toprow">
-                  <span class="wishlist-toggle-icon" aria-hidden="true">
+                  <span class="wishlist-toggle-icon wishlist-toggle-icon--header" aria-hidden="true">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
                       <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
                     </svg>
+                    <span class="wishlist-toggle-footer wishlist-toggle-footer--under-icon">WISH LIST</span>
                   </span>
                   <span class="wishlist-toggle-label">{wishlistToggleContextLabel}</span>
                 </span>
-                <span class="wishlist-toggle-footer">WISH LIST</span>
               </button>
             {/if}
           </div>
 
-          {#if stage === 'library'}
-            <div class="library-toolbar">
+          {#if stage !== 'console'}
+            <div class="library-toolbar" transition:fade={{ duration: 320, easing: cubicOut }}>
               {#if category === 'Games'}
                 <button
                   type="button"
-                  class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar"
+                  class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar filter-icon-label-host"
+                  data-hover-label="WISH LIST"
                   class:is-active={libraryView === 'wishlist'}
                   on:click={toggleWishlistView}
                   aria-label={wishlistIconLabel()}
+                  transition:fade={{ duration: 320, easing: cubicOut }}
                 >
                   <span class="wishlist-toggle-toprow">
                     <span class="wishlist-toggle-icon" aria-hidden="true">
@@ -3776,7 +3819,8 @@
                 <div class="players-filter">
                   <button
                     type="button"
-                    class="players-filter-btn"
+                    class="players-filter-btn filter-icon-label-host"
+                    data-hover-label="PLAYERS"
                     class:is-active={libraryPlayersFilter !== null}
                     on:click={() => { playersDropdownOpen = !playersDropdownOpen; starDropdownOpen = false; }}
                     aria-label="Filter by player count"
@@ -3814,7 +3858,8 @@
               <div class="star-filter">
                 <button
                   type="button"
-                  class="star-filter-btn"
+                  class="star-filter-btn filter-icon-label-host"
+                  data-hover-label="STARS"
                   class:is-active={libraryStarFilter !== null}
                   on:click={() => { starDropdownOpen = !starDropdownOpen; playersDropdownOpen = false; }}
                   aria-label="Filter by star rating"
@@ -3848,7 +3893,7 @@
                 {/if}
               </div>
               <span class="toolbar-divider" aria-hidden="true">|</span>
-              <div class="library-search-shell" class:is-open={librarySearchOpen}>
+              <div class="library-search-shell filter-icon-label-host" data-hover-label="SEARCH" class:is-open={librarySearchOpen}>
                 <button
                   type="button"
                   class="library-search-toggle"
@@ -3883,7 +3928,7 @@
             </div>
           {/if}
 
-          {#if stage === 'library' && category === 'Games' && selectedLibraryConsole?.logoImage}
+          {#if stage !== 'console' && category === 'Games' && selectedLibraryConsole?.logoImage}
             <div class="library-hud-right console-header-right">
               <div class="console-hover-meta">
                 <img src={selectedLibraryConsole.logoImage} alt={selectedLibraryConsole.name} class="console-header-logo" draggable="false" />
@@ -3991,9 +4036,10 @@
         class="details-overlay"
         aria-label="Close details"
         on:click={closeDetails}
+        transition:popupOverlayTransition
       ></button>
 
-      <section class="details-screen">
+      <section class="details-screen" transition:popupPanelTransition>
         <button type="button" class="popup-close details-close" aria-label="Close details" on:click={closeDetails}>×</button>
         {#if detailsConsoleLogo}
           <img src={detailsConsoleLogo} alt="" class="details-console-logo-bg" aria-hidden="true" draggable="false" />
@@ -4143,8 +4189,14 @@
     {/if}
 
     {#if stage === 'console' && selectedWishlistConsole}
-      <button type="button" class="details-overlay" aria-label="Close console details" on:click={closeWishlistConsoleDetails}></button>
-      <section class="details-screen details-screen--console-wishlist">
+      <button
+        type="button"
+        class="details-overlay"
+        aria-label="Close console details"
+        on:click={closeWishlistConsoleDetails}
+        transition:popupOverlayTransition
+      ></button>
+      <section class="details-screen details-screen--console-wishlist" transition:popupPanelTransition>
         <button type="button" class="popup-close details-close" aria-label="Close console details" on:click={closeWishlistConsoleDetails}>×</button>
         <div class="details-left details-left--console-wishlist">
           <div class="systems-logo-container systems-logo-container--detail">
@@ -4228,7 +4280,7 @@
     {/if}
 
     {#if stage !== 'details'}
-      <button type="button" class="back-button" on:click={backAction}>Back</button>
+      <button type="button" class="back-button" on:click={backAction} transition:fade={{ duration: 240, easing: cubicOut }}>Back</button>
     {/if}
 
     <button type="button" class="admin-launch" on:click={toggleAdminPanel}>{adminOpen ? 'Close' : 'Admin'}</button>
@@ -4236,10 +4288,10 @@
     {#if isAdmin}
       <div class="admin-toolbar">
         {#if stage === 'console'}
-          <button type="button" on:click={() => openAdminMode('systems')}>Manage Systems</button>
+          <button type="button" on:click={() => openAdminMode('systems')} transition:fade={{ duration: 320, easing: cubicOut }}>Manage Systems</button>
         {/if}
         {#if stage === 'library'}
-          <button type="button" on:click={startAddItem}>Add {category === 'Music' ? 'Album' : 'Game'}</button>
+          <button type="button" on:click={startAddItem} transition:fade={{ duration: 320, easing: cubicOut }}>Add {category === 'Music' ? 'Album' : 'Game'}</button>
         {/if}
       </div>
     {/if}
@@ -4256,7 +4308,13 @@
         <div class="admin-login">
           <label for="admin-password">Password</label>
           <input id="admin-password" type="password" bind:value={adminPassword} placeholder="Enter password..." on:keydown={(e) => e.key === 'Enter' && adminLogin()} />
-          <button type="button" disabled={adminBusy} on:click={adminLogin}>Log In</button>
+          <button type="button" disabled={adminBusy} on:click={adminLogin}>{adminBusy ? 'Logging In...' : 'Log In'}</button>
+          {#if adminError}
+            <p class="admin-error">{adminError}</p>
+          {/if}
+          {#if adminMessage}
+            <p class="admin-status">{adminMessage}</p>
+          {/if}
         </div>
       {:else}
         {#if adminMode === 'hub'}
@@ -4274,6 +4332,19 @@
             <button type="button" class="admin-hub-card" on:click={() => openAdminMode('library', 'games')}>
               <h3>Library Manager</h3>
               <p>Manage games and music in your collection</p>
+            </button>
+            <button
+              type="button"
+              class="admin-hub-card"
+              on:click={() => {
+                wishlistAdminSection = 'console';
+                adminListPage = 0;
+                resetWishlistSystemForm();
+                openAdminMode('library', 'wishlists');
+              }}
+            >
+              <h3>Wish List Manager</h3>
+              <p>Manage console, game, and music wish lists</p>
             </button>
           </div>
 
@@ -5145,10 +5216,10 @@
           </div>
         {/if}
 
-        {#if adminError}
+        {#if isAdmin && adminError}
           <p class="admin-error">{adminError}</p>
         {/if}
-        {#if adminMessage}
+        {#if isAdmin && adminMessage}
           <p class="admin-status">{adminMessage}</p>
         {/if}
       {/if}
