@@ -19,6 +19,10 @@ Small freeware-style app for managing a physical game/music collection today, wi
 - 📱 Improved mobile ergonomics across admin/detail screens (larger close targets, better header/footer spacing, cleaner action placement).
 - 🖼️ Refined library visuals: better console logo readability/placement, wishlist logo accuracy by selected console, and subtle header-logo hover fade behavior.
 
+## Agent Reference Docs
+
+- Game fetch behavior contract and known edge cases for future agents: `docs/game-fetch-logic-reference.md`
+
 ## Stack
 
 - Frontend: Svelte + TypeScript + Vite
