@@ -228,7 +228,7 @@ a,
     radial-gradient(circle at 18% 16%, rgba(255, 255, 255, 0.3), transparent 34%),
     radial-gradient(circle at 72% 42%, rgba(24, 24, 24, 0.44), transparent 54%),
     linear-gradient(120deg, rgba(172, 172, 172, 0.9), rgba(133, 133, 133, 0.92));
-  transition: background 400ms ease;
+  transition: background 1s ease;
 }
 
 .ps2-screen.dark-mode {
@@ -263,7 +263,7 @@ a,
     radial-gradient(circle at 11% 88%, rgba(56, 65, 255, 0.22), transparent 28%),
     radial-gradient(circle at 90% 12%, rgba(208, 190, 68, 0.18), transparent 22%);
   mix-blend-mode: screen;
-  transition: background 400ms ease;
+  transition: background 1s ease;
 }
 
 .ps2-screen.dark-mode .screen-fog {
