@@ -59,9 +59,9 @@ npm run build
 - Set admin auth via `ADMIN_PASSWORD` or `ADMIN_PASSWORD_HASH`.
 - Optional boot intro sources: `VITE_BOOT_INTRO_SRC` (full intro) and `VITE_BOOT_MOBILE_SRC` (lighter mobile fallback)
 
-If `VITE_BOOT_INTRO_SRC` is not set, the frontend falls back to the hosted R2 intro at `https://media.theavenoircollection.com/ps2-intro.mp4`.
+If `VITE_BOOT_INTRO_SRC` is not set, the frontend falls back to the hosted R2 intro at `https://media.theavenoircollection.com/ps2-intro1080.mp4`.
 
-Set `VITE_BOOT_MOBILE_SRC` to a smaller MP4 (for example `https://media.theavenoircollection.com/ps2-intro-mobile.mp4`) so mobile and constrained-network clients can avoid stalling on the full intro.
+Set `VITE_BOOT_MOBILE_SRC` to a smaller MP4 (for example `https://media.theavenoircollection.com/ps2-intro720.mp4`) so mobile and constrained-network clients can avoid stalling on the full intro.
 
 ## Deploy
 

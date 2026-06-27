@@ -161,8 +161,8 @@
   ];
   const cooperativeOptions = ['No', 'Yes'];
   const SITE_LOGO_SRC = '/brand-logo.png';
-  const BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro.mp4';
-  const BOOT_MOBILE_VIDEO_SRC = (import.meta.env.VITE_BOOT_MOBILE_SRC || '').trim();
+  const BOOT_VIDEO_SRC = (import.meta.env.VITE_BOOT_INTRO_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro1080.mp4';
+  const BOOT_MOBILE_VIDEO_SRC = (import.meta.env.VITE_BOOT_MOBILE_SRC || '').trim() || 'https://media.theavenoircollection.com/ps2-intro720.mp4';
 
   function isMobileClient() {
     if (typeof navigator === 'undefined') return false;
