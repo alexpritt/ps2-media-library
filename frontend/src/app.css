@@ -1447,6 +1447,11 @@ a,
   grid-template-rows: auto auto;
   min-height: 80px;
   justify-content: end;
+  transition: justify-content 220ms ease;
+}
+
+.console-hover-meta:has(.console-header-logo--hidden) {
+  justify-content: center;
 }
 
 .console-hover-meta .console-header-copy {
