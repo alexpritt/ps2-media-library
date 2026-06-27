@@ -5151,7 +5151,7 @@
                       {launchboxFetchBusy ? 'Fetching Game Data...' : 'Fetch Game Data'}
                     </button>
                     <div class="form-field">
-                      <label for="admin-launchbox-url">LaunchBox Link</label>
+                      <label for="admin-launchbox-url">Manual Fetch - LaunchBox Link (Optional)</label>
                       <div class="launchbox-url-fetch-row">
                         <input
                           id="admin-launchbox-url"
