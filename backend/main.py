@@ -3,10 +3,14 @@ from typing import Dict, Iterator, List, Optional, Tuple
 from difflib import SequenceMatcher
 import secrets
 import base64
+import io
+import logging
 import os
 import re
 import time
 import unicodedata
+import xml.etree.ElementTree as ET
+import zipfile
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 import requests
@@ -62,7 +66,17 @@ def env_float(name: str, default: float) -> float:
 ENABLE_KEYLESS_METADATA_FALLBACK = env_flag("ENABLE_KEYLESS_METADATA_FALLBACK", default=True)
 ENABLE_SCREENSCRAPER_FALLBACK = env_flag("ENABLE_SCREENSCRAPER_FALLBACK", default=False)
 ENABLE_MOBYGAMES_SCRAPE_FALLBACK = env_flag("ENABLE_MOBYGAMES_SCRAPE_FALLBACK", default=False)
+ENABLE_IGDB_FALLBACK = env_flag("ENABLE_IGDB_FALLBACK", default=True)
+ENABLE_LIBRETRO_BOXART = env_flag("ENABLE_LIBRETRO_BOXART", default=True)
 MOBYGAMES_MIN_REQUEST_INTERVAL = env_float("MOBYGAMES_MIN_REQUEST_INTERVAL", default=1.5)
+LAUNCHBOX_METADATA_REFRESH_SECONDS = max(300.0, env_float("LAUNCHBOX_METADATA_REFRESH_SECONDS", default=86400.0))
+LAUNCHBOX_METADATA_ZIP_URL = (os.getenv("LAUNCHBOX_METADATA_ZIP_URL") or "").strip()
+
+IGDB_CLIENT_ID = os.getenv("IGDB_CLIENT_ID", "1fpsllwam3y8regju75hqe3wivo8fo")
+IGDB_CLIENT_SECRET = os.getenv("IGDB_CLIENT_SECRET", "gn7v9ydpgnaghkac4t78hk9d3srf7e")
+IGDB_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
+IGDB_API_BASE_URL = "https://api.igdb.com/v4"
+
 DEFAULT_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0"}
 MOBYGAMES_HTTP_HEADERS = {
     "User-Agent": (
@@ -77,6 +91,685 @@ MOBYGAMES_HTTP_HEADERS = {
 MOBYGAMES_BASE_URL = "https://www.mobygames.com"
 _mobygames_html_cache: Dict[str, str] = {}
 _mobygames_last_request_at = 0.0
+_igdb_access_token: Optional[str] = None
+_igdb_access_token_expiry = 0.0
+_launchbox_metadata_cache: List[dict] = []
+_launchbox_metadata_last_refresh_at = 0.0
+_launchbox_metadata_source_url: Optional[str] = None
+_launchbox_metadata_last_error: Optional[str] = None
+logger = logging.getLogger("ps2-media-library")
+
+LIBRETRO_PLATFORM_REPO_ALIASES: Dict[str, List[str]] = {
+    "playstation 2": ["Sony - PlayStation 2"],
+    "playstation 3": ["Sony - PlayStation 3"],
+    "playstation 4": ["Sony - PlayStation 4"],
+    "playstation": ["Sony - PlayStation"],
+    "playstation portable": ["Sony - PlayStation Portable"],
+    "playstation vita": ["Sony - PlayStation Vita"],
+    "nintendo ds": ["Nintendo - Nintendo DS"],
+    "nintendo 3ds": ["Nintendo - Nintendo 3DS"],
+    "game boy": ["Nintendo - Game Boy"],
+    "game boy color": ["Nintendo - Game Boy Color"],
+    "game boy advance": ["Nintendo - Game Boy Advance"],
+    "gamecube": ["Nintendo - GameCube"],
+    "wii": ["Nintendo - Wii"],
+    "xbox": ["Microsoft - Xbox"],
+    "xbox 360": ["Microsoft - Xbox 360"],
+}
+
+IGDB_PLATFORM_IDS: Dict[str, List[int]] = {
+    "playstation": [7],
+    "playstation 2": [8],
+    "playstation 3": [9],
+    "playstation 4": [48],
+    "playstation 5": [167],
+    "playstation portable": [38],
+    "playstation vita": [46],
+    "xbox": [11],
+    "xbox 360": [12],
+    "xbox one": [49],
+    "xbox series": [169],
+    "nintendo ds": [20],
+    "nintendo 3ds": [37],
+    "wii": [5],
+    "wii u": [41],
+    "gamecube": [21],
+    "game boy": [33],
+    "game boy advance": [24],
+    "nintendo switch": [130],
+}
+
+
+def safe_fetch_image_data_uri(image_url: Optional[str]) -> Optional[str]:
+    if not image_url:
+        return None
+    try:
+        return fetch_image_data_uri(image_url)
+    except Exception:
+        return None
+
+
+def ensure_igdb_access_token(force_refresh: bool = False) -> Optional[str]:
+    global _igdb_access_token, _igdb_access_token_expiry
+
+    if not ENABLE_IGDB_FALLBACK:
+        return None
+    if not IGDB_CLIENT_ID or not IGDB_CLIENT_SECRET:
+        return None
+
+    now = time.monotonic()
+    if not force_refresh and _igdb_access_token and now < (_igdb_access_token_expiry - 60.0):
+        return _igdb_access_token
+
+    token_response = requests.post(
+        IGDB_TOKEN_URL,
+        params={
+            "client_id": IGDB_CLIENT_ID,
+            "client_secret": IGDB_CLIENT_SECRET,
+            "grant_type": "client_credentials",
+        },
+        timeout=20,
+        headers=DEFAULT_HTTP_HEADERS,
+    )
+    token_response.raise_for_status()
+    payload = token_response.json() or {}
+
+    token = payload.get("access_token")
+    expires_in = payload.get("expires_in") or 3600
+    if not token:
+        return None
+
+    _igdb_access_token = str(token)
+    _igdb_access_token_expiry = now + float(expires_in)
+    return _igdb_access_token
+
+
+def igdb_post(endpoint: str, apicalypse_query: str) -> list:
+    token = ensure_igdb_access_token()
+    if not token:
+        return []
+
+    url = f"{IGDB_API_BASE_URL}/{endpoint.lstrip('/')}"
+    headers = {
+        "Client-ID": IGDB_CLIENT_ID,
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    response = requests.post(url, data=apicalypse_query, headers=headers, timeout=25)
+    if response.status_code == 401:
+        token = ensure_igdb_access_token(force_refresh=True)
+        if not token:
+            return []
+        headers["Authorization"] = f"Bearer {token}"
+        response = requests.post(url, data=apicalypse_query, headers=headers, timeout=25)
+
+    response.raise_for_status()
+    payload = response.json()
+    return payload if isinstance(payload, list) else []
+
+
+def igdb_cover_url(raw_url: Optional[str]) -> Optional[str]:
+    if not raw_url:
+        return None
+    url = raw_url.strip()
+    if url.startswith("//"):
+        url = f"https:{url}"
+    return re.sub(r"/t_[^/]+/", "/t_1080p/", url)
+
+
+def igdb_platform_ids_for(platform: str) -> List[int]:
+    normalized = normalize_title_for_match(platform)
+    if normalized in IGDB_PLATFORM_IDS:
+        return IGDB_PLATFORM_IDS[normalized]
+    for key, ids in IGDB_PLATFORM_IDS.items():
+        if key in normalized or normalized in key:
+            return ids
+    return []
+
+
+def score_igdb_candidate(name: str, title: str, platform_name: str, platform: str) -> int:
+    score = 0
+    target_key = normalize_launchbox_key(title)
+    candidate_key = normalize_launchbox_key(name)
+    target_loose = normalize_title_for_match(title)
+    candidate_loose = normalize_title_for_match(name)
+    target_tokens = set(title_tokens(title))
+    candidate_tokens = set(title_tokens(name))
+
+    if candidate_key == target_key:
+        score += 140
+    elif target_key and (target_key in candidate_key or candidate_key in target_key):
+        score += 90
+
+    if target_tokens and candidate_tokens:
+        overlap = len(target_tokens.intersection(candidate_tokens))
+        union = len(target_tokens.union(candidate_tokens))
+        if union:
+            score += int((overlap / union) * 80)
+
+    if target_loose and candidate_loose:
+        similarity = SequenceMatcher(None, target_loose, candidate_loose).ratio()
+        score += int(similarity * 50)
+
+    platform_haystack = normalize_title_for_match(platform_name)
+    target_platform = normalize_title_for_match(platform)
+    if target_platform and (target_platform in platform_haystack or platform_haystack in target_platform):
+        score += 35
+
+    return score
+
+
+def map_igdb_esrb_rating(age_ratings: list) -> Optional[str]:
+    if not isinstance(age_ratings, list):
+        return None
+    # IGDB category=1 is ESRB. Common rating enum values map to RP/E/E10/T/M/AO.
+    esrb_map = {
+        6: "RP",
+        7: "EC",
+        8: "E",
+        9: "E10+",
+        10: "T",
+        11: "M",
+        12: "AO",
+    }
+    for entry in age_ratings:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("category") != 1:
+            continue
+        mapped = esrb_map.get(entry.get("rating"))
+        if mapped:
+            return mapped
+    return None
+
+
+def launchbox_metadata_candidate_urls() -> List[str]:
+    urls: List[str] = []
+    if LAUNCHBOX_METADATA_ZIP_URL:
+        urls.append(LAUNCHBOX_METADATA_ZIP_URL)
+
+    urls.extend(
+        [
+            "https://gamesdb.launchbox-app.com/metadata.zip",
+            "https://gamesdb.launchbox-app.com/Metadata.zip",
+            "https://gamesdb.launchbox-app.com/downloads/metadata.zip",
+            "https://gamesdb.launchbox-app.com/downloads/Metadata.zip",
+            "https://gamesdb.launchbox-app.com",
+            "https://gamesdb.launchbox-app.com/downloads",
+        ]
+    )
+
+    deduped: List[str] = []
+    for url in urls:
+        if url and url not in deduped:
+            deduped.append(url)
+    return deduped
+
+
+def try_download_launchbox_metadata_zip() -> Tuple[Optional[bytes], Optional[str]]:
+    for candidate_url in launchbox_metadata_candidate_urls():
+        try:
+            response = requests.get(candidate_url, timeout=30, headers=DEFAULT_HTTP_HEADERS)
+        except requests.RequestException:
+            continue
+
+        if not response.ok:
+            continue
+
+        content_type = (response.headers.get("content-type") or "").lower()
+        content = response.content
+
+        if candidate_url.lower().endswith(".zip") or "application/zip" in content_type or content[:2] == b"PK":
+            return content, candidate_url
+
+        if "html" not in content_type:
+            continue
+
+        try:
+            soup = BeautifulSoup(response.text, "html.parser")
+        except Exception:
+            continue
+
+        for anchor in soup.find_all("a", href=True):
+            href = anchor.get("href", "")
+            label = (anchor.get_text(" ", strip=True) or "").lower()
+            href_lower = href.lower()
+            if ".zip" not in href_lower:
+                continue
+            if "metadata" not in href_lower and "metadata" not in label and "games" not in label:
+                continue
+            resolved = urljoin(candidate_url, href)
+            try:
+                zip_response = requests.get(resolved, timeout=45, headers=DEFAULT_HTTP_HEADERS)
+            except requests.RequestException:
+                continue
+            if zip_response.ok and zip_response.content[:2] == b"PK":
+                return zip_response.content, resolved
+
+    return None, None
+
+
+def parse_launchbox_metadata_zip_entries(zip_content: bytes) -> List[dict]:
+    entries: List[dict] = []
+
+    def first_text(node: ET.Element, tags: List[str]) -> Optional[str]:
+        for tag in tags:
+            direct = node.find(tag)
+            if direct is not None and direct.text:
+                value = direct.text.strip()
+                if value:
+                    return value
+            nested = node.find(f".//{tag}")
+            if nested is not None and nested.text:
+                value = nested.text.strip()
+                if value:
+                    return value
+        return None
+
+    def split_multi(value: Optional[str]) -> List[str]:
+        if not value:
+            return []
+        parts = re.split(r"[;,|]", value)
+        return [part.strip() for part in parts if part.strip()]
+
+    with zipfile.ZipFile(io.BytesIO(zip_content)) as archive:
+        for name in archive.namelist():
+            if not name.lower().endswith(".xml"):
+                continue
+            try:
+                payload = archive.read(name)
+                root = ET.fromstring(payload)
+            except Exception:
+                continue
+
+            game_nodes = root.findall(".//Game")
+            if root.tag.lower() == "game":
+                game_nodes = [root]
+
+            for game_node in game_nodes:
+                title = first_text(game_node, ["Title", "Name", "GameTitle"])
+                platform = first_text(game_node, ["Platform", "PlatformName", "Console"])
+                if not title:
+                    continue
+
+                release_date = normalize_release_date(
+                    first_text(game_node, ["ReleaseDate", "ReleaseDateUtc", "ReleaseDateUTC", "Release", "Year"])
+                )
+                year_released = parse_optional_int(first_text(game_node, ["ReleaseYear", "Year"]))
+                if year_released is None and release_date:
+                    year_released = parse_optional_int(release_date[:4])
+
+                entries.append(
+                    {
+                        "title": title,
+                        "platform": platform,
+                        "release_date": release_date,
+                        "year_released": year_released,
+                        "rating": first_text(game_node, ["ESRB", "Rating"]),
+                        "players": first_text(game_node, ["MaxPlayers", "Players"]),
+                        "cooperative": first_text(game_node, ["Cooperative", "Co-op", "CoOp"]),
+                        "publishers": split_multi(first_text(game_node, ["Publishers", "Publisher"])),
+                        "gameGenres": split_multi(first_text(game_node, ["Genres", "Genre"])),
+                        "notes": first_text(game_node, ["Overview", "Description", "Summary"]),
+                        "coverImage": None,
+                        "spineImage": None,
+                        "discImage": None,
+                        "metadata_source": "launchbox-metadata-zip",
+                    }
+                )
+
+    return entries
+
+
+def refresh_launchbox_metadata_cache(force_refresh: bool = False) -> None:
+    global _launchbox_metadata_cache
+    global _launchbox_metadata_last_refresh_at
+    global _launchbox_metadata_source_url
+    global _launchbox_metadata_last_error
+
+    now = time.monotonic()
+    if not force_refresh and (now - _launchbox_metadata_last_refresh_at) < LAUNCHBOX_METADATA_REFRESH_SECONDS:
+        return
+
+    _launchbox_metadata_last_refresh_at = now
+    _launchbox_metadata_last_error = None
+    _launchbox_metadata_source_url = None
+
+    try:
+        zip_content, source_url = try_download_launchbox_metadata_zip()
+        if not zip_content:
+            _launchbox_metadata_last_error = "metadata zip not discoverable"
+            return
+        parsed_entries = parse_launchbox_metadata_zip_entries(zip_content)
+        if not parsed_entries:
+            _launchbox_metadata_last_error = "metadata zip parsed but no game entries found"
+            return
+        _launchbox_metadata_cache = parsed_entries
+        _launchbox_metadata_source_url = source_url
+    except Exception as exc:
+        _launchbox_metadata_last_error = str(exc)
+
+
+def find_launchbox_metadata_match(title: str, platform: str) -> Optional[dict]:
+    refresh_launchbox_metadata_cache()
+    if not _launchbox_metadata_cache:
+        return None
+
+    target_title = normalize_launchbox_key(title)
+    target_title_loose = normalize_title_for_match(title)
+    target_tokens = set(title_tokens(title))
+    target_platform = normalize_launchbox_key(platform)
+
+    best_entry = None
+    best_score = -1
+
+    for entry in _launchbox_metadata_cache:
+        candidate_title = str(entry.get("title") or "")
+        candidate_platform = str(entry.get("platform") or "")
+        candidate_title_key = normalize_launchbox_key(candidate_title)
+        candidate_title_loose = normalize_title_for_match(candidate_title)
+        candidate_tokens = set(title_tokens(candidate_title))
+        candidate_platform_key = normalize_launchbox_key(candidate_platform)
+
+        score = 0
+        if candidate_title_key == target_title:
+            score += 140
+        elif target_title and (target_title in candidate_title_key or candidate_title_key in target_title):
+            score += 90
+
+        if target_tokens and candidate_tokens:
+            overlap = len(target_tokens.intersection(candidate_tokens))
+            union = len(target_tokens.union(candidate_tokens))
+            if union:
+                score += int((overlap / union) * 80)
+
+        if target_title_loose and candidate_title_loose:
+            similarity = SequenceMatcher(None, target_title_loose, candidate_title_loose).ratio()
+            score += int(similarity * 50)
+
+        if target_platform and (target_platform in candidate_platform_key or candidate_platform_key in target_platform):
+            score += 35
+
+        if score > best_score:
+            best_score = score
+            best_entry = entry
+
+    if not best_entry or best_score < 70:
+        return None
+    return dict(best_entry)
+
+
+def libretro_repo_candidates(platform: str) -> List[str]:
+    normalized = normalize_title_for_match(platform)
+    if normalized in LIBRETRO_PLATFORM_REPO_ALIASES:
+        return LIBRETRO_PLATFORM_REPO_ALIASES[normalized]
+    for key, repos in LIBRETRO_PLATFORM_REPO_ALIASES.items():
+        if key in normalized or normalized in key:
+            return repos
+    return []
+
+
+def libretro_title_candidates(title: str) -> List[str]:
+    base = (title or "").strip()
+    if not base:
+        return []
+
+    candidates = [
+        base,
+        re.sub(r"\s+", " ", base),
+        base.replace(":", " -"),
+        re.sub(r"\s*\([^)]*\)", "", base).strip(),
+        re.sub(r"\s*\[[^\]]*\]", "", base).strip(),
+    ]
+
+    deduped: List[str] = []
+    for candidate in candidates:
+        c = candidate.strip()
+        if c and c not in deduped:
+            deduped.append(c)
+    return deduped
+
+
+def response_to_data_uri(response: requests.Response) -> Optional[str]:
+    if not response.ok:
+        return None
+    content_type = response.headers.get("content-type", "image/jpeg").split(";", 1)[0].strip() or "image/jpeg"
+    if not content_type.startswith("image/"):
+        return None
+    encoded = base64.b64encode(response.content).decode("utf-8")
+    return f"data:{content_type};base64,{encoded}"
+
+
+def fetch_libretro_cover_image(title: str, platform: str) -> Optional[str]:
+    if not ENABLE_LIBRETRO_BOXART:
+        return None
+
+    repos = libretro_repo_candidates(platform)
+    if not repos:
+        return None
+
+    for repo in repos:
+        repo_path = quote(repo, safe="")
+        for candidate_title in libretro_title_candidates(title):
+            encoded_title = quote(candidate_title, safe="")
+            for ext in ["png", "jpg", "jpeg"]:
+                image_url = (
+                    f"https://raw.githubusercontent.com/libretro-thumbnails/{repo_path}/master/"
+                    f"Named_Boxarts/{encoded_title}.{ext}"
+                )
+                try:
+                    response = requests.get(image_url, timeout=15, headers=DEFAULT_HTTP_HEADERS)
+                except requests.RequestException:
+                    continue
+                image_data_uri = response_to_data_uri(response)
+                if image_data_uri:
+                    return image_data_uri
+    return None
+
+
+def fetch_igdb_cover_options(title: str, platform: str, limit: int = 8) -> List[str]:
+    if not ENABLE_IGDB_FALLBACK:
+        return []
+
+    platform_ids = igdb_platform_ids_for(platform)
+    where_clause = "where version_parent = null"
+    if platform_ids:
+        where_clause += f" & platforms = ({','.join(str(platform_id) for platform_id in platform_ids)})"
+    sanitized_title = title.replace("\\", " ").replace('"', "")
+    query = (
+        "fields name,platforms.name,cover.url; "
+        f"search \"{sanitized_title}\"; "
+        f"{where_clause}; limit 15;"
+    )
+
+    try:
+        candidates = igdb_post("games", query)
+    except Exception:
+        return []
+
+    if not candidates:
+        return []
+
+    ranked = sorted(
+        candidates,
+        key=lambda entry: score_igdb_candidate(
+            str(entry.get("name") or ""),
+            title,
+            ", ".join(str(platform_entry.get("name") or "") for platform_entry in (entry.get("platforms") or []) if isinstance(platform_entry, dict)),
+            platform,
+        ),
+        reverse=True,
+    )
+
+    options: List[str] = []
+    for candidate in ranked[:10]:
+        cover = candidate.get("cover")
+        if not isinstance(cover, dict):
+            continue
+        cover_url = igdb_cover_url(str(cover.get("url") or ""))
+        image_data = safe_fetch_image_data_uri(cover_url)
+        if image_data and image_data not in options:
+            options.append(image_data)
+            if len(options) >= limit:
+                break
+    return options
+
+
+def resolve_cover_image_with_priority(title: str, platform: str, launchbox_cover_image: Optional[str]) -> Tuple[Optional[str], str]:
+    libretro_cover = fetch_libretro_cover_image(title, platform)
+    if libretro_cover:
+        return libretro_cover, "libretro"
+
+    igdb_cover_options = fetch_igdb_cover_options(title, platform, limit=1)
+    if igdb_cover_options:
+        return igdb_cover_options[0], "igdb"
+
+    if launchbox_cover_image:
+        return launchbox_cover_image, "launchbox"
+
+    return None, "none"
+
+
+def fetch_igdb_game_data(title: str, platform: str) -> Optional[dict]:
+    if not ENABLE_IGDB_FALLBACK:
+        return None
+
+    platform_ids = igdb_platform_ids_for(platform)
+    where_clause = "where version_parent = null"
+    if platform_ids:
+        where_clause += f" & platforms = ({','.join(str(platform_id) for platform_id in platform_ids)})"
+    sanitized_title = title.replace("\\", " ").replace('"', "")
+    query = (
+        "fields name,summary,first_release_date,genres.name,involved_companies.publisher,involved_companies.company.name,"
+        "cover.url,age_ratings.category,age_ratings.rating,multiplayer_modes.onlinemax,multiplayer_modes.offlinemax,multiplayer_modes.campaigncoop,multiplayer_modes.onlinecoop,multiplayer_modes.offlinecoop,platforms.name; "
+        f"search \"{sanitized_title}\"; "
+        f"{where_clause}; limit 12;"
+    )
+
+    try:
+        results = igdb_post("games", query)
+    except Exception:
+        return None
+
+    if not results:
+        return None
+
+    ranked = sorted(
+        results,
+        key=lambda entry: score_igdb_candidate(
+            str(entry.get("name") or ""),
+            title,
+            ", ".join(str(platform_entry.get("name") or "") for platform_entry in (entry.get("platforms") or []) if isinstance(platform_entry, dict)),
+            platform,
+        ),
+        reverse=True,
+    )
+    best = ranked[0]
+
+    best_score = score_igdb_candidate(
+        str(best.get("name") or ""),
+        title,
+        ", ".join(str(platform_entry.get("name") or "") for platform_entry in (best.get("platforms") or []) if isinstance(platform_entry, dict)),
+        platform,
+    )
+    if best_score < 70:
+        return None
+
+    release_date = None
+    year_released = None
+    first_release_date = best.get("first_release_date")
+    if isinstance(first_release_date, (int, float)):
+        try:
+            release_ts = int(first_release_date)
+            release_struct = time.gmtime(release_ts)
+            release_date = time.strftime("%Y-%m-%d", release_struct)
+            year_released = release_struct.tm_year
+        except Exception:
+            release_date = None
+            year_released = None
+
+    publishers: List[str] = []
+    involved_companies = best.get("involved_companies") or []
+    if isinstance(involved_companies, list):
+        for entry in involved_companies:
+            if not isinstance(entry, dict):
+                continue
+            company = entry.get("company")
+            if not isinstance(company, dict):
+                continue
+            company_name = str(company.get("name") or "").strip()
+            if not company_name:
+                continue
+            if entry.get("publisher"):
+                publishers.append(company_name)
+        if not publishers:
+            for entry in involved_companies:
+                if not isinstance(entry, dict):
+                    continue
+                company = entry.get("company")
+                if not isinstance(company, dict):
+                    continue
+                company_name = str(company.get("name") or "").strip()
+                if company_name and company_name not in publishers:
+                    publishers.append(company_name)
+
+    game_genres = [
+        str(genre_entry.get("name") or "").strip()
+        for genre_entry in (best.get("genres") or [])
+        if isinstance(genre_entry, dict) and str(genre_entry.get("name") or "").strip()
+    ]
+
+    players = None
+    cooperative = None
+    multiplayer_modes = best.get("multiplayer_modes") or []
+    if isinstance(multiplayer_modes, list):
+        max_players = 0
+        has_coop = False
+        for mode_entry in multiplayer_modes:
+            if not isinstance(mode_entry, dict):
+                continue
+            for key in ["onlinemax", "offlinemax"]:
+                candidate_players = mode_entry.get(key)
+                if isinstance(candidate_players, int):
+                    max_players = max(max_players, candidate_players)
+            if bool(mode_entry.get("campaigncoop")) or bool(mode_entry.get("onlinecoop")) or bool(mode_entry.get("offlinecoop")):
+                has_coop = True
+        if max_players > 0:
+            players = max_players
+        cooperative = "Yes" if has_coop else "No"
+
+    cover_url = None
+    cover_entry = best.get("cover")
+    if isinstance(cover_entry, dict):
+        cover_url = igdb_cover_url(str(cover_entry.get("url") or ""))
+
+    cover_image = safe_fetch_image_data_uri(cover_url)
+
+    return {
+        "title": str(best.get("name") or title),
+        "platform": platform,
+        "release_date": release_date,
+        "year_released": year_released,
+        "rating": map_igdb_esrb_rating(best.get("age_ratings") or []),
+        "players": players,
+        "cooperative": cooperative,
+        "publishers": publishers,
+        "gameGenres": game_genres,
+        "notes": str(best.get("summary") or "").strip() or None,
+        "coverImage": cover_image,
+        "spineImage": None,
+        "discImage": None,
+        "data_source": "igdb",
+        "is_partial_fallback": True,
+        "completeness": {
+            "metadata": True,
+            "cover": bool(cover_image),
+            "disc": False,
+            "spine": False,
+            "cart": False,
+        },
+    }
 
 
 def iter_file_range(file_path: Path, start: int, end: int, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
@@ -627,9 +1320,44 @@ def fetch_wikidata_game_data(title: str, platform: str) -> Optional[dict]:
     }
 
 
+def launchbox_detail_payload(title: str, platform: str, launchbox_url: Optional[str] = None) -> dict:
+    if launchbox_url:
+        return fetch_launchbox_game_data_from_url(launchbox_url, platform, title)
+
+    errors: List[str] = []
+
+    metadata_match = find_launchbox_metadata_match(title, platform)
+    if metadata_match:
+        metadata_match["title"] = metadata_match.get("title") or title
+        metadata_match["platform"] = metadata_match.get("platform") or platform
+        metadata_match["coverImage"] = None
+        metadata_match["spineImage"] = None
+        metadata_match["discImage"] = None
+        metadata_match["metadata_source"] = metadata_match.get("metadata_source") or "launchbox-metadata-zip"
+        return metadata_match
+
+    try:
+        return fetch_launchbox_game_data(title, platform)
+    except Exception as exc:
+        errors.append(str(exc))
+
+    if errors:
+        raise HTTPException(status_code=502, detail=f"LaunchBox detail lookup failed: {errors[-1]}")
+    raise HTTPException(status_code=502, detail="LaunchBox detail lookup failed.")
+
+
+def apply_cover_priority(title: str, platform: str, payload: dict) -> dict:
+    launchbox_cover = payload.get("coverImage")
+    selected_cover, selected_source = resolve_cover_image_with_priority(title, platform, launchbox_cover)
+    payload["coverImage"] = selected_cover
+    payload["cover_source"] = selected_source
+    return payload
+
+
 def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
     try:
-        payload = fetch_launchbox_game_data(title, platform)
+        payload = launchbox_detail_payload(title, platform)
+        payload = apply_cover_priority(title, platform, payload)
         payload["data_source"] = "launchbox"
         payload["is_partial_fallback"] = False
         payload["completeness"] = {
@@ -641,10 +1369,16 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
         }
         return payload
     except Exception as exc:
+        igdb_payload = fetch_igdb_game_data(title, platform)
+        if igdb_payload:
+            igdb_payload = apply_cover_priority(title, platform, igdb_payload)
+            return igdb_payload
+
         if ENABLE_KEYLESS_METADATA_FALLBACK:
             try:
                 metadata_payload = fetch_wikidata_game_data(title, platform)
                 if metadata_payload:
+                    metadata_payload = apply_cover_priority(title, platform, metadata_payload)
                     return metadata_payload
             except Exception:
                 pass
@@ -653,31 +1387,56 @@ def fetch_game_data_with_fallback(title: str, platform: str) -> dict:
             status_code=502,
             detail=(
                 "Could not fetch game data. LaunchBox is unavailable and no approved "
-                "keyless metadata fallback source returned a match."
+                "fallback source (IGDB/Wikidata) returned a match."
             ),
         ) from exc
 
 
 def fetch_game_art_options_with_fallback(title: str, platform: str, art_type: str) -> dict:
+    if art_type == "cover":
+        options: List[str] = []
+        libretro_cover = fetch_libretro_cover_image(title, platform)
+        if libretro_cover:
+            options.append(libretro_cover)
+
+        for igdb_cover in fetch_igdb_cover_options(title, platform, limit=8):
+            if igdb_cover not in options:
+                options.append(igdb_cover)
+
+        try:
+            launchbox_options = fetch_launchbox_game_art_options(title, platform, art_type)
+            launchbox_list = launchbox_options.get("options", []) if isinstance(launchbox_options, dict) else []
+            for launchbox_cover in launchbox_list:
+                if isinstance(launchbox_cover, str) and launchbox_cover and launchbox_cover not in options:
+                    options.append(launchbox_cover)
+        except Exception:
+            pass
+
+        if options:
+            return {
+                "title": title,
+                "platform": platform,
+                "artType": art_type,
+                "options": options,
+                "data_source": "libretro-igdb-launchbox",
+            }
+
+        raise HTTPException(
+            status_code=404,
+            detail="Could not fetch cover art from libretro, IGDB, or LaunchBox.",
+        )
+
+    # Disc/spine/cart remain LaunchBox-only by policy.
     try:
         launchbox_options = fetch_launchbox_game_art_options(title, platform, art_type)
         launchbox_options["data_source"] = "launchbox"
         return launchbox_options
     except Exception as exc:
-        if ENABLE_MOBYGAMES_SCRAPE_FALLBACK:
-            try:
-                mobygames_options = fetch_mobygames_game_art_options(title, platform, art_type)
-                mobygames_options["data_source"] = "mobygames"
-                return mobygames_options
-            except Exception:
-                pass
-
         raise HTTPException(
             status_code=404,
             detail=(
-                f"Could not fetch {art_type} art. LaunchBox art is unavailable"
-                + (" and MobyGames fallback did not return an approved NTSC-US match" if ENABLE_MOBYGAMES_SCRAPE_FALLBACK else "")
-                + ". This art type will not be inferred from other media. Use manual upload while LaunchBox is down."
+                f"Could not fetch {art_type} art. LaunchBox art is unavailable. "
+                "Disc/spine/cart art are LaunchBox-only. Use manual upload while LaunchBox is down."
             ),
         ) from exc
 
@@ -1250,7 +2009,7 @@ def choose_launchbox_candidate(candidates: list, title: str, platform: str) -> d
 
         if candidate_title == target_title:
             candidate_score += 140
-        elif target_title and candidate_title and (target_title in candidate_title or candidate_title in target_title):
+        elif target_title in candidate_title or candidate_title in target_title:
             candidate_score += 90
 
         if target_tokens and candidate_tokens:
@@ -1291,13 +2050,8 @@ def choose_launchbox_candidate(candidates: list, title: str, platform: str) -> d
     return best_match
 
 
-def build_launchbox_results_search_url(title: str) -> str:
-    search_term = normalize_title_for_match(title) or title.strip()
-    return f"https://gamesdb.launchbox-app.com/games/results/{quote(search_term)}"
-
-
 def resolve_launchbox_game_detail(title: str, platform: str) -> Tuple[str, BeautifulSoup, str, str]:
-    search_url = build_launchbox_results_search_url(title)
+    search_url = f"https://gamesdb.launchbox-app.com/games/results?search={quote(title.strip().lower())}"
     search_response = requests.get(search_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
     search_response.raise_for_status()
     search_soup = BeautifulSoup(search_response.text, "html.parser")
@@ -1390,17 +2144,9 @@ def parse_launchbox_game_data(detail_url: str, detail_soup: BeautifulSoup, resol
         ],
     )
 
-    cover_image = fetch_image_data_uri(urljoin(detail_url, cover_section_url)) if cover_section_url else None
-    disc_image = fetch_image_data_uri(urljoin(detail_url, disc_section_url)) if disc_section_url else None
-    spine_image = fetch_image_data_uri(urljoin(detail_url, spine_section_url)) if spine_section_url else None
-
-    # If a title has no dedicated spine section, use cover art as a visual fallback.
-    if not spine_image:
-        spine_image = cover_image
-
-    # For cartridge platforms, if specific cart art is unavailable, fall back to box art.
-    if is_cartridge_platform_name(resolved_platform) and not disc_image:
-        disc_image = cover_image
+    cover_image = safe_fetch_image_data_uri(urljoin(detail_url, cover_section_url)) if cover_section_url else None
+    disc_image = safe_fetch_image_data_uri(urljoin(detail_url, disc_section_url)) if disc_section_url else None
+    spine_image = safe_fetch_image_data_uri(urljoin(detail_url, spine_section_url)) if spine_section_url else None
 
     return {
         "title": resolved_title,
@@ -1953,6 +2699,7 @@ def fetch_game_data(payload: LaunchboxGameDataRequest, authorization: Optional[s
 
     if launchbox_url:
         fetched = fetch_launchbox_game_data_from_url(launchbox_url, platform, title)
+        fetched = apply_cover_priority(title, platform, fetched)
         fetched["data_source"] = "launchbox"
     else:
         fetched = fetch_game_data_with_fallback(title, platform)

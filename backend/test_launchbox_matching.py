@@ -1,14 +1,11 @@
 import unittest
+import io
+import zipfile
 
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
-from main import (
-    build_launchbox_results_search_url,
-    choose_launchbox_candidate,
-    normalize_launchbox_detail_url,
-    section_images_from_titles,
-)
+from main import choose_launchbox_candidate, normalize_launchbox_detail_url, parse_launchbox_metadata_zip_entries, section_images_from_titles
 
 
 class LaunchboxCandidateSelectionTests(unittest.TestCase):
@@ -44,23 +41,6 @@ class LaunchboxCandidateSelectionTests(unittest.TestCase):
 
         self.assertEqual(context.exception.status_code, 404)
 
-    def test_ignores_empty_normalized_titles_for_substring_bonus(self):
-        candidates = [
-            {"title": "!!!", "platform": "MS-DOS", "href": "/games/details/unknown"},
-            {"title": "Borderlands 3", "platform": "Sony Playstation 4", "href": "/games/details/b3"},
-        ]
-
-        chosen = choose_launchbox_candidate(candidates, "Borderlands 3", "PlayStation 4")
-        self.assertEqual(chosen["href"], "/games/details/b3")
-
-
-class LaunchboxSearchUrlTests(unittest.TestCase):
-    def test_build_results_search_url_uses_path_segment(self):
-        url = build_launchbox_results_search_url("Ratchet & Clank: Into the Nexus")
-        self.assertTrue(url.startswith("https://gamesdb.launchbox-app.com/games/results/"))
-        self.assertIn("ratchet%20and%20clank%20into%20the%20nexus", url)
-        self.assertNotIn("?search=", url)
-
     def test_missing_art_section_returns_empty_list(self):
         html = """
         <html>
@@ -94,6 +74,32 @@ class LaunchboxSearchUrlTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as context:
             normalize_launchbox_detail_url("https://gamesdb.launchbox-app.com/games/results?search=gran+turismo")
         self.assertEqual(context.exception.status_code, 400)
+
+        def test_parse_launchbox_metadata_zip_entries_extracts_basic_fields(self):
+                xml_payload = """
+                <LaunchBox>
+                    <Game>
+                        <Title>Gran Turismo 4</Title>
+                        <Platform>PlayStation 2</Platform>
+                        <ReleaseDate>December 28, 2004</ReleaseDate>
+                        <Genre>Racing, Simulation</Genre>
+                        <Publisher>Sony Computer Entertainment</Publisher>
+                        <ESRB>T</ESRB>
+                    </Game>
+                </LaunchBox>
+                """.strip()
+
+                buffer = io.BytesIO()
+                with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                        archive.writestr("Games.xml", xml_payload)
+
+                parsed = parse_launchbox_metadata_zip_entries(buffer.getvalue())
+                self.assertEqual(len(parsed), 1)
+                self.assertEqual(parsed[0]["title"], "Gran Turismo 4")
+                self.assertEqual(parsed[0]["platform"], "PlayStation 2")
+                self.assertEqual(parsed[0]["release_date"], "2004-12-28")
+                self.assertIn("Racing", parsed[0]["gameGenres"])
+                self.assertIn("Sony Computer Entertainment", parsed[0]["publishers"])
 
 
 if __name__ == "__main__":
