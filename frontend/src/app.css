@@ -4975,7 +4975,7 @@ select option {
   .console-grid,
   .library-grid {
     grid-template-columns: repeat(3, minmax(86px, 1fr));
-    inset: 31% 4% 18% 4%;
+    inset: 26% 4% 18% 4%;
     gap: 22px 14px;
   }
 
@@ -5080,7 +5080,7 @@ select option {
   }
 
   .pager {
-    bottom: env(safe-area-inset-bottom, 0px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
     gap: 10px;
   }
 
@@ -5285,7 +5285,7 @@ select option {
 
   .library-grid {
     grid-template-columns: repeat(2, minmax(104px, 1fr));
-    inset: 41% 5% 18% 5%;
+    inset: 32% 5% 18% 5%;
     gap: 24px 14px;
     justify-items: center;
   }
@@ -5304,7 +5304,7 @@ select option {
 
   .console-grid {
     grid-template-columns: repeat(2, minmax(104px, 1fr));
-    inset: 41% 5% 18% 5%;
+    inset: 32% 5% 18% 5%;
     gap: 24px 14px;
     justify-items: center;
   }
