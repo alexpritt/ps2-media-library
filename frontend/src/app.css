@@ -1464,7 +1464,6 @@ a,
 
 .console-header-copy {
   color: var(--hud-white);
-  animation: fadeInConsoleHeader 500ms ease-out forwards;
   white-space: nowrap;
   line-height: 1;
 }

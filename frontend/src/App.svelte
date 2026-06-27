@@ -3773,6 +3773,7 @@
                   src={consoleHeaderOption.logoImage}
                   alt={consoleHeaderOption.name}
                   class="console-header-logo"
+                  transition:fade={{ duration: 220, easing: cubicOut }}
                   draggable="false"
                 />
                 <span class="console-header-copy console-header-count-copy console-header-subcopy">{hoveredConsoleCountLabel}</span>
