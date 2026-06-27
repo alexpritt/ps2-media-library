@@ -396,7 +396,10 @@
     hoveredConsoleFadeVisible = true;
     if (hoveredConsoleFadeTimeout) clearTimeout(hoveredConsoleFadeTimeout);
     hoveredConsoleFadeTimeout = setTimeout(() => {
-      hoveredConsole = null;
+      hoveredConsoleFadeVisible = false;
+      hoveredConsoleFadeTimeout = setTimeout(() => {
+        hoveredConsole = null;
+      }, 220);
     }, 4000);
   }
   $: if (stage !== 'console') {
@@ -1530,7 +1533,12 @@
 
   function handleConsolePointerLeave(event: PointerEvent) {
     if (!supportsConsoleHover(event)) return;
-    hoveredConsole = null;
+    if (hoveredConsoleFadeTimeout) clearTimeout(hoveredConsoleFadeTimeout);
+    hoveredConsoleFadeVisible = false;
+    hoveredConsoleFadeTimeout = setTimeout(() => {
+      hoveredConsole = null;
+      hoveredConsoleFadeTimeout = null;
+    }, 220);
     clearIconFollow(event as unknown as MouseEvent);
   }
 
