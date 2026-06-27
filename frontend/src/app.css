@@ -4702,7 +4702,12 @@ select option {
   }
 
   .details-console-logo-bg {
-    display: none;
+    left: 50%;
+    top: 50%;
+    width: clamp(200px, 50vw, 350px);
+    max-height: 60%;
+    transform: translate(-50%, -50%);
+    opacity: 0.08;
   }
 
   .details-rotator-control,
