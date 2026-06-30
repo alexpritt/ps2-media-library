@@ -392,6 +392,7 @@ a,
 }
 
 .console-hud {
+  --hud-inline-gap: 18px;
   position: absolute;
   top: var(--stage-top-pad);
   left: var(--stage-side-pad);
@@ -399,7 +400,7 @@ a,
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 18px;
+  gap: var(--hud-inline-gap);
   z-index: 3;
 }
 
@@ -515,13 +516,14 @@ a,
 
 /* ── Library toolbar (search + players filter) ─────────────────── */
 .library-hud {
+  --hud-inline-gap: 18px;
   position: absolute;
   top: var(--stage-top-pad);
   left: var(--stage-side-pad);
   right: var(--stage-side-pad);
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: var(--hud-inline-gap);
   z-index: 3;
 }
 
@@ -531,7 +533,7 @@ a,
   align-items: center;
   gap: 12px;
   margin-left: auto;
-  margin-right: 16px;
+  margin-right: 0;
   justify-content: flex-end;
 }
 
@@ -545,13 +547,13 @@ a,
   align-items: center;
   gap: 12px;
   margin-left: auto;
-  margin-right: 16px;
+  margin-right: 0;
 }
 
 .library-hud-left {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: var(--hud-inline-gap);
   min-width: 0;
   flex: 1 1 auto;
 }
@@ -1506,7 +1508,7 @@ a,
   align-items: center;
   min-width: clamp(260px, 31vw, 380px);
   min-height: 96px;
-  padding: 10px 0 10px 20px;
+  padding: 10px 0;
   flex-shrink: 0;
 }
 
@@ -1587,13 +1589,17 @@ a,
 .console-header-shell {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: var(--hud-inline-gap);
   min-height: 96px;
   width: auto;
   flex: 1 1 auto;
   min-width: 0;
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.console-header-inline-count {
+  display: none;
 }
 
 .console-header-logo {
@@ -1652,6 +1658,7 @@ a,
 @media (min-width: 981px) {
   .console-hud,
   .library-hud {
+    --hud-inline-gap: 24px;
     min-height: 116px;
     align-items: center;
     box-sizing: border-box;
@@ -1680,14 +1687,47 @@ a,
 
   .console-hud .console-toolbar,
   .library-hud .library-toolbar {
-    margin-right: 24px;
+    margin-right: 0;
   }
 
   .console-hud .console-header-right,
   .library-hud .console-header-right {
     width: clamp(260px, 31vw, 380px);
     min-width: clamp(260px, 31vw, 380px);
-    padding-left: 20px;
+    padding-left: 0;
+  }
+
+  .console-hud .console-header-inline-count {
+    display: inline-flex;
+    align-items: center;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: opacity 220ms ease, transform 220ms ease;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  .console-hud .console-header-inline-count--visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .console-hud .console-header-right--console {
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    transition: width 220ms ease, min-width 220ms ease, padding 220ms ease;
+  }
+
+  .console-hud .console-header-right--console .console-header-state--idle {
+    display: none;
+  }
+
+  .console-hud .console-header-right--console.console-header-right--active {
+    width: clamp(260px, 31vw, 380px);
+    min-width: clamp(260px, 31vw, 380px);
+    padding: 10px 0;
   }
 
   .console-hud .console-hover-meta,
