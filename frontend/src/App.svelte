@@ -535,10 +535,10 @@
     : `${media.length} ${media.length === 1 ? 'Game' : 'Games'} ${libraryView === 'wishlist' ? 'on' : 'in'} ${(selectedConsole ?? activeConsole.name)} ${libraryView === 'wishlist' ? 'Wish List' : 'Library'}`;
   $: libraryCountCopy = category === 'Music'
     ? libraryView === 'wishlist'
-      ? `# OF ${media.length} ${media.length === 1 ? 'ALBUM' : 'ALBUMS'} IN WISH LIST`
+      ? `${media.length} ${media.length === 1 ? 'ALBUM' : 'ALBUMS'} IN WISH LIST`
       : `${media.length} ${media.length === 1 ? 'ALBUM' : 'ALBUMS'} IN LIBRARY`
     : libraryView === 'wishlist'
-      ? `# OF ${media.length} ${media.length === 1 ? 'GAME' : 'GAMES'} IN WISH LIST`
+      ? `${media.length} ${media.length === 1 ? 'GAME' : 'GAMES'} IN WISH LIST`
       : `${media.length} ${media.length === 1 ? 'GAME' : 'GAMES'} IN LIBRARY`;
   $: consoleCountCopy = libraryView === 'wishlist'
     ? `${totalConsoleWishlistCount} ${totalConsoleWishlistCount === 1 ? 'CONSOLE' : 'CONSOLES'} ON WISH LIST`
@@ -4122,9 +4122,14 @@
     }
 
     if (stage === 'library' && category === 'Games') {
+      hoveredConsole = selectedConsole;
+      consoleHeaderIdleVisible = false;
+      consoleHeaderHoverVisible = true;
+      clearConsoleHeaderSwapTimeout();
+
       // Go directly back to console select, skipping any pagination history entries
       void transitionTo(
-        { stage: 'console', category: 'Games', console: null, itemId: null, page: 0 },
+        { stage: 'console', category: 'Games', console: selectedConsole, itemId: null, page: 0 },
         { fadeMs: ZOOM_TRANSITION_MS },
       );
       return;
@@ -5238,7 +5243,7 @@
         <div class="console-hud" class:hovering-console-header={hoveredConsole !== null}>
           <div class="library-hud-left console-header-shell">
             <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
-            <span class="wishlist-context-copy" transition:fade={{ duration: 320, easing: cubicOut }}>{wishlistToggleContextLabel}</span>
+            <span class="wishlist-context-copy">{wishlistToggleContextLabel}</span>
             <button
               type="button"
               class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-header"
@@ -5311,7 +5316,16 @@
               </span>
             </button>
           </div>
-          <div class="library-hud-right console-header-count console-header-right">
+          <span
+            class="console-header-inline-count console-header-copy console-header-count-copy library-header-subcopy"
+            class:console-header-inline-count--visible={consoleHeaderIdleVisible}
+          >
+            {consoleCountCopy}
+          </span>
+          <div
+            class="library-hud-right console-header-right console-header-right--console"
+            class:console-header-right--active={consoleHeaderHoverVisible}
+          >
             <div class="console-header-swap">
               <div class="console-header-state console-header-state--idle" class:console-header-state--visible={consoleHeaderIdleVisible}>
                 <span class="console-header-copy console-header-count-copy library-header-subcopy">{consoleCountCopy}</span>
@@ -5378,7 +5392,7 @@
           <div class="library-hud-left">
             <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
             {#if stage !== 'console'}
-              <span class="wishlist-context-copy" transition:fade={{ duration: 320, easing: cubicOut }}>{wishlistToggleContextLabel}</span>
+              <span class="wishlist-context-copy">{wishlistToggleContextLabel}</span>
             {/if}
             {#if stage !== 'console'}
               <button
