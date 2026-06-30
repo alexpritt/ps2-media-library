@@ -111,6 +111,7 @@
   };
 
   type FetchToolKey = 'gameArt' | 'gameDetails' | 'musicArt' | 'musicDetails';
+  type FetchToolAction = 'empty' | 'all';
 
   type FetchToolActivityEntry = {
     key: string;
@@ -121,6 +122,7 @@
 
   type FetchToolState = {
     running: boolean;
+    activeAction: FetchToolAction | null;
     processed: number;
     total: number;
     progress: number;
@@ -149,10 +151,6 @@
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg' },
     { name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg' },
-    { name: 'GameBoy', shortName: 'GB', logo: 'GB',
-      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg' },
-    { name: 'GameCube', shortName: 'GC', logo: 'GC',
-      logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg' },
     { name: 'Wii', shortName: 'Wii', logo: 'Wii',
       logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg' },
     { name: 'Xbox', shortName: 'XBX', logo: 'XBX',
@@ -270,6 +268,8 @@
   let gameWishlist: WishlistMediaItem[] = [];
   let musicWishlist: WishlistMediaItem[] = [];
   let darkModeEnabled = false;
+  let fetchToolAbortController: AbortController | null = null;
+  let fetchToolActiveKey: FetchToolKey | null = null;
 
   let bootVideoRef: HTMLVideoElement | null = null;
   let bootMuted = true;  // true = muted until first user interaction
@@ -347,6 +347,9 @@
   let adminBusy = false;
   let adminError = '';
   let adminMessage = '';
+  let systemDeleteConfirmOpen = false;
+  let systemDeleteConfirmBusy = false;
+  let systemDeleteConfirmSystem: EditableSystem | null = null;
   let launchboxFetchBusy = false;
   let launchboxFetchError = '';
   let launchboxManualUrl = '';
@@ -428,6 +431,7 @@
   let fetchToolsBusy = false;
   const createFetchToolState = (): FetchToolState => ({
     running: false,
+    activeAction: null,
     processed: 0,
     total: 0,
     progress: 0,
@@ -2118,6 +2122,12 @@
     };
   }
 
+  function cancelFetchToolOperation() {
+    if (fetchToolAbortController) {
+      fetchToolAbortController.abort();
+    }
+  }
+
   function updateFetchToolState(key: FetchToolKey, patch: Partial<FetchToolState>) {
     if (!fetchToolsOpen) return;
     fetchToolStates = {
@@ -2147,6 +2157,9 @@
   }
 
   function resetAllFetchToolStates() {
+    cancelFetchToolOperation();
+    fetchToolAbortController = null;
+    fetchToolActiveKey = null;
     fetchToolStates = {
       gameArt: createFetchToolState(),
       gameDetails: createFetchToolState(),
@@ -2156,8 +2169,10 @@
   }
 
   function closeFetchToolsPopup() {
+    cancelFetchToolOperation();
     fetchToolsOpen = false;
     fetchToolsBusy = false;
+    fetchToolActiveKey = null;
     resetAllFetchToolStates();
   }
 
@@ -2278,7 +2293,13 @@
     const spec = specs[key];
     if (!spec) return;
 
+  const action: FetchToolAction = includePopulated ? 'all' : 'empty';
+  const fetchController = new AbortController();
+  const { signal } = fetchController;
+
     fetchToolsBusy = true;
+  fetchToolAbortController = fetchController;
+  fetchToolActiveKey = key;
     resetFetchToolState(key);
 
     const libraryTargets = allMedia.filter((item) => item.category === spec.category)
@@ -2290,6 +2311,7 @@
     if (total === 0) {
       updateFetchToolState(key, {
         running: false,
+        activeAction: null,
         total: 0,
         processed: 0,
         progress: 100,
@@ -2303,6 +2325,7 @@
 
     updateFetchToolState(key, {
       running: true,
+      activeAction: action,
       total,
       processed: 0,
       progress: 0,
@@ -2326,6 +2349,7 @@
         const response = await fetch(apiPath(`${spec.endpointPrefix}${item.id}`), {
           method: 'POST',
           headers: mediaHeaders(),
+          signal,
           body: JSON.stringify({ mode: spec.mode, force: includePopulated }),
         });
         if (response.status === 401) {
@@ -2346,6 +2370,7 @@
           activityMessage = `Updated (${processed + 1}/${total}).`;
         }
       } catch {
+        if (signal.aborted) break;
         errors += 1;
         const message = `Could not fetch ${spec.label} for ${item.title}.`;
         updateFetchToolState(key, { errorText: message });
@@ -2360,14 +2385,18 @@
         updatedCount,
         statusText: `Processing ${processed}/${total}... Updated ${updatedCount}.`,
       });
+      if (signal.aborted) break;
       await sleep(1100);
     }
 
     if (processed < total) {
       updateFetchToolState(key, {
         running: false,
-        statusText: `Stopped at ${processed}/${total}.`,
+        activeAction: null,
+        statusText: signal.aborted ? `Cancelled at ${processed}/${total}.` : `Stopped at ${processed}/${total}.`,
       });
+      fetchToolAbortController = null;
+      fetchToolActiveKey = null;
       fetchToolsBusy = false;
       await Promise.all([loadAllMedia(), loadMedia()]);
       return;
@@ -2385,6 +2414,7 @@
             const response = await fetch(apiPath('/api/launchbox/game-data'), {
               method: 'POST',
               headers: mediaHeaders(),
+              signal,
               body: JSON.stringify({ title: item.title, platform: item.platform ?? selectedConsole ?? '', item_id: null }),
             });
             if (response.status === 401) {
@@ -2414,6 +2444,7 @@
             const response = await fetch(apiPath('/api/deezer/music-data'), {
               method: 'POST',
               headers: mediaHeaders(),
+              signal,
               body: JSON.stringify({ title: item.title, artist: item.artist ?? '' }),
             });
             if (response.status === 401) {
@@ -2441,6 +2472,7 @@
             }
           }
         } catch {
+          if (signal.aborted) break;
           errors += 1;
           const message = `Could not fetch ${spec.label} for ${item.title} wish list entry.`;
           updateFetchToolState(key, { errorText: message });
@@ -2455,17 +2487,22 @@
           updatedCount,
           statusText: `Processing ${processed}/${total}... Updated ${updatedCount}.`,
         });
+        if (signal.aborted) break;
         await sleep(1100);
       }
     }
 
+    const cancelled = signal.aborted;
     updateFetchToolState(key, {
       running: false,
+      activeAction: null,
       progress: 100,
       updatedCount,
-      statusText: `Done. Updated ${updatedCount}/${total}.`,
+      statusText: cancelled ? `Cancelled at ${processed}/${total}.` : `Done. Updated ${updatedCount}/${total}.`,
       errorText: errors > 0 ? `${errors} item${errors === 1 ? '' : 's'} failed. See latest error above.` : fetchToolStates[key].errorText,
     });
+    fetchToolAbortController = null;
+    fetchToolActiveKey = null;
     fetchToolsBusy = false;
     await Promise.all([loadAllMedia(), loadMedia()]);
   }
@@ -4002,10 +4039,14 @@
   }
 
   function loadSystemsFromStorage() {
+    const excludedSystemIds = new Set(['gb', 'gc']);
     const stored = localStorage.getItem('ps2-editable-systems');
     if (stored) {
       try {
-        editableSystems = JSON.parse(stored) as EditableSystem[];
+        editableSystems = (JSON.parse(stored) as EditableSystem[]).filter((system) => !excludedSystemIds.has(system.id));
+        if (editableSystems.length !== JSON.parse(stored).length) {
+          persistSystems();
+        }
       } catch {
         editableSystems = initializeDefaultSystems();
       }
@@ -4052,10 +4093,6 @@
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg', caseType: 'cartridge', appearancePreset: 'nds' },
       { id: '3ds', name: 'Nintendo 3DS', shortName: '3DS', logo: '3DS',
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg', caseType: 'cartridge', appearancePreset: '3ds' },
-      { id: 'gb', name: 'GameBoy', shortName: 'GB', logo: 'GB',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg', caseType: 'cartridge', appearancePreset: 'gb' },
-      { id: 'gc', name: 'GameCube', shortName: 'GC', logo: 'GC',
-        logoImage: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg', caseType: 'disc', appearancePreset: 'gamecube' },
       { id: 'wii', name: 'Wii', shortName: 'Wii', logo: 'Wii',
         logoImage: 'https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg', caseType: 'disc', appearancePreset: 'wii' },
       { id: 'xbox', name: 'Xbox', shortName: 'XBX', logo: 'XBX',
@@ -4144,21 +4181,39 @@
     }
   }
 
-  async function removeSystem(systemId: string) {
+  function removeSystem(systemId: string) {
     const removedSystem = editableSystems.find((s) => s.id === systemId);
+    if (!removedSystem) return;
+    systemDeleteConfirmSystem = removedSystem;
+    systemDeleteConfirmBusy = false;
+    systemDeleteConfirmOpen = true;
+  }
+
+  function closeSystemDeleteConfirm() {
+    systemDeleteConfirmOpen = false;
+    systemDeleteConfirmBusy = false;
+    systemDeleteConfirmSystem = null;
+  }
+
+  async function confirmSystemDelete() {
+    if (!systemDeleteConfirmSystem || systemDeleteConfirmBusy) return;
+
+    const removedSystem = systemDeleteConfirmSystem;
+    systemDeleteConfirmBusy = true;
     try {
-      const response = await fetch(apiPath(`/api/systems/${encodeURIComponent(systemId)}`), {
+      const response = await fetch(apiPath(`/api/systems/${encodeURIComponent(removedSystem.id)}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${adminToken}` },
       });
       if (response.ok) {
-        if (removedSystem && selectedConsole === removedSystem.name) {
+        if (selectedConsole === removedSystem.name) {
           selectedConsole = null;
           if (stage === 'library' && category === 'Games') {
             stage = 'console';
           }
         }
         await loadSystemsFromAPI();
+        closeSystemDeleteConfirm();
       } else {
         const error = await response.json().catch(() => null);
         const detail = typeof error?.detail === 'string' && error.detail.trim()
@@ -4168,6 +4223,8 @@
       }
     } catch (error) {
       systemError = `Error deleting system: ${error}`;
+    } finally {
+      systemDeleteConfirmBusy = false;
     }
   }
 
@@ -5447,10 +5504,7 @@
                   style="--delay: {itemDelay(index)}ms;"
                   on:mouseenter={() => (hoveredItemId = item.id)}
                   on:mousemove={handleIconMove}
-                  on:mouseleave={(event) => {
-                    hoveredItemId = null;
-                    clearIconFollow(event);
-                  }}
+                  on:mouseleave={handleIconLeave}
                   on:click={() => openItem(item)}
                   aria-label={`Open ${item.title}`}
                 >
@@ -5911,6 +5965,25 @@
             <button type="button" class="ghost" on:click={closeConfirm}>Cancel</button>
             <button type="button" class:danger={confirmMode === 'delete'} on:click={confirmAction}>
               {confirmMode === 'delete' ? 'Delete' : 'Edit'}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    {#if systemDeleteConfirmOpen && systemDeleteConfirmSystem}
+      <div class="confirm-overlay system-delete-confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="system-delete-confirm-title" transition:popupOverlayTransition>
+        <button type="button" class="confirm-backdrop" aria-label="Close confirmation" on:click={closeSystemDeleteConfirm}></button>
+        <div class="confirm-panel system-delete-confirm-panel" transition:popupPanelTransition>
+          <button type="button" class="popup-close" aria-label="Close confirmation" on:click={closeSystemDeleteConfirm}>×</button>
+          <h3 id="system-delete-confirm-title">Delete System?</h3>
+          <p>
+            Delete "{systemDeleteConfirmSystem.name}" and remove it from the system manager? This cannot be undone.
+          </p>
+          <div class="confirm-actions system-delete-confirm-actions">
+            <button type="button" class="back-button system-confirm-button system-confirm-cancel" on:click={closeSystemDeleteConfirm} disabled={systemDeleteConfirmBusy}>Cancel</button>
+            <button type="button" class="back-button system-confirm-button system-confirm-delete danger" on:click={confirmSystemDelete} disabled={systemDeleteConfirmBusy}>
+              {systemDeleteConfirmBusy ? 'Deleting...' : 'Delete'}
             </button>
           </div>
         </div>
@@ -6937,13 +7010,20 @@
                 class="fetch-tool-button fetch-tool-button--empty"
                 on:click={() => runFetchTool(tool.key, false)}
                 disabled={fetchToolsBusy || fetchToolStates[tool.key].running}
-              >{fetchToolStates[tool.key].running ? 'Running...' : 'Fetch Empty Only'}</button>
+              >{fetchToolStates[tool.key].running && fetchToolStates[tool.key].activeAction === 'empty' ? 'Running' : 'Fetch Empty Only'}</button>
               <button
                 type="button"
                 class="fetch-tool-button fetch-tool-button--all ghost"
                 on:click={() => runFetchTool(tool.key, true)}
                 disabled={fetchToolsBusy || fetchToolStates[tool.key].running}
-              >{fetchToolStates[tool.key].running ? 'Running...' : 'Re-fetch All'}</button>
+              >{fetchToolStates[tool.key].running && fetchToolStates[tool.key].activeAction === 'all' ? 'Running' : 'Re-fetch All'}</button>
+              {#if fetchToolStates[tool.key].running && fetchToolActiveKey === tool.key}
+                <button
+                  type="button"
+                  class="fetch-tool-cancel"
+                  on:click={cancelFetchToolOperation}
+                >Cancel</button>
+              {/if}
             </div>
             <div class="fetch-tool-state" aria-live="polite">
               <p class="fetch-tool-status">{fetchToolStates[tool.key].statusText || 'Idle.'}</p>
