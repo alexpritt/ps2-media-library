@@ -5284,25 +5284,18 @@
             </button>
           </div>
           <div class="library-hud-right console-header-count console-header-right">
-            <div class="console-header-swap">
-              <span class="console-header-state console-header-state--idle" class:console-header-state--visible={!hoveredConsoleFadeVisible}>
-                <span class="console-header-copy console-header-count-copy console-header-subcopy">
-                  {consoleCountCopy}
-                </span>
+            <div class="console-hover-meta">
+              {#if consoleHeaderOption?.logoImage}
+                <img
+                  src={consoleHeaderOption.logoImage}
+                  alt={consoleHeaderOption.name}
+                  class="console-header-logo"
+                  draggable="false"
+                />
+              {/if}
+              <span class="console-header-copy console-header-count-copy library-header-subcopy">
+                {hoveredConsoleCountLabel}
               </span>
-              <div class="console-header-state console-header-state--hover" class:console-header-state--visible={hoveredConsoleFadeVisible}>
-                {#if consoleHeaderOption?.logoImage}
-                  <img
-                    src={consoleHeaderOption.logoImage}
-                    alt={consoleHeaderOption.name}
-                    class="console-header-logo"
-                    draggable="false"
-                  />
-                {/if}
-                <span class="console-header-copy console-header-count-copy console-header-subcopy">
-                  {hoveredConsoleCountLabel}
-                </span>
-              </div>
             </div>
           </div>
         </div>
