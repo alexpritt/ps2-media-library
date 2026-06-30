@@ -314,7 +314,7 @@
   let consoleHeaderIdleVisible = true;
   let consoleHeaderHoverVisible = false;
   let consoleHeaderSwapTimeout: ReturnType<typeof setTimeout> | null = null;
-  const CONSOLE_HEADER_FADE_MS = 1000;
+  const CONSOLE_HEADER_FADE_MS = 220;
 
   let page = 0;
   let itemsPerPage = 15;
@@ -5316,6 +5316,14 @@
               </span>
             </button>
           </div>
+          {#if consoleHeaderIdleVisible}
+            <span
+              class="console-header-inline-count console-header-copy console-header-count-copy library-header-subcopy"
+              class:console-header-inline-count--visible={consoleHeaderIdleVisible}
+            >
+              {consoleCountCopy}
+            </span>
+          {/if}
           <div
             class="library-hud-right console-header-right console-header-right--console"
             class:console-header-right--active={consoleHeaderHoverVisible}
