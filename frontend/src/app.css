@@ -1557,7 +1557,7 @@ a,
   justify-content: flex-end;
   opacity: 0;
   transform: translateY(0);
-  transition: opacity 220ms ease, transform 220ms ease;
+  transition: opacity 500ms ease, transform 500ms ease;
   pointer-events: none;
 }
 
@@ -1636,6 +1636,7 @@ a,
   color: var(--hud-white);
   white-space: nowrap;
   line-height: 1;
+  text-shadow: 2px 2px 0 var(--shadow);
 }
 
 .console-header-count-copy {
@@ -1696,10 +1697,6 @@ a,
     margin-right: 0;
   }
 
-  .console-hud .console-toolbar {
-    transform: translateX(-249.656px);
-  }
-
   .console-hud .console-header-right,
   .library-hud .console-header-right {
     width: auto;
@@ -1714,11 +1711,11 @@ a,
   }
 
   .console-hud .console-header-inline-count {
-    display: inline-flex;
+    display: none;
     align-items: center;
     opacity: 0;
     transform: translateY(-3px);
-    transition: opacity 220ms ease, transform 220ms ease;
+    transition: opacity 500ms ease, transform 500ms ease;
     pointer-events: none;
     white-space: nowrap;
   }
@@ -1729,34 +1726,29 @@ a,
   }
 
   .console-hud .console-header-right--console {
-    width: 0;
-    min-width: 0;
-    padding: 0;
-    overflow: hidden;
-    transition: width 220ms ease, min-width 220ms ease, padding 220ms ease;
+    width: clamp(260px, 31vw, 380px);
+    min-width: clamp(260px, 31vw, 380px);
+    height: 116px;
+    min-height: 116px;
+    padding: 10px 0;
+    overflow: visible;
+    pointer-events: none;
   }
 
   .console-hud .console-header-right--console .console-header-state--idle {
-    display: none;
+    display: flex;
   }
 
   .console-hud .console-header-right--console.console-header-right--active {
-    width: auto;
-    min-width: 0;
+    width: clamp(260px, 31vw, 380px);
+    min-width: clamp(260px, 31vw, 380px);
     padding: 10px 0;
   }
 
   .console-hud .console-header-right--console .console-header-swap {
-    min-width: 0;
-    width: auto;
-    min-height: 0;
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .console-hud .console-header-right--console .console-header-state {
-    position: static;
-    inset: auto;
+    width: 100%;
+    min-width: 100%;
+    min-height: 96px;
   }
 
   .console-hud .console-hover-meta,
