@@ -4258,10 +4258,17 @@ a,
 
 .admin-loaded-art-item-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
   align-items: start;
   min-width: 0;
+}
+
+.admin-art-item-actions {
+  justify-self: end;
+  display: grid;
+  gap: 6px;
+  justify-items: end;
 }
 
 .admin-loaded-art-item > span {
@@ -4283,8 +4290,9 @@ a,
   white-space: normal;
 }
 
-.admin-art-upload-button {
-  justify-self: start;
+.admin-art-upload-button,
+.admin-art-delete-button {
+  justify-self: end;
   border: 1px solid rgba(150, 180, 255, 0.26);
   background: linear-gradient(135deg, rgba(26, 44, 80, 0.95), rgba(18, 34, 64, 0.92));
   color: #eef5ff;
@@ -4296,35 +4304,14 @@ a,
   letter-spacing: 0.05em;
   line-height: 1;
   cursor: pointer;
-  transition: border-color 150ms ease, filter 150ms ease, transform 150ms ease;
-}
-
-.admin-art-upload-button:hover,
-.admin-art-upload-button:focus-visible {
-  border-color: rgba(216, 218, 68, 0.5);
-  filter: brightness(1.08);
-  transform: translateY(-1px);
-}
-
-.admin-art-delete-button {
-  justify-self: end;
-  border: 1px solid rgba(255, 152, 152, 0.24);
-  background: linear-gradient(135deg, rgba(76, 26, 33, 0.9), rgba(54, 18, 24, 0.9));
-  color: #ffd6d6;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  line-height: 1;
-  cursor: pointer;
   transition: border-color 150ms ease, filter 150ms ease, transform 150ms ease, opacity 150ms ease;
 }
 
+.admin-art-upload-button:hover,
+.admin-art-upload-button:focus-visible,
 .admin-art-delete-button:hover:not(:disabled),
 .admin-art-delete-button:focus-visible:not(:disabled) {
-  border-color: rgba(255, 176, 176, 0.45);
+  border-color: rgba(216, 218, 68, 0.5);
   filter: brightness(1.08);
   transform: translateY(-1px);
 }

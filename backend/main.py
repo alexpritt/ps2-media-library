@@ -17,6 +17,10 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 import requests
+try:
+    import cloudscraper
+except Exception:  # pragma: no cover - optional dependency fallback
+    cloudscraper = None
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -2236,6 +2240,7 @@ def fetch_discogs_price_data(album: str, artist: str) -> Optional[dict]:
 
 def fetch_discogs_music_art_option_urls(album: str, artist: str) -> List[str]:
     search_url = "https://api.discogs.com/database/search"
+    results = []
     try:
         response = pricing_get(
             search_url,
@@ -2249,14 +2254,16 @@ def fetch_discogs_music_art_option_urls(album: str, artist: str) -> List[str]:
             },
         )
         payload = response.json() if response.content else {}
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Could not query Discogs art options: {exc}") from exc
-
-    results = payload.get("results") if isinstance(payload, dict) else []
-    if not isinstance(results, list) or not results:
-        raise HTTPException(status_code=404, detail=f'Could not find art options for "{album}" by {artist} on Discogs.')
+        parsed_results = payload.get("results") if isinstance(payload, dict) else []
+        if isinstance(parsed_results, list):
+            results = parsed_results
+    except Exception:
+        # Discogs API can be unavailable/unauthenticated in some environments.
+        # Fall through to a web search fallback instead of hard-failing.
+        results = []
 
     options: List[str] = []
+    seen_canonical = set()
     for entry in results:
         if not isinstance(entry, dict):
             continue
@@ -2265,9 +2272,48 @@ def fetch_discogs_music_art_option_urls(album: str, artist: str) -> List[str]:
             if not isinstance(image_url, str):
                 continue
             image_url = image_url.strip()
-            if not image_url or image_url in options:
+            if not image_url:
                 continue
+            parsed = urlparse(image_url)
+            canonical = f"{parsed.netloc.lower()}{parsed.path}"
+            if canonical in seen_canonical:
+                continue
+            seen_canonical.add(canonical)
             options.append(image_url)
+        if len(options) >= 12:
+            break
+
+    if options:
+        return options
+
+    # Fallback: scrape Discogs public search results for release thumbnails.
+    search_query = f"{artist} {album}".strip()
+    search_page_url = f"https://www.discogs.com/search/?type=all&q={quote(search_query)}"
+    try:
+        if cloudscraper is not None:
+            scraper = cloudscraper.create_scraper(browser={"browser": "chrome", "platform": "windows", "mobile": False})
+            response = scraper.get(search_page_url, timeout=20, headers=pricing_headers())
+        else:
+            response = requests.get(search_page_url, timeout=20, headers=pricing_headers())
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not query Discogs art options: {exc}") from exc
+
+    for image in soup.select("img"):
+        image_url = (image.get("data-src") or image.get("src") or "").strip()
+        if not image_url:
+            continue
+        if image_url.startswith("//"):
+            image_url = f"https:{image_url}"
+        if "discogs" not in image_url.lower():
+            continue
+        parsed = urlparse(image_url)
+        canonical = f"{parsed.netloc.lower()}{parsed.path}"
+        if not canonical or canonical in seen_canonical:
+            continue
+        seen_canonical.add(canonical)
+        options.append(image_url)
         if len(options) >= 12:
             break
 
@@ -2278,6 +2324,25 @@ def fetch_discogs_music_art_option_urls(album: str, artist: str) -> List[str]:
 
 
 def fetch_deezer_music_art_option_urls(album: str, artist: str) -> List[str]:
+    def deezer_canonical_art_key(image_url: str) -> str:
+        parsed = urlparse(image_url)
+        host = parsed.netloc.lower()
+        path = parsed.path
+
+        # Deezer CDN URLs are often the same cover hash with different size suffixes.
+        # Canonicalize to host + cover hash so size variants collapse to one image.
+        if host.endswith("dzcdn.net"):
+            match = re.search(r"/images/cover/([^/]+)/", path)
+            if match:
+                return f"{host}/images/cover/{match.group(1).lower()}"
+
+        if host == "api.deezer.com":
+            match = re.search(r"/album/(\d+)/image", path)
+            if match:
+                return f"{host}/album/{match.group(1)}"
+
+        return f"{host}{path}"
+
     url = f"https://api.deezer.com/search/album?q={quote(artist + ' ' + album)}&limit=40"
     try:
         response = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
@@ -2296,15 +2361,29 @@ def fetch_deezer_music_art_option_urls(album: str, artist: str) -> List[str]:
     )
 
     options: List[str] = []
+    seen_album_ids = set()
+    seen_canonical = set()
     for entry in ranked[:20]:
+        album_id = entry.get("id")
+        if album_id is not None:
+            album_key = str(album_id)
+            if album_key in seen_album_ids:
+                continue
+            seen_album_ids.add(album_key)
+
+        best_image_url = None
         for key in ("cover_xl", "cover_big", "cover_medium", "cover", "cover_small"):
             image_url = entry.get(key)
-            if not isinstance(image_url, str):
-                continue
-            image_url = image_url.strip()
-            if not image_url or image_url in options:
-                continue
-            options.append(image_url)
+            if isinstance(image_url, str) and image_url.strip():
+                best_image_url = image_url.strip()
+                break
+
+        if best_image_url:
+            canonical = deezer_canonical_art_key(best_image_url)
+            if canonical and canonical not in seen_canonical:
+                seen_canonical.add(canonical)
+                options.append(best_image_url)
+
         if len(options) >= 16:
             break
 
