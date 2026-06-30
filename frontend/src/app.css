@@ -4291,7 +4291,7 @@ a,
 }
 
 .admin-art-upload-button,
-.admin-art-delete-button {
+button.admin-art-delete-button {
   justify-self: end;
   appearance: none;
   -webkit-appearance: none;
@@ -4314,19 +4314,20 @@ a,
 
 .admin-art-upload-button:hover,
 .admin-art-upload-button:focus-visible,
-.admin-art-delete-button:hover:not(:disabled),
-.admin-art-delete-button:focus-visible:not(:disabled) {
+button.admin-art-delete-button:hover:not(:disabled),
+button.admin-art-delete-button:focus-visible:not(:disabled) {
   border-color: rgba(216, 218, 68, 0.5);
   filter: brightness(1.08);
   transform: translateY(-1px);
 }
 
-.admin-art-delete-button:disabled {
+button.admin-art-delete-button:disabled {
   opacity: 1;
   filter: none;
   border-color: rgba(150, 180, 255, 0.26);
   color: #eef5ff;
   cursor: pointer;
+  text-shadow: none;
 }
 
 .admin-art-upload-input {
@@ -5298,7 +5299,7 @@ select option {
 }
 
 /* Admin actions mirror the plain text/glow style used by the library Back button. */
-.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):not(.popup-close) {
+.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):not(.popup-close):not(.admin-art-delete-button) {
   position: relative;
   border: 0 !important;
   background: none !important;
@@ -5311,8 +5312,8 @@ select option {
   transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
 }
 
-.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):not(.popup-close):hover,
-.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):not(.popup-close):focus-visible {
+.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):not(.popup-close):not(.admin-art-delete-button):hover,
+.admin-panel button:not(.admin-backdrop):not(.admin-hub-card):not(.popup-close):not(.admin-art-delete-button):focus-visible {
   transform: translateY(-1px);
   filter: brightness(1.1);
 }
@@ -5331,9 +5332,9 @@ select option {
   text-shadow: 2px 2px 0 var(--shadow);
 }
 
-.admin-form button,
-.admin-form .form-actions button,
-.systems-edit-mode .form-actions button,
+.admin-form button:not(.admin-art-delete-button),
+.admin-form .form-actions button:not(.admin-art-delete-button),
+.systems-edit-mode .form-actions button:not(.admin-art-delete-button),
 .admin-actions button,
 .systems-add-row .add-button,
 .systems-actions button {
