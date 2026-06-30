@@ -91,6 +91,7 @@
     averageChangePercent: number | null;
     soldRangeMin: number | null;
     soldRangeMax: number | null;
+    soldRangeByCondition: Record<string, { min: number; max: number }>;
   };
 
   type DetailPriceSummaryEntry = {
@@ -433,6 +434,7 @@
     averageChangePercent: null,
     soldRangeMin: null,
     soldRangeMax: null,
+    soldRangeByCondition: {},
   };
 
   function combinedStarRating(item: MediaItem): number | null {
@@ -1868,6 +1870,7 @@
       averageChangePercent: null,
       soldRangeMin: null,
       soldRangeMax: null,
+      soldRangeByCondition: {},
     };
 
     if (!item?.price_data_json) {
@@ -1881,6 +1884,7 @@
       const parsed = JSON.parse(item.price_data_json) as Record<string, unknown>;
       const average = (parsed?.average ?? {}) as Record<string, unknown>;
       const soldRange = (parsed?.sold_range ?? {}) as Record<string, unknown>;
+      const soldRangeByCondition = (parsed?.sold_range_by_condition ?? {}) as Record<string, Record<string, number>>;
 
       const loose = (average.loose ?? {}) as Record<string, unknown>;
       const cib = (average.cib ?? {}) as Record<string, unknown>;
@@ -1903,6 +1907,20 @@
       const soldRangeMin = typeof soldRange?.min === 'number' && Number.isFinite(soldRange.min) ? soldRange.min : null;
       const soldRangeMax = typeof soldRange?.max === 'number' && Number.isFinite(soldRange.max) ? soldRange.max : null;
 
+      // Parse per-condition sold ranges, validating the structure
+      const parsedSoldRangeByCondition: Record<string, { min: number; max: number }> = {};
+      if (typeof soldRangeByCondition === 'object' && soldRangeByCondition !== null) {
+        for (const [condition, range] of Object.entries(soldRangeByCondition)) {
+          if (typeof range === 'object' && range !== null && 'min' in range && 'max' in range) {
+            const min = (range as Record<string, unknown>).min;
+            const max = (range as Record<string, unknown>).max;
+            if (typeof min === 'number' && typeof max === 'number' && Number.isFinite(min) && Number.isFinite(max)) {
+              parsedSoldRangeByCondition[condition] = { min, max };
+            }
+          }
+        }
+      }
+
       return {
         kind,
         averageLoose: readPriceValue(loose.value, loose.url),
@@ -1913,6 +1931,7 @@
         averageChangePercent,
         soldRangeMin,
         soldRangeMax,
+        soldRangeByCondition: parsedSoldRangeByCondition,
       };
     } catch {
       return {
@@ -5631,7 +5650,43 @@
 
                   <div class="details-price-metric">
                     <p class="details-price-metric-label">SOLD RANGE</p>
-                    {#if detailPriceData.soldRangeMin != null && detailPriceData.soldRangeMax != null}
+                    {#if detailItem.category === 'Games' && (detailPriceData.soldRangeByCondition.loose || detailPriceData.soldRangeByCondition.cib || detailPriceData.soldRangeByCondition.new)}
+                      <div class="details-price-conditions details-price-conditions--game">
+                        {#if detailPriceData.soldRangeByCondition.loose}
+                          <div class="price-chip price-chip--loose">
+                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.loose.min)} - {formatPrice(detailPriceData.soldRangeByCondition.loose.max)}</span>
+                            <span class="price-chip-label">LOOSE</span>
+                          </div>
+                        {/if}
+                        {#if detailPriceData.soldRangeByCondition.cib}
+                          <div class="price-chip price-chip--cib">
+                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.cib.min)} - {formatPrice(detailPriceData.soldRangeByCondition.cib.max)}</span>
+                            <span class="price-chip-label">CIB</span>
+                          </div>
+                        {/if}
+                        {#if detailPriceData.soldRangeByCondition.new}
+                          <div class="price-chip price-chip--new">
+                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.new.min)} - {formatPrice(detailPriceData.soldRangeByCondition.new.max)}</span>
+                            <span class="price-chip-label">NEW</span>
+                          </div>
+                        {/if}
+                      </div>
+                    {:else if detailItem.category === 'Music' && (detailPriceData.soldRangeByCondition.standard || detailPriceData.soldRangeByCondition.limited)}
+                      <div class="details-price-conditions details-price-conditions--music">
+                        {#if detailPriceData.soldRangeByCondition.standard}
+                          <div class="price-chip price-chip--standard">
+                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.standard.min)} - {formatPrice(detailPriceData.soldRangeByCondition.standard.max)}</span>
+                            <span class="price-chip-label">STANDARD</span>
+                          </div>
+                        {/if}
+                        {#if detailPriceData.soldRangeByCondition.limited}
+                          <div class="price-chip price-chip--limited">
+                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.limited.min)} - {formatPrice(detailPriceData.soldRangeByCondition.limited.max)}</span>
+                            <span class="price-chip-label">LIMITED EDITION</span>
+                          </div>
+                        {/if}
+                      </div>
+                    {:else if detailPriceData.soldRangeMin != null && detailPriceData.soldRangeMax != null}
                       <div class="details-price-conditions details-price-conditions--sold-range">
                         <div class="price-chip price-chip--sold-range">
                           <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeMin)}</span>

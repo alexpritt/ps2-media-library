@@ -2047,6 +2047,15 @@ def fetch_pricecharting_price_data(title: str, platform: str) -> Optional[dict]:
         if lowest_price > 0:
             average_change_percent = ((highest_price - lowest_price) / lowest_price) * 100.0
 
+    # Per-condition sold ranges
+    sold_range_by_condition = {}
+    if loose_price is not None:
+        sold_range_by_condition["loose"] = {"min": loose_price, "max": loose_price}
+    if cib_price is not None:
+        sold_range_by_condition["cib"] = {"min": cib_price, "max": cib_price}
+    if new_price is not None:
+        sold_range_by_condition["new"] = {"min": new_price, "max": new_price}
+
     return {
         "kind": "game",
         "source": "pricecharting",
@@ -2058,6 +2067,7 @@ def fetch_pricecharting_price_data(title: str, platform: str) -> Optional[dict]:
         },
         "average_change_percent": average_change_percent,
         "sold_range": sold_range,
+        "sold_range_by_condition": sold_range_by_condition,
     }
 
 
@@ -2198,6 +2208,13 @@ def fetch_discogs_price_data(album: str, artist: str) -> Optional[dict]:
     if standard_average is not None and limited_average is not None and standard_average > 0:
         average_change_percent = ((limited_average - standard_average) / standard_average) * 100.0
 
+    # Per-edition sold ranges
+    sold_range_by_condition = {}
+    if standard_prices:
+        sold_range_by_condition["standard"] = {"min": min(standard_prices), "max": max(standard_prices)}
+    if limited_prices:
+        sold_range_by_condition["limited"] = {"min": min(limited_prices), "max": max(limited_prices)}
+
     return {
         "kind": "music",
         "source": "discogs",
@@ -2208,6 +2225,7 @@ def fetch_discogs_price_data(album: str, artist: str) -> Optional[dict]:
         },
         "average_change_percent": average_change_percent,
         "sold_range": sold_range,
+        "sold_range_by_condition": sold_range_by_condition,
     }
 
 
