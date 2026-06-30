@@ -861,6 +861,11 @@ class DeezerMusicDataRequest(SQLModel):
     artist: str
 
 
+class DiscogsMusicArtOptionsRequest(SQLModel):
+    title: str
+    artist: str
+
+
 class FetchToolItemRequest(SQLModel):
     mode: str = "all"  # art | details | all
     force: bool = False
@@ -2227,6 +2232,86 @@ def fetch_discogs_price_data(album: str, artist: str) -> Optional[dict]:
         "sold_range": sold_range,
         "sold_range_by_condition": sold_range_by_condition,
     }
+
+
+def fetch_discogs_music_art_option_urls(album: str, artist: str) -> List[str]:
+    search_url = "https://api.discogs.com/database/search"
+    try:
+        response = pricing_get(
+            search_url,
+            params={
+                "release_title": album,
+                "artist": artist,
+                "q": f"{album} {artist}",
+                "type": "release",
+                "per_page": 25,
+                "page": 1,
+            },
+        )
+        payload = response.json() if response.content else {}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not query Discogs art options: {exc}") from exc
+
+    results = payload.get("results") if isinstance(payload, dict) else []
+    if not isinstance(results, list) or not results:
+        raise HTTPException(status_code=404, detail=f'Could not find art options for "{album}" by {artist} on Discogs.')
+
+    options: List[str] = []
+    for entry in results:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("cover_image", "thumb"):
+            image_url = entry.get(key)
+            if not isinstance(image_url, str):
+                continue
+            image_url = image_url.strip()
+            if not image_url or image_url in options:
+                continue
+            options.append(image_url)
+        if len(options) >= 12:
+            break
+
+    if not options:
+        raise HTTPException(status_code=404, detail=f'Could not find art options for "{album}" by {artist} on Discogs.')
+
+    return options
+
+
+def fetch_deezer_music_art_option_urls(album: str, artist: str) -> List[str]:
+    url = f"https://api.deezer.com/search/album?q={quote(artist + ' ' + album)}&limit=40"
+    try:
+        response = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        items = response.json().get("data", [])
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not query Deezer art options: {exc}") from exc
+
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=404, detail=f'Could not find art options for "{album}" by {artist} on Deezer.')
+
+    ranked = sorted(
+        [entry for entry in items if isinstance(entry, dict)],
+        key=lambda entry: score_music_match(entry, artist, album),
+        reverse=True,
+    )
+
+    options: List[str] = []
+    for entry in ranked[:20]:
+        for key in ("cover_xl", "cover_big", "cover_medium", "cover", "cover_small"):
+            image_url = entry.get(key)
+            if not isinstance(image_url, str):
+                continue
+            image_url = image_url.strip()
+            if not image_url or image_url in options:
+                continue
+            options.append(image_url)
+        if len(options) >= 16:
+            break
+
+    if not options:
+        raise HTTPException(status_code=404, detail=f'Could not find art options for "{album}" by {artist} on Deezer.')
+
+    return options
 
 
 def fetch_price_data_for_item(item: MediaItem) -> Optional[dict]:
@@ -3630,6 +3715,61 @@ def fetch_game_art_options(payload: LaunchboxGameArtOptionsRequest, authorizatio
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Could not fetch art options: {exc}") from exc
+
+
+@app.post("/api/discogs/music-art-options")
+def fetch_music_art_options(payload: DiscogsMusicArtOptionsRequest, authorization: Optional[str] = Header(default=None)) -> dict:
+    require_admin(authorization)
+
+    title = payload.title.strip()
+    artist = payload.artist.strip()
+    if not title or not artist:
+        raise HTTPException(status_code=400, detail="Album title and artist are required.")
+
+    discogs_options: List[str] = []
+    deezer_options: List[str] = []
+    discogs_error = ""
+    deezer_error = ""
+
+    try:
+        discogs_options = fetch_discogs_music_art_option_urls(title, artist)
+    except HTTPException as exc:
+        discogs_error = str(exc.detail)
+    except Exception as exc:
+        discogs_error = f"Discogs error: {exc}"
+
+    try:
+        deezer_options = fetch_deezer_music_art_option_urls(title, artist)
+    except HTTPException as exc:
+        deezer_error = str(exc.detail)
+    except Exception as exc:
+        deezer_error = f"Deezer error: {exc}"
+
+    merged: List[str] = []
+    for option in discogs_options + deezer_options:
+        if option and option not in merged:
+            merged.append(option)
+        if len(merged) >= 24:
+            break
+
+    if not merged:
+        detail_bits = [bit for bit in (discogs_error, deezer_error) if bit]
+        detail = " | ".join(detail_bits) if detail_bits else f'Could not find art options for "{title}" by {artist}.'
+        raise HTTPException(status_code=404, detail=detail)
+
+    source_labels = []
+    if discogs_options:
+        source_labels.append(f"Discogs ({len(discogs_options)})")
+    if deezer_options:
+        source_labels.append(f"Deezer ({len(deezer_options)})")
+    source_summary = ", ".join(source_labels) if source_labels else "available sources"
+
+    return {
+        "kind": "music",
+        "source": "discogs+deezer",
+        "status_message": f"Found {len(merged)} art options from {source_summary}.",
+        "options": merged,
+    }
 
 
 @app.post("/api/deezer/music-data")

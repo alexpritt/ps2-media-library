@@ -66,6 +66,7 @@
   };
 
   type GameArtField = 'cover_image' | 'spine_image' | 'disc_image';
+  type ArtPickerSource = 'launchbox' | 'music';
   type LaunchboxArtKind = 'cover' | 'disc' | 'spine';
   type DataSource = 'launchbox' | 'mobygames' | 'rawg' | 'igdb' | 'libretro' | 'wikidata' | 'cache' | 'unknown';
   type DetailTagTone = 'blue' | 'cyan' | 'green' | 'amber' | 'rose' | 'violet';
@@ -352,7 +353,9 @@
   let launchboxArtPickerOpen = false;
   let launchboxArtPickerBusy = false;
   let launchboxArtPickerError = '';
+  let launchboxArtPickerStatus = '';
   let launchboxArtPickerField: GameArtField | null = null;
+  let launchboxArtPickerSource: ArtPickerSource = 'launchbox';
   let launchboxArtOptions: string[] = [];
   let bulkOpen = false;
   let bulkText = '';
@@ -2802,8 +2805,29 @@
     launchboxArtPickerOpen = false;
     launchboxArtPickerBusy = false;
     launchboxArtPickerError = '';
+    launchboxArtPickerStatus = '';
     launchboxArtOptions = [];
     launchboxArtPickerField = null;
+    launchboxArtPickerSource = 'launchbox';
+  }
+
+  function clearAdminArtField(field: GameArtField) {
+    adminForm = {
+      ...adminForm,
+      [field]: null,
+    } as AdminForm;
+    adminMessage = `${adminArtLabel(field)} cleared.`;
+    adminError = '';
+    launchboxFetchError = '';
+  }
+
+  function adminArtPickerSource(): ArtPickerSource {
+    return libraryAdminTab === 'music' ? 'music' : 'launchbox';
+  }
+
+  function adminArtPickerLabel(field: GameArtField) {
+    if (libraryAdminTab === 'music' && field === 'cover_image') return 'Album Art';
+    return adminArtLabel(field);
   }
 
   async function openLaunchboxArtPicker(field: GameArtField) {
@@ -2813,7 +2837,13 @@
     adminError = '';
     adminMessage = '';
 
-    if (!canFetchLaunchBoxGameData()) {
+    const pickerSource = adminArtPickerSource();
+    if (pickerSource === 'music') {
+      if (!canFetchMusicAlbumData()) {
+        launchboxFetchError = 'Enter an album title and artist first.';
+        return;
+      }
+    } else if (!canFetchLaunchBoxGameData()) {
       launchboxFetchError = 'Enter a game title and select a platform first.';
       return;
     }
@@ -2821,18 +2851,26 @@
     launchboxArtPickerOpen = true;
     launchboxArtPickerBusy = true;
     launchboxArtPickerError = '';
+    launchboxArtPickerStatus = '';
     launchboxArtPickerField = field;
+    launchboxArtPickerSource = pickerSource;
     launchboxArtOptions = [];
 
     try {
-      const response = await fetch(apiPath('/api/launchbox/game-art-options'), {
+      const isMusicPicker = launchboxArtPickerSource === 'music';
+      const response = await fetch(apiPath(isMusicPicker ? '/api/discogs/music-art-options' : '/api/launchbox/game-art-options'), {
         method: 'POST',
         headers: mediaHeaders(),
-        body: JSON.stringify({
-          title: (adminForm.title ?? '').trim(),
-          platform: ((adminForm.platform ?? '').trim() || (selectedConsole ?? '').trim()),
-          art_type: launchboxArtKindForField(field),
-        }),
+        body: JSON.stringify(isMusicPicker
+          ? {
+              title: (adminForm.title ?? '').trim(),
+              artist: (adminForm.artist ?? '').trim(),
+            }
+          : {
+              title: (adminForm.title ?? '').trim(),
+              platform: ((adminForm.platform ?? '').trim() || (selectedConsole ?? '').trim()),
+              art_type: launchboxArtKindForField(field),
+            }),
       });
       if (response.status === 401) {
         adminToken = '';
@@ -2844,7 +2882,7 @@
 
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        launchboxArtPickerError = data?.detail ?? 'Could not find art options for this category from any source.';
+        launchboxArtPickerError = data?.detail ?? 'Could not find art options for this item from any source.';
         return;
       }
 
@@ -2855,9 +2893,9 @@
         : [];
 
       if (!launchboxArtOptions.length) {
-        launchboxArtPickerError = statusMessage || 'No art options were returned for this category.';
+        launchboxArtPickerError = statusMessage || 'No art options were returned for this item.';
       } else if (statusMessage) {
-        launchboxArtPickerError = statusMessage;
+        launchboxArtPickerStatus = statusMessage;
       }
     } catch {
       launchboxArtPickerError = 'Could not fetch art options from any source.';
@@ -2868,7 +2906,7 @@
 
   function chooseLaunchboxArtOption(imageData: string) {
     if (!launchboxArtPickerField || !imageData) return;
-    const label = adminArtLabel(launchboxArtPickerField);
+    const label = adminArtPickerLabel(launchboxArtPickerField);
     adminForm = {
       ...adminForm,
       [launchboxArtPickerField]: imageData,
@@ -2877,6 +2915,28 @@
     adminError = '';
     launchboxFetchError = '';
     closeLaunchboxArtPicker();
+  }
+
+  function setLibraryAdminTab(tab: AdminLibraryTab) {
+    libraryAdminTab = tab;
+    adminListPage = 0;
+    adminSearchCategory = tab === 'music' ? 'Music' : 'Games';
+    adminSearchPlatform = tab === 'games' ? (selectedConsole ?? 'All') : 'All';
+    if (adminEditingId === null) {
+      resetAdminForm(tab === 'music' ? 'Music' : 'Games');
+    }
+  }
+
+  function setWishlistAdminSection(section: WishlistAdminSection) {
+    wishlistAdminSection = section;
+    adminListPage = 0;
+    adminSearchCategory = section === 'music' ? 'Music' : 'Games';
+    adminSearchPlatform = section === 'games' ? (selectedConsole ?? 'All') : 'All';
+    if (section === 'console') {
+      resetWishlistSystemForm();
+    } else if (adminEditingId === null) {
+      resetAdminForm(section === 'music' ? 'Music' : 'Games');
+    }
   }
 
   function activeBulkUploadSection(): BulkUploadSection {
@@ -4539,7 +4599,13 @@
     adminMode = mode;
     adminError = '';
     adminMessage = '';
-    if (tab) libraryAdminTab = tab;
+    if (tab) {
+      if (mode === 'library') {
+        setLibraryAdminTab(tab);
+      } else {
+        libraryAdminTab = tab;
+      }
+    }
 
     if (mode === 'library' && contextItem) {
       if (tab === 'wishlists' && isWishlistMediaItem(contextItem)) {
@@ -4727,11 +4793,18 @@
         adminError = 'Could not save item.';
         return;
       }
+      const savedItem = await response.json().catch(() => null);
       adminMessage = adminForm.id ? 'Item updated.' : 'Item added.';
       const wasDetailsEdit = detailsEditMode;
       const savedId = adminForm.id;
       resetAdminForm();
       detailsEditMode = false;
+      if (savedItem && typeof savedItem === 'object') {
+        upsertMediaItem(savedItem as MediaItem);
+        if (wasDetailsEdit) {
+          selectedItem = savedItem as MediaItem;
+        }
+      }
       await Promise.all([loadAllMedia(), loadMedia()]);
       if (wasDetailsEdit) {
         adminOpen = false;
@@ -5898,26 +5971,29 @@
 
     {#if launchboxArtPickerOpen}
       <div class="launchbox-art-picker-overlay" role="dialog" aria-modal="true" aria-labelledby="launchbox-art-picker-title" transition:popupOverlayTransition>
-        <button type="button" class="launchbox-art-picker-backdrop" aria-label="Close LaunchBox art selector" on:click={closeLaunchboxArtPicker}></button>
+        <button type="button" class="launchbox-art-picker-backdrop" aria-label="Close art selector" on:click={closeLaunchboxArtPicker}></button>
         <div class="launchbox-art-picker-panel" transition:popupPanelTransition>
-          <button type="button" class="popup-close" aria-label="Close LaunchBox art selector" on:click={closeLaunchboxArtPicker}>×</button>
+          <button type="button" class="popup-close" aria-label="Close art selector" on:click={closeLaunchboxArtPicker}>×</button>
           <div class="launchbox-art-picker-header">
-            <h3 id="launchbox-art-picker-title">Choose {adminArtLabel(launchboxArtPickerField ?? 'cover_image')}</h3>
+            <h3 id="launchbox-art-picker-title">Choose {adminArtPickerLabel(launchboxArtPickerField ?? 'cover_image')}</h3>
           </div>
           {#if launchboxArtPickerBusy}
             <p class="launchbox-art-picker-state">Loading art options from available sources...</p>
           {:else if launchboxArtPickerError}
             <p class="admin-error launchbox-art-picker-state">{launchboxArtPickerError}</p>
           {:else if launchboxArtOptions.length}
+            {#if launchboxArtPickerStatus}
+              <p class="launchbox-art-picker-state">{launchboxArtPickerStatus}</p>
+            {/if}
             <div class="launchbox-art-picker-grid">
               {#each launchboxArtOptions as artOption, index}
                 <button
                   type="button"
                   class="launchbox-art-picker-option"
                   on:click={() => chooseLaunchboxArtOption(artOption)}
-                  aria-label={`Select ${adminArtLabel(launchboxArtPickerField ?? 'cover_image')} option ${index + 1}`}
+                  aria-label={`Select ${adminArtPickerLabel(launchboxArtPickerField ?? 'cover_image')} option ${index + 1}`}
                 >
-                  <img src={artOption} alt={`LaunchBox art option ${index + 1}`} loading="lazy" />
+                  <img src={artOption} alt={`Art option ${index + 1}`} loading="lazy" />
                 </button>
               {/each}
             </div>
@@ -6203,21 +6279,24 @@
             <button 
               type="button" 
               class:active={libraryAdminTab === 'games'}
-              on:click={() => { libraryAdminTab = 'games'; adminListPage = 0; if (adminEditingId === null) resetAdminForm('Games'); }}
+              on:click={() => setLibraryAdminTab('games')}
             >
               Games
             </button>
             <button 
               type="button" 
               class:active={libraryAdminTab === 'music'}
-              on:click={() => { libraryAdminTab = 'music'; adminListPage = 0; if (adminEditingId === null) resetAdminForm('Music'); }}
+              on:click={() => setLibraryAdminTab('music')}
             >
               Music
             </button>
             <button
               type="button"
               class:active={libraryAdminTab === 'wishlists'}
-              on:click={() => { libraryAdminTab = 'wishlists'; wishlistAdminSection = 'console'; adminListPage = 0; resetWishlistSystemForm(); }}
+              on:click={() => {
+                libraryAdminTab = 'wishlists';
+                setWishlistAdminSection('console');
+              }}
             >
               Wish Lists
             </button>
@@ -6225,9 +6304,9 @@
 
           {#if libraryAdminTab === 'wishlists'}
             <div class="admin-tabs admin-subtabs">
-              <button type="button" class:active={wishlistAdminSection === 'console'} on:click={() => { wishlistAdminSection = 'console'; adminListPage = 0; resetWishlistSystemForm(); }}>Consoles</button>
-              <button type="button" class:active={wishlistAdminSection === 'games'} on:click={() => { wishlistAdminSection = 'games'; adminListPage = 0; resetAdminForm('Games'); wishlistEditingId = null; }}>Games</button>
-              <button type="button" class:active={wishlistAdminSection === 'music'} on:click={() => { wishlistAdminSection = 'music'; adminListPage = 0; resetAdminForm('Music'); wishlistEditingId = null; }}>Music</button>
+              <button type="button" class:active={wishlistAdminSection === 'console'} on:click={() => setWishlistAdminSection('console')}>Consoles</button>
+              <button type="button" class:active={wishlistAdminSection === 'games'} on:click={() => setWishlistAdminSection('games')}>Games</button>
+              <button type="button" class:active={wishlistAdminSection === 'music'} on:click={() => setWishlistAdminSection('music')}>Music</button>
             </div>
           {/if}
 
@@ -6612,6 +6691,7 @@
                           <div class="admin-loaded-art-item-header">
                             <span>Box Art</span>
                             <label for="admin-upload-cover-art" class="admin-art-upload-button">Upload</label>
+                            <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('cover_image')} disabled={!adminForm.cover_image}>Delete</button>
                             <input
                               id="admin-upload-cover-art"
                               class="admin-art-upload-input"
@@ -6621,19 +6701,20 @@
                             />
                           </div>
                           <div class="admin-loaded-art-media">
-                            {#if adminForm.cover_image}
-                              <button type="button" class="admin-loaded-art-preview" on:click={() => openLaunchboxArtPicker('cover_image')}>
+                            <button type="button" class="admin-loaded-art-preview" class:admin-loaded-art-preview--empty={!adminForm.cover_image} on:click={() => openLaunchboxArtPicker('cover_image')} aria-label="Choose box art from available sources">
+                              {#if adminForm.cover_image}
                                 <img src={adminForm.cover_image} alt="Fetched box art" />
-                              </button>
-                            {:else}
-                              <div class="admin-loaded-art-empty">No box art loaded</div>
-                            {/if}
+                              {:else}
+                                <div class="admin-loaded-art-empty">No box art loaded</div>
+                              {/if}
+                            </button>
                           </div>
                         </div>
                         <div class="admin-loaded-art-item">
                           <div class="admin-loaded-art-item-header">
                             <span>Disc/Cart Art</span>
                             <label for="admin-upload-disc-art" class="admin-art-upload-button">Upload</label>
+                            <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('disc_image')} disabled={!adminForm.disc_image}>Delete</button>
                             <input
                               id="admin-upload-disc-art"
                               class="admin-art-upload-input"
@@ -6643,19 +6724,20 @@
                             />
                           </div>
                           <div class="admin-loaded-art-media">
-                            {#if adminForm.disc_image}
-                              <button type="button" class="admin-loaded-art-preview" on:click={() => openLaunchboxArtPicker('disc_image')}>
+                            <button type="button" class="admin-loaded-art-preview" class:admin-loaded-art-preview--empty={!adminForm.disc_image} on:click={() => openLaunchboxArtPicker('disc_image')} aria-label="Choose disc or cart art from available sources">
+                              {#if adminForm.disc_image}
                                 <img src={adminForm.disc_image} alt="Fetched disc/cart art" />
-                              </button>
-                            {:else}
-                              <div class="admin-loaded-art-empty">No disc/cart art loaded</div>
-                            {/if}
+                              {:else}
+                                <div class="admin-loaded-art-empty">No disc/cart art loaded</div>
+                              {/if}
+                            </button>
                           </div>
                         </div>
                         <div class="admin-loaded-art-item">
                           <div class="admin-loaded-art-item-header">
                             <span>Spine Art</span>
                             <label for="admin-upload-spine-art" class="admin-art-upload-button">Upload</label>
+                            <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('spine_image')} disabled={!adminForm.spine_image}>Delete</button>
                             <input
                               id="admin-upload-spine-art"
                               class="admin-art-upload-input"
@@ -6665,13 +6747,13 @@
                             />
                           </div>
                           <div class="admin-loaded-art-media">
-                            {#if adminForm.spine_image}
-                              <button type="button" class="admin-loaded-art-preview" on:click={() => openLaunchboxArtPicker('spine_image')}>
+                            <button type="button" class="admin-loaded-art-preview" class:admin-loaded-art-preview--empty={!adminForm.spine_image} on:click={() => openLaunchboxArtPicker('spine_image')} aria-label="Choose spine art from available sources">
+                              {#if adminForm.spine_image}
                                 <img src={adminForm.spine_image} alt="Fetched spine art" />
-                              </button>
-                            {:else}
-                              <div class="admin-loaded-art-empty">No spine art loaded</div>
-                            {/if}
+                              {:else}
+                                <div class="admin-loaded-art-empty">No spine art loaded</div>
+                              {/if}
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -6684,6 +6766,7 @@
                           <div class="admin-loaded-art-item-header">
                             <span>Album Art</span>
                             <label for="admin-upload-album-art" class="admin-art-upload-button">Upload</label>
+                            <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('cover_image')} disabled={!adminForm.cover_image}>Delete</button>
                             <input
                               id="admin-upload-album-art"
                               class="admin-art-upload-input"
@@ -6693,11 +6776,13 @@
                             />
                           </div>
                           <div class="admin-loaded-art-media">
-                            {#if adminForm.cover_image}
-                              <img src={adminForm.cover_image} alt="Fetched album art" />
-                            {:else}
-                              <div class="admin-loaded-art-empty">No album art loaded</div>
-                            {/if}
+                            <button type="button" class="admin-loaded-art-preview" class:admin-loaded-art-preview--empty={!adminForm.cover_image} on:click={() => openLaunchboxArtPicker('cover_image')} aria-label="Choose album art from Discogs and Deezer">
+                              {#if adminForm.cover_image}
+                                <img src={adminForm.cover_image} alt="Fetched album art" />
+                              {:else}
+                                <div class="admin-loaded-art-empty">No album art loaded</div>
+                              {/if}
+                            </button>
                           </div>
                         </div>
                       </div>

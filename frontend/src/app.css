@@ -2681,12 +2681,13 @@ a,
   color: rgba(220, 222, 230, 0.72);
   font-size: clamp(0.95rem, 1.65vw, 1.6rem);
   max-width: 100%;
-  max-height: clamp(5rem, 13vh, 8rem);
+  max-height: clamp(7rem, 22vh, 14rem);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
   padding-right: 6px;
+  white-space: pre-line;
 }
 
 .details-price {
@@ -2799,8 +2800,9 @@ a,
 .details-price-admin {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 4px;
+  text-align: right;
 }
 
 .details-price-fetch {
@@ -4256,8 +4258,8 @@ a,
 
 .admin-loaded-art-item-header {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
   align-items: start;
   min-width: 0;
 }
@@ -4304,6 +4306,34 @@ a,
   transform: translateY(-1px);
 }
 
+.admin-art-delete-button {
+  justify-self: end;
+  border: 1px solid rgba(255, 152, 152, 0.24);
+  background: linear-gradient(135deg, rgba(76, 26, 33, 0.9), rgba(54, 18, 24, 0.9));
+  color: #ffd6d6;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 150ms ease, filter 150ms ease, transform 150ms ease, opacity 150ms ease;
+}
+
+.admin-art-delete-button:hover:not(:disabled),
+.admin-art-delete-button:focus-visible:not(:disabled) {
+  border-color: rgba(255, 176, 176, 0.45);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.admin-art-delete-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
 .admin-art-upload-input {
   display: none;
 }
@@ -4321,12 +4351,21 @@ a,
 
 .admin-loaded-art-preview {
   width: 100%;
+  min-height: 128px;
   border: 0;
   background: transparent;
   padding: 0;
   display: grid;
   place-items: center;
   cursor: pointer;
+  transition: border-color 150ms ease, transform 150ms ease, filter 150ms ease;
+}
+
+.admin-loaded-art-preview--empty {
+  background: linear-gradient(135deg, rgba(18, 24, 42, 0.5), rgba(10, 16, 30, 0.46));
+  border: 1px solid rgba(150, 180, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px;
 }
 
 .admin-loaded-art-preview:focus-visible {
@@ -4335,7 +4374,14 @@ a,
   border-radius: 8px;
 }
 
-.admin-loaded-art-media img {
+.admin-loaded-art-preview:hover,
+.admin-loaded-art-preview:focus-visible {
+  border-color: rgba(216, 218, 68, 0.45);
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+}
+
+.admin-loaded-art-preview img {
   width: 100%;
   max-width: 160px;
   height: 110px;
