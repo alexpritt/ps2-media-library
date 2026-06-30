@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 import requests
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -3508,7 +3508,7 @@ def refresh_game_data(item_id: int, authorization: Optional[str] = Header(defaul
         return data
 
 
-@app.post("/api/pricing/fetch/{item_id}", response_model=MediaItem)
+@app.api_route("/api/pricing/fetch/{item_id}", methods=["GET", "POST"], response_model=MediaItem)
 def fetch_item_price_data(item_id: int, authorization: Optional[str] = Header(default=None)) -> MediaItem:
     require_admin(authorization)
     with Session(engine) as session:
@@ -3539,12 +3539,19 @@ def refresh_monthly_price_data(authorization: Optional[str] = Header(default=Non
     return {"refreshed": refreshed}
 
 
-@app.post("/api/fetch-tools/game/{item_id}")
-def fetch_tools_game_item(item_id: int, payload: FetchToolItemRequest, authorization: Optional[str] = Header(default=None)) -> dict:
+@app.api_route("/api/fetch-tools/game/{item_id}", methods=["GET", "POST"])
+def fetch_tools_game_item(
+    item_id: int,
+    payload: Optional[FetchToolItemRequest] = Body(default=None),
+    mode: Optional[str] = Query(default=None),
+    force: Optional[bool] = Query(default=None),
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
     require_admin(authorization)
-    mode = (payload.mode or "all").strip().lower()
-    if mode not in {"art", "details", "all"}:
+    resolved_mode = ((payload.mode if payload else None) or mode or "all").strip().lower()
+    if resolved_mode not in {"art", "details", "all"}:
         raise HTTPException(status_code=400, detail="Invalid mode. Use art, details, or all")
+    resolved_force = payload.force if payload is not None else bool(force)
 
     with Session(engine) as session:
         item = session.get(MediaItem, item_id)
@@ -3554,7 +3561,7 @@ def fetch_tools_game_item(item_id: int, payload: FetchToolItemRequest, authoriza
             raise HTTPException(status_code=400, detail="Fetch tool endpoint expects a game item")
 
         try:
-            result = process_fetch_tool_game_item(item, mode, bool(payload.force))
+            result = process_fetch_tool_game_item(item, resolved_mode, bool(resolved_force))
         except HTTPException:
             raise
         except Exception as exc:
@@ -3568,12 +3575,19 @@ def fetch_tools_game_item(item_id: int, payload: FetchToolItemRequest, authoriza
         return result
 
 
-@app.post("/api/fetch-tools/music/{item_id}")
-def fetch_tools_music_item(item_id: int, payload: FetchToolItemRequest, authorization: Optional[str] = Header(default=None)) -> dict:
+@app.api_route("/api/fetch-tools/music/{item_id}", methods=["GET", "POST"])
+def fetch_tools_music_item(
+    item_id: int,
+    payload: Optional[FetchToolItemRequest] = Body(default=None),
+    mode: Optional[str] = Query(default=None),
+    force: Optional[bool] = Query(default=None),
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
     require_admin(authorization)
-    mode = (payload.mode or "all").strip().lower()
-    if mode not in {"art", "details", "all"}:
+    resolved_mode = ((payload.mode if payload else None) or mode or "all").strip().lower()
+    if resolved_mode not in {"art", "details", "all"}:
         raise HTTPException(status_code=400, detail="Invalid mode. Use art, details, or all")
+    resolved_force = payload.force if payload is not None else bool(force)
 
     with Session(engine) as session:
         item = session.get(MediaItem, item_id)
@@ -3583,7 +3597,7 @@ def fetch_tools_music_item(item_id: int, payload: FetchToolItemRequest, authoriz
             raise HTTPException(status_code=400, detail="Fetch tool endpoint expects a music item")
 
         try:
-            result = process_fetch_tool_music_item(item, mode, bool(payload.force))
+            result = process_fetch_tool_music_item(item, resolved_mode, bool(resolved_force))
         except HTTPException:
             raise
         except Exception as exc:
