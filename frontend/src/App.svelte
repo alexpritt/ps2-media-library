@@ -112,14 +112,23 @@
 
   type FetchToolKey = 'gameArt' | 'gameDetails' | 'musicArt' | 'musicDetails';
 
+  type FetchToolActivityEntry = {
+    key: string;
+    line: string;
+    status: 'running' | 'success' | 'error';
+    message: string;
+  };
+
   type FetchToolState = {
     running: boolean;
     processed: number;
     total: number;
     progress: number;
+    showProgress: boolean;
     statusText: string;
     errorText: string;
     updatedCount: number;
+    activity: FetchToolActivityEntry[];
   };
 
   const ZOOM_TRANSITION_MS = 900;
@@ -417,11 +426,22 @@
   let detailRatingDirty = false;
   let fetchToolsOpen = false;
   let fetchToolsBusy = false;
+  const createFetchToolState = (): FetchToolState => ({
+    running: false,
+    processed: 0,
+    total: 0,
+    progress: 0,
+    showProgress: false,
+    statusText: '',
+    errorText: '',
+    updatedCount: 0,
+    activity: [],
+  });
   let fetchToolStates: Record<FetchToolKey, FetchToolState> = {
-    gameArt: { running: false, processed: 0, total: 0, progress: 0, statusText: '', errorText: '', updatedCount: 0 },
-    gameDetails: { running: false, processed: 0, total: 0, progress: 0, statusText: '', errorText: '', updatedCount: 0 },
-    musicArt: { running: false, processed: 0, total: 0, progress: 0, statusText: '', errorText: '', updatedCount: 0 },
-    musicDetails: { running: false, processed: 0, total: 0, progress: 0, statusText: '', errorText: '', updatedCount: 0 },
+    gameArt: createFetchToolState(),
+    gameDetails: createFetchToolState(),
+    musicArt: createFetchToolState(),
+    musicDetails: createFetchToolState(),
   };
   let detailPriceSummary: DetailPriceSummaryEntry[] = [];
   let detailPriceData: DetailPriceData = {
@@ -516,8 +536,12 @@
     ? `${media.length} ${media.length === 1 ? 'Album' : 'Albums'} ${libraryView === 'wishlist' ? 'on Wish List' : 'in Library'}`
     : `${media.length} ${media.length === 1 ? 'Game' : 'Games'} ${libraryView === 'wishlist' ? 'on' : 'in'} ${(selectedConsole ?? activeConsole.name)} ${libraryView === 'wishlist' ? 'Wish List' : 'Library'}`;
   $: libraryCountCopy = category === 'Music'
-    ? `${media.length} ${media.length === 1 ? 'ALBUM' : 'ALBUMS'} IN LIBRARY`
-    : `${media.length} ${media.length === 1 ? 'GAME' : 'GAMES'} IN LIBRARY`;
+    ? libraryView === 'wishlist'
+      ? `# OF ${media.length} ${media.length === 1 ? 'ALBUM' : 'ALBUMS'} IN WISH LIST`
+      : `${media.length} ${media.length === 1 ? 'ALBUM' : 'ALBUMS'} IN LIBRARY`
+    : libraryView === 'wishlist'
+      ? `# OF ${media.length} ${media.length === 1 ? 'GAME' : 'GAMES'} IN WISH LIST`
+      : `${media.length} ${media.length === 1 ? 'GAME' : 'GAMES'} IN LIBRARY`;
   $: consoleCountCopy = libraryView === 'wishlist'
     ? `${totalConsoleWishlistCount} ${totalConsoleWishlistCount === 1 ? 'CONSOLE' : 'CONSOLES'} ON WISH LIST`
     : `${totalGameLibraryCount} ${totalGameLibraryCount === 1 ? 'GAME' : 'GAMES'} IN LIBRARY`;
@@ -580,11 +604,20 @@
     ? `Music ${libraryView === 'wishlist' ? 'Wish List' : 'Library'}`
     : selectedConsole ?? activeConsole.name;
   $: libraryHeaderRight = libraryCountLabel;
-  $: libraryCostTotal = sumCollectionCibOrStandard(media, category === 'Music');
+  $: selectedWishlistGameItems = gameWishlist.filter((item) => item.platform === (selectedConsole ?? activeConsole.name));
+  $: wishlistConsoleGamesCostTotal = sumCollectionCibOrStandard(gameWishlist, false);
+  $: wishlistLibraryGamesCostTotal = sumCollectionCibOrStandard(selectedWishlistGameItems, false);
+  $: libraryCostTotal = libraryView === 'wishlist'
+    ? category === 'Music'
+      ? sumCollectionCibOrStandard(musicWishlist, true)
+      : wishlistLibraryGamesCostTotal
+    : sumCollectionCibOrStandard(media, category === 'Music');
   $: libraryCostLabel = category === 'Music'
     ? `STANDARD TOTAL ${formatCurrencyCompact(libraryCostTotal)}`
     : `CIB TOTAL ${formatCurrencyCompact(libraryCostTotal)}`;
-  $: consoleOwnedGamesCostTotal = sumCollectionCibOrStandard(allMedia.filter((item) => item.category === 'Games'), false);
+  $: consoleOwnedGamesCostTotal = libraryView === 'wishlist'
+    ? wishlistConsoleGamesCostTotal
+    : sumCollectionCibOrStandard(allMedia.filter((item) => item.category === 'Games'), false);
   $: consoleOwnedGamesCostLabel = `CIB TOTAL ${formatCurrencyCompact(consoleOwnedGamesCostTotal)}`;
   $: libraryGridKey = `${libraryView}-${category ?? ''}-${selectedConsole ?? ''}-${librarySearch.trim().toLowerCase()}-${libraryPlayersFilter ?? 'all'}-${libraryStarFilter ?? 'all'}-${page}`;
   $: showEmptyGamesState = category === 'Games' && !libraryLoading && media.length === 0;
@@ -1942,19 +1975,25 @@
   }
 
   function formatPrice(value: number | null): string {
-    if (value == null) return 'NO DATA';
+    if (value == null) return '—';
     return `$${value.toFixed(2)}`;
   }
 
   function formatPercentChange(value: number | null): string {
-    if (value == null) return 'NO DATA';
+    if (value == null) return '—';
     const arrow = value >= 0 ? '↑' : '↓';
     return `${arrow} ${Math.abs(value).toFixed(2)}%`;
   }
 
   function soldRangeDisplay(minValue: number | null, maxValue: number | null): string {
-    if (minValue == null || maxValue == null) return 'NO DATA';
+    if (minValue == null || maxValue == null) return '—';
     return `${formatPrice(minValue)} - ${formatPrice(maxValue)}`;
+  }
+
+  function soldRangeByConditionDisplay(data: DetailPriceData, key: string): string {
+    const range = data.soldRangeByCondition[key];
+    if (!range) return '—';
+    return `${formatPrice(range.min)} - ${formatPrice(range.max)}`;
   }
 
   function openPriceSource(url: string | null) {
@@ -2007,9 +2046,9 @@
   }
 
   function formatFetchDate(value: string | null | undefined): string {
-    if (!value) return 'NO DATA';
+    if (!value) return '—';
     const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return 'NO DATA';
+    if (Number.isNaN(parsed.getTime())) return '—';
     return parsed.toLocaleString([], {
       month: 'numeric',
       day: 'numeric',
@@ -2075,19 +2114,12 @@
   function resetFetchToolState(key: FetchToolKey) {
     fetchToolStates = {
       ...fetchToolStates,
-      [key]: {
-        running: false,
-        processed: 0,
-        total: 0,
-        progress: 0,
-        statusText: '',
-        errorText: '',
-        updatedCount: 0,
-      },
+      [key]: createFetchToolState(),
     };
   }
 
   function updateFetchToolState(key: FetchToolKey, patch: Partial<FetchToolState>) {
+    if (!fetchToolsOpen) return;
     fetchToolStates = {
       ...fetchToolStates,
       [key]: {
@@ -2097,9 +2129,36 @@
     };
   }
 
+  function upsertFetchToolActivity(
+    key: FetchToolKey,
+    entryKey: string,
+    line: string,
+    status: FetchToolActivityEntry['status'],
+    message: string,
+  ) {
+    if (!fetchToolsOpen) return;
+    const current = fetchToolStates[key].activity;
+    const index = current.findIndex((entry) => entry.key === entryKey);
+    const nextEntry: FetchToolActivityEntry = { key: entryKey, line, status, message };
+    const next = index === -1
+      ? [...current, nextEntry]
+      : current.map((entry, i) => (i === index ? nextEntry : entry));
+    updateFetchToolState(key, { activity: next });
+  }
+
+  function resetAllFetchToolStates() {
+    fetchToolStates = {
+      gameArt: createFetchToolState(),
+      gameDetails: createFetchToolState(),
+      musicArt: createFetchToolState(),
+      musicDetails: createFetchToolState(),
+    };
+  }
+
   function closeFetchToolsPopup() {
     fetchToolsOpen = false;
     fetchToolsBusy = false;
+    resetAllFetchToolStates();
   }
 
   function openFetchToolsPopup() {
@@ -2234,6 +2293,7 @@
         total: 0,
         processed: 0,
         progress: 100,
+        showProgress: false,
         statusText: `No ${includePopulated ? '' : 'empty '}${spec.label} targets found.`,
         errorText: '',
       });
@@ -2246,9 +2306,11 @@
       total,
       processed: 0,
       progress: 0,
+      showProgress: true,
       statusText: `Preparing ${total} ${spec.label} item${total === 1 ? '' : 's'}...`,
       errorText: '',
       updatedCount: 0,
+      activity: [],
     });
 
     let processed = 0;
@@ -2256,6 +2318,10 @@
     let errors = 0;
 
     for (const item of libraryTargets) {
+      const activityKey = `library-${item.id}`;
+      upsertFetchToolActivity(key, activityKey, item.title, 'running', `Processing ${processed + 1}/${total}...`);
+      let activityStatus: FetchToolActivityEntry['status'] = 'success';
+      let activityMessage = `No updates needed (${processed + 1}/${total}).`;
       try {
         const response = await fetch(apiPath(`${spec.endpointPrefix}${item.id}`), {
           method: 'POST',
@@ -2271,14 +2337,22 @@
         const payload = await response.json().catch(() => null);
         if (!response.ok) {
           errors += 1;
-          updateFetchToolState(key, { errorText: payload?.detail || `Could not fetch ${spec.label} for ${item.title}.` });
+          const message = payload?.detail || `Could not fetch ${spec.label} for ${item.title}.`;
+          updateFetchToolState(key, { errorText: message });
+          activityStatus = 'error';
+          activityMessage = message;
         } else if (payload?.changed) {
           updatedCount += 1;
+          activityMessage = `Updated (${processed + 1}/${total}).`;
         }
       } catch {
         errors += 1;
-        updateFetchToolState(key, { errorText: `Could not fetch ${spec.label} for ${item.title}.` });
+        const message = `Could not fetch ${spec.label} for ${item.title}.`;
+        updateFetchToolState(key, { errorText: message });
+        activityStatus = 'error';
+        activityMessage = message;
       }
+      upsertFetchToolActivity(key, activityKey, item.title, activityStatus, activityMessage);
       processed += 1;
       updateFetchToolState(key, {
         processed,
@@ -2302,6 +2376,10 @@
     if (wishlistTargets.length) {
       const wishlistKind = spec.category === 'Games' ? 'games' : 'music';
       for (const item of wishlistTargets) {
+        const activityKey = `wishlist-${item.wishlistId}`;
+        upsertFetchToolActivity(key, activityKey, item.title, 'running', `Processing ${processed + 1}/${total}...`);
+        let activityStatus: FetchToolActivityEntry['status'] = 'success';
+        let activityMessage = `No updates needed (${processed + 1}/${total}).`;
         try {
           if (wishlistKind === 'games') {
             const response = await fetch(apiPath('/api/launchbox/game-data'), {
@@ -2323,10 +2401,14 @@
                 gameWishlist = gameWishlist.map((entry) => entry.wishlistId === item.wishlistId ? nextItem : entry);
                 if (selectedWishlistItem?.wishlistId === item.wishlistId) selectedWishlistItem = nextItem;
                 persistGameWishlist();
+                activityMessage = `Updated (${processed + 1}/${total}).`;
               }
             } else {
               errors += 1;
-              updateFetchToolState(key, { errorText: payload?.detail || `Could not fetch ${spec.label} for ${item.title} wish list entry.` });
+              const message = payload?.detail || `Could not fetch ${spec.label} for ${item.title} wish list entry.`;
+              updateFetchToolState(key, { errorText: message });
+              activityStatus = 'error';
+              activityMessage = message;
             }
           } else {
             const response = await fetch(apiPath('/api/deezer/music-data'), {
@@ -2348,16 +2430,24 @@
                 musicWishlist = musicWishlist.map((entry) => entry.wishlistId === item.wishlistId ? nextItem : entry);
                 if (selectedWishlistItem?.wishlistId === item.wishlistId) selectedWishlistItem = nextItem;
                 persistMusicWishlist();
+                activityMessage = `Updated (${processed + 1}/${total}).`;
               }
             } else {
               errors += 1;
-              updateFetchToolState(key, { errorText: payload?.detail || `Could not fetch ${spec.label} for ${item.title} wish list entry.` });
+              const message = payload?.detail || `Could not fetch ${spec.label} for ${item.title} wish list entry.`;
+              updateFetchToolState(key, { errorText: message });
+              activityStatus = 'error';
+              activityMessage = message;
             }
           }
         } catch {
           errors += 1;
-          updateFetchToolState(key, { errorText: `Could not fetch ${spec.label} for ${item.title} wish list entry.` });
+          const message = `Could not fetch ${spec.label} for ${item.title} wish list entry.`;
+          updateFetchToolState(key, { errorText: message });
+          activityStatus = 'error';
+          activityMessage = message;
         }
+        upsertFetchToolActivity(key, activityKey, item.title, activityStatus, activityMessage);
         processed += 1;
         updateFetchToolState(key, {
           processed,
@@ -4085,7 +4175,7 @@
     try {
       const system = editableSystems.find((s) => s.id === systemId);
       if (!system) return;
-      
+
       const response = await fetch(apiPath(`/api/systems/${encodeURIComponent(systemId)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
@@ -5155,29 +5245,29 @@
           </div>
 
           {#if stage !== 'console'}
-            <div class="library-toolbar" transition:fade={{ duration: 320, easing: cubicOut }}>
-              {#if category === 'Games'}
-                <button
-                  type="button"
-                  class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar filter-icon-label-host"
-                  data-hover-label="WISH LIST"
-                  class:is-active={libraryView === 'wishlist'}
-                  on:click={toggleWishlistView}
-                  aria-label={wishlistIconLabel()}
-                  transition:fade={{ duration: 320, easing: cubicOut }}
-                >
-                  <span class="wishlist-toggle-toprow">
-                    <span class="wishlist-toggle-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
-                        <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
-                      </svg>
-                    </span>
-                    <span class="wishlist-toggle-label">{wishlistToggleContextLabel}</span>
+            <div class="library-toolbar" class:library-toolbar--music={category === 'Music'} transition:fade={{ duration: 320, easing: cubicOut }}>
+              <button
+                type="button"
+                class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar filter-icon-label-host"
+                data-hover-label="WISH LIST"
+                class:is-active={libraryView === 'wishlist'}
+                on:click={toggleWishlistView}
+                aria-label={wishlistIconLabel()}
+                transition:fade={{ duration: 320, easing: cubicOut }}
+              >
+                <span class="wishlist-toggle-toprow">
+                  <span class="wishlist-toggle-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
+                      <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
+                    </svg>
                   </span>
-                  <span class="wishlist-toggle-footer">WISH LIST</span>
-                </button>
-                <span class="toolbar-divider toolbar-divider--wishlist" aria-hidden="true">|</span>
+                  <span class="wishlist-toggle-label">{wishlistToggleContextLabel}</span>
+                </span>
+                <span class="wishlist-toggle-footer">WISH LIST</span>
+              </button>
+              <span class="toolbar-divider toolbar-divider--wishlist" aria-hidden="true">|</span>
+              {#if category === 'Games'}
                 <div class="players-filter">
                   <button
                     type="button"
@@ -5330,7 +5420,9 @@
               </div>
             </div>
           {:else if libraryHeaderRight}
-            <div class="library-hud-right library-header-right-text">{libraryHeaderRight}</div>
+            <div class="library-hud-right console-header-right">
+              <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryCountCopy}</span>
+            </div>
           {/if}
         </div>
 
@@ -5650,51 +5742,30 @@
 
                   <div class="details-price-metric">
                     <p class="details-price-metric-label">SOLD RANGE</p>
-                    {#if detailItem.category === 'Games' && (detailPriceData.soldRangeByCondition.loose || detailPriceData.soldRangeByCondition.cib || detailPriceData.soldRangeByCondition.new)}
+                    {#if detailItem.category === 'Games'}
                       <div class="details-price-conditions details-price-conditions--game">
-                        {#if detailPriceData.soldRangeByCondition.loose}
-                          <div class="price-chip price-chip--loose">
-                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.loose.min)} - {formatPrice(detailPriceData.soldRangeByCondition.loose.max)}</span>
-                            <span class="price-chip-label">LOOSE</span>
-                          </div>
-                        {/if}
-                        {#if detailPriceData.soldRangeByCondition.cib}
-                          <div class="price-chip price-chip--cib">
-                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.cib.min)} - {formatPrice(detailPriceData.soldRangeByCondition.cib.max)}</span>
-                            <span class="price-chip-label">CIB</span>
-                          </div>
-                        {/if}
-                        {#if detailPriceData.soldRangeByCondition.new}
-                          <div class="price-chip price-chip--new">
-                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.new.min)} - {formatPrice(detailPriceData.soldRangeByCondition.new.max)}</span>
-                            <span class="price-chip-label">NEW</span>
-                          </div>
-                        {/if}
-                      </div>
-                    {:else if detailItem.category === 'Music' && (detailPriceData.soldRangeByCondition.standard || detailPriceData.soldRangeByCondition.limited)}
-                      <div class="details-price-conditions details-price-conditions--music">
-                        {#if detailPriceData.soldRangeByCondition.standard}
-                          <div class="price-chip price-chip--standard">
-                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.standard.min)} - {formatPrice(detailPriceData.soldRangeByCondition.standard.max)}</span>
-                            <span class="price-chip-label">STANDARD</span>
-                          </div>
-                        {/if}
-                        {#if detailPriceData.soldRangeByCondition.limited}
-                          <div class="price-chip price-chip--limited">
-                            <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeByCondition.limited.min)} - {formatPrice(detailPriceData.soldRangeByCondition.limited.max)}</span>
-                            <span class="price-chip-label">LIMITED EDITION</span>
-                          </div>
-                        {/if}
-                      </div>
-                    {:else if detailPriceData.soldRangeMin != null && detailPriceData.soldRangeMax != null}
-                      <div class="details-price-conditions details-price-conditions--sold-range">
-                        <div class="price-chip price-chip--sold-range">
-                          <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeMin)}</span>
-                          <span class="price-chip-label">Min</span>
+                        <div class="price-chip price-chip--loose">
+                          <span class="price-chip-value">{soldRangeByConditionDisplay(detailPriceData, 'loose')}</span>
+                          <span class="price-chip-label">LOOSE</span>
                         </div>
-                        <div class="price-chip price-chip--sold-range">
-                          <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeMax)}</span>
-                          <span class="price-chip-label">Max</span>
+                        <div class="price-chip price-chip--cib">
+                          <span class="price-chip-value">{soldRangeByConditionDisplay(detailPriceData, 'cib')}</span>
+                          <span class="price-chip-label">CIB</span>
+                        </div>
+                        <div class="price-chip price-chip--new">
+                          <span class="price-chip-value">{soldRangeByConditionDisplay(detailPriceData, 'new')}</span>
+                          <span class="price-chip-label">NEW</span>
+                        </div>
+                      </div>
+                    {:else if detailItem.category === 'Music'}
+                      <div class="details-price-conditions details-price-conditions--music">
+                        <div class="price-chip price-chip--standard">
+                          <span class="price-chip-value">{soldRangeByConditionDisplay(detailPriceData, 'standard')}</span>
+                          <span class="price-chip-label">STANDARD</span>
+                        </div>
+                        <div class="price-chip price-chip--limited">
+                          <span class="price-chip-value">{soldRangeByConditionDisplay(detailPriceData, 'limited')}</span>
+                          <span class="price-chip-label">LIMITED ED.</span>
                         </div>
                       </div>
                     {:else}
@@ -6863,23 +6934,41 @@
             <div class="fetch-tool-actions">
               <button
                 type="button"
+                class="fetch-tool-button fetch-tool-button--empty"
                 on:click={() => runFetchTool(tool.key, false)}
                 disabled={fetchToolsBusy || fetchToolStates[tool.key].running}
               >{fetchToolStates[tool.key].running ? 'Running...' : 'Fetch Empty Only'}</button>
               <button
                 type="button"
-                class="ghost"
+                class="fetch-tool-button fetch-tool-button--all ghost"
                 on:click={() => runFetchTool(tool.key, true)}
                 disabled={fetchToolsBusy || fetchToolStates[tool.key].running}
               >{fetchToolStates[tool.key].running ? 'Running...' : 'Re-fetch All'}</button>
             </div>
             <div class="fetch-tool-state" aria-live="polite">
               <p class="fetch-tool-status">{fetchToolStates[tool.key].statusText || 'Idle.'}</p>
-              <div class="fetch-tool-progress-track" aria-hidden="true">
-                <span class="fetch-tool-progress-fill" style={`width: ${fetchToolStates[tool.key].progress}%;`}></span>
-              </div>
+              {#if fetchToolStates[tool.key].running || fetchToolStates[tool.key].showProgress}
+                <div class="fetch-tool-progress-track" aria-hidden="true">
+                  <span class="fetch-tool-progress-fill" style={`width: ${fetchToolStates[tool.key].progress}%;`}></span>
+                </div>
+              {/if}
               {#if fetchToolStates[tool.key].errorText}
                 <p class="fetch-tool-error">{fetchToolStates[tool.key].errorText}</p>
+              {/if}
+              {#if fetchToolStates[tool.key].activity.length}
+                <div class="bulk-result-list fetch-tool-result-list">
+                  {#each fetchToolStates[tool.key].activity as result (result.key)}
+                    <div
+                      class="bulk-result-item fetch-tool-result-item"
+                      class:bulk-success={result.status === 'success'}
+                      class:bulk-error={result.status === 'error'}
+                      class:fetch-tool-result-running={result.status === 'running'}
+                    >
+                      <span class="bulk-result-line">{result.line}</span>
+                      <span class="bulk-result-msg">{result.message}</span>
+                    </div>
+                  {/each}
+                </div>
               {/if}
             </div>
           </section>

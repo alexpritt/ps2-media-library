@@ -506,6 +506,10 @@ a,
   justify-content: flex-end;
 }
 
+.library-toolbar--music {
+  gap: 12px;
+}
+
 .console-toolbar {
   flex: 0 0 auto;
   display: flex;
@@ -4792,6 +4796,7 @@ select option {
   width: min(840px, 92vw);
   max-height: 86vh;
   overflow: auto;
+  scrollbar-width: thin;
   padding: 24px;
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.22);
@@ -4834,10 +4839,11 @@ select option {
 .fetch-tool-actions {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.fetch-tool-actions button {
+.fetch-tool-actions .fetch-tool-button {
   position: relative;
   border: 0;
   background: none;
@@ -4848,7 +4854,17 @@ select option {
   transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
 }
 
-.fetch-tool-actions button::after {
+.fetch-tool-actions .fetch-tool-button--empty {
+  margin-right: auto;
+  text-align: left;
+}
+
+.fetch-tool-actions .fetch-tool-button--all {
+  margin-left: auto;
+  text-align: right;
+}
+
+.fetch-tool-actions .fetch-tool-button::after {
   content: '';
   position: absolute;
   width: 80px;
@@ -4863,26 +4879,26 @@ select option {
   transition: opacity 140ms ease, transform 140ms ease;
 }
 
-.fetch-tool-actions button:hover::after,
-.fetch-tool-actions button:focus-visible::after {
+.fetch-tool-actions .fetch-tool-button:hover::after,
+.fetch-tool-actions .fetch-tool-button:focus-visible::after {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
 }
 
-.fetch-tool-actions button:hover,
-.fetch-tool-actions button:focus-visible {
+.fetch-tool-actions .fetch-tool-button:hover,
+.fetch-tool-actions .fetch-tool-button:focus-visible {
   transform: translateY(-1px);
   filter: brightness(1.1);
 }
 
-.fetch-tool-actions button:disabled {
+.fetch-tool-actions .fetch-tool-button:disabled {
   opacity: 0.56;
   cursor: not-allowed;
   transform: none;
   filter: none;
 }
 
-.fetch-tool-actions button:disabled::after {
+.fetch-tool-actions .fetch-tool-button:disabled::after {
   opacity: 0;
 }
 
@@ -4917,6 +4933,18 @@ select option {
   margin: 0;
   color: rgba(255, 160, 160, 0.95);
   font-size: 0.8rem;
+}
+
+.fetch-tool-result-list {
+  margin-top: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.fetch-tool-result-item.fetch-tool-result-running {
+  background: rgba(82, 144, 255, 0.1);
+  border: 1px solid rgba(82, 144, 255, 0.22);
 }
 
 .admin-layout {
