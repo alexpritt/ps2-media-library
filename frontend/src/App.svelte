@@ -5593,7 +5593,7 @@
               </div>
             </div>
           {:else if libraryHeaderRight}
-            <div class="library-hud-right console-header-right">
+            <div class="library-hud-right console-header-right console-header-right--text-only">
               <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryCountCopy}</span>
             </div>
           {/if}
