@@ -5316,6 +5316,14 @@
               </span>
             </button>
           </div>
+          {#if consoleHeaderIdleVisible}
+            <span
+              class="console-header-inline-count console-header-copy console-header-count-copy library-header-subcopy"
+              class:console-header-inline-count--visible={consoleHeaderIdleVisible}
+            >
+              {consoleCountCopy}
+            </span>
+          {/if}
           <div
             class="library-hud-right console-header-right console-header-right--console"
             class:console-header-right--active={consoleHeaderHoverVisible}
