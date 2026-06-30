@@ -356,6 +356,9 @@
   let bulkProgressPercent = 0;
   let bulkStatusText = '';
   let bulkErrorText = '';
+  let bulkAddWishlistBusy = false;
+  let bulkAddWishlistResults: { title: string; status: 'success' | 'error'; message: string }[] = [];
+  let bulkAddWishlistStatusText = '';
   let adminForm: AdminForm = emptyAdminForm();
   let editableSystems: EditableSystem[] = [];
   let editingSystemId: string | null = null;
@@ -1248,6 +1251,147 @@
       adminError = 'Could not add console to the library.';
     } finally {
       adminBusy = false;
+    }
+  }
+
+  async function bulkAddWishlistToLibrary() {
+    if (!adminToken) {
+      adminError = 'Login required.';
+      return;
+    }
+
+    const section = wishlistAdminSection;
+    const itemsToAdd = section === 'console'
+      ? consoleWishlist
+      : section === 'games'
+        ? gameWishlist
+        : musicWishlist;
+
+    if (!itemsToAdd.length) {
+      adminMessage = `No ${section} wish list items to add.`;
+      return;
+    }
+
+    bulkAddWishlistBusy = true;
+    bulkAddWishlistResults = [];
+    bulkAddWishlistStatusText = '';
+    adminError = '';
+    adminMessage = '';
+
+    let successCount = 0;
+    let errorCount = 0;
+    const results: { title: string; status: 'success' | 'error'; message: string }[] = [];
+
+    try {
+      for (const item of itemsToAdd) {
+        try {
+          if (section === 'console') {
+            const consoleItem = item as WishlistSystemItem;
+            const response = await fetch(apiPath('/api/systems'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+              body: JSON.stringify({
+                id: consoleItem.id,
+                name: consoleItem.name,
+                shortName: consoleItem.shortName,
+                logo: consoleItem.logo,
+                logoImageUrl: consoleItem.logoImage ?? '',
+                caseType: consoleItem.caseType ?? undefined,
+              }),
+            });
+            if (response.status === 401) {
+              adminToken = '';
+              localStorage.removeItem('ps2-admin-token');
+              adminError = 'Session expired. Log in again.';
+              return;
+            }
+            if (response.ok) {
+              successCount += 1;
+              results.push({ title: consoleItem.name, status: 'success', message: `Added console: ${consoleItem.name}` });
+            } else {
+              errorCount += 1;
+              results.push({ title: consoleItem.name, status: 'error', message: 'Failed to add console' });
+            }
+          } else {
+            const mediaItem = item as WishlistMediaItem;
+            const response = await fetch(apiPath('/api/media'), {
+              method: 'POST',
+              headers: mediaHeaders(),
+              body: JSON.stringify({
+                title: mediaItem.title,
+                category: mediaItem.category,
+                platform: mediaItem.category === 'Games' ? mediaItem.platform : null,
+                genre: mediaItem.genre,
+                genres: mediaItem.genres,
+                release_date: mediaItem.release_date,
+                year_released: mediaItem.year_released,
+                rating: mediaItem.category === 'Games' ? normalizeGameRating(mediaItem.rating) : null,
+                players: mediaItem.players,
+                cooperative: mediaItem.cooperative,
+                artist: mediaItem.artist,
+                publisher: mediaItem.publisher,
+                format: mediaItem.format,
+                region: mediaItem.region,
+                cover_image: mediaItem.cover_image,
+                spine_image: mediaItem.spine_image,
+                disc_image: mediaItem.disc_image,
+                tags: mediaItem.tags,
+                notes: mediaItem.notes,
+              }),
+            });
+            if (response.status === 401) {
+              adminToken = '';
+              localStorage.removeItem('ps2-admin-token');
+              adminError = 'Session expired. Log in again.';
+              return;
+            }
+            if (response.ok) {
+              successCount += 1;
+              results.push({ title: mediaItem.title, status: 'success', message: `Added ${mediaItem.category === 'Music' ? 'album' : 'game'}: ${mediaItem.title}` });
+            } else {
+              errorCount += 1;
+              results.push({ title: mediaItem.title, status: 'error', message: 'Failed to add item' });
+            }
+          }
+        } catch {
+          errorCount += 1;
+          results.push({ title: (item as any).name ?? (item as any).title ?? 'Unknown', status: 'error', message: 'Network error' });
+        }
+        bulkAddWishlistResults = [...results];
+        bulkAddWishlistStatusText = `Processing ${results.length}/${itemsToAdd.length}...`;
+      }
+
+      if (successCount > 0) {
+        // Remove all successfully added items from wishlist
+        if (section === 'console') {
+          consoleWishlist = consoleWishlist.filter(c =>
+            !results.find(r => r.status === 'success' && r.title === c.name)
+          );
+          persistConsoleWishlist();
+        } else if (section === 'games') {
+          gameWishlist = gameWishlist.filter(g =>
+            !results.find(r => r.status === 'success' && r.title === g.title)
+          );
+          persistGameWishlist();
+        } else {
+          musicWishlist = musicWishlist.filter(m =>
+            !results.find(r => r.status === 'success' && r.title === m.title)
+          );
+          persistMusicWishlist();
+        }
+      }
+
+      adminMessage = `Added ${successCount} ${successCount === 1 ? 'item' : 'items'} to the library.`;
+      if (errorCount > 0) {
+        adminError = `${errorCount} item${errorCount === 1 ? '' : 's'} failed to add.`;
+      }
+      bulkAddWishlistStatusText = `Complete: ${successCount} succeeded, ${errorCount} failed.`;
+      await Promise.all([loadAllMedia(), loadMedia(category, selectedConsole)]);
+    } catch {
+      adminError = 'Bulk add failed.';
+      bulkAddWishlistStatusText = 'Bulk add failed.';
+    } finally {
+      bulkAddWishlistBusy = false;
     }
   }
 
@@ -5487,7 +5631,20 @@
 
                   <div class="details-price-metric">
                     <p class="details-price-metric-label">SOLD RANGE</p>
-                    <p class="details-price-range">{soldRangeDisplay(detailPriceData.soldRangeMin, detailPriceData.soldRangeMax)}</p>
+                    {#if detailPriceData.soldRangeMin != null && detailPriceData.soldRangeMax != null}
+                      <div class="details-price-conditions details-price-conditions--sold-range">
+                        <div class="price-chip price-chip--sold-range">
+                          <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeMin)}</span>
+                          <span class="price-chip-label">Min</span>
+                        </div>
+                        <div class="price-chip price-chip--sold-range">
+                          <span class="price-chip-value">{formatPrice(detailPriceData.soldRangeMax)}</span>
+                          <span class="price-chip-label">Max</span>
+                        </div>
+                      </div>
+                    {:else}
+                      <p class="details-price-range">{soldRangeDisplay(detailPriceData.soldRangeMin, detailPriceData.soldRangeMax)}</p>
+                    {/if}
                   </div>
                 </div>
 
@@ -6065,6 +6222,59 @@
                   {/if}
                 </div>
               </div>
+
+              <!-- Bulk Add Wishlist to Library -->
+              {#if libraryAdminTab === 'wishlists' && (consoleWishlist.length > 0 || gameWishlist.length > 0 || musicWishlist.length > 0)}
+                <div class="bulk-add-section">
+                  <button
+                    type="button"
+                    class="bulk-add-toggle"
+                    on:click={() => {
+                      bulkAddWishlistBusy = false;
+                      bulkAddWishlistResults = [];
+                      bulkAddWishlistStatusText = '';
+                    }}
+                  >
+                    {wishlistAdminSection === 'console'
+                      ? `Add All Consoles (${consoleWishlist.length})`
+                      : wishlistAdminSection === 'games'
+                        ? `Add All Games (${gameWishlist.length})`
+                        : `Add All Albums (${musicWishlist.length})`}
+                  </button>
+                  <div class="bulk-add-body">
+                    <p class="bulk-add-description">
+                      {wishlistAdminSection === 'console'
+                        ? `Add all ${consoleWishlist.length} console${consoleWishlist.length !== 1 ? 's' : ''} from your wish list to the library.`
+                        : wishlistAdminSection === 'games'
+                          ? `Add all ${gameWishlist.length} game${gameWishlist.length !== 1 ? 's' : ''} from your wish list to the library.`
+                          : `Add all ${musicWishlist.length} album${musicWishlist.length !== 1 ? 's' : ''} from your wish list to the library.`}
+                    </p>
+                    <button
+                      type="button"
+                      class="bulk-add-button"
+                      disabled={bulkAddWishlistBusy}
+                      on:click={bulkAddWishlistToLibrary}
+                    >
+                      {bulkAddWishlistBusy ? 'Adding...' : 'Add to Library'}
+                    </button>
+                    {#if bulkAddWishlistStatusText}
+                      <div class="bulk-add-status" role="status" aria-live="polite">
+                        <p class="bulk-add-status-text">{bulkAddWishlistStatusText}</p>
+                        {#if bulkAddWishlistResults.length}
+                          <div class="bulk-result-list">
+                            {#each bulkAddWishlistResults as result}
+                              <div class="bulk-result-item" class:bulk-success={result.status === 'success'} class:bulk-error={result.status === 'error'}>
+                                <span class="bulk-result-line">{result.title}</span>
+                                <span class="bulk-result-msg">{result.message}</span>
+                              </div>
+                            {/each}
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
             </div>
 
             <!-- Library Editor (Right) -->

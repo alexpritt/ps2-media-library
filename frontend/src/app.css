@@ -2926,6 +2926,16 @@ a,
   color: rgba(245, 246, 251, 0.98);
 }
 
+.price-chip--sold-range .price-chip-value,
+.price-chip--sold-range .price-chip-label {
+  color: rgba(245, 246, 251, 0.92);
+}
+
+.price-chip--sold-range:hover .price-chip-value,
+.price-chip--sold-range:focus-visible .price-chip-value {
+  text-shadow: 0 0 10px rgba(245, 246, 251, 0.72);
+}
+
 .price-chip--loose:hover .price-chip-value,
 .price-chip--loose:focus-visible .price-chip-value {
   text-shadow: 0 0 10px rgba(245, 246, 251, 0.72);
@@ -3737,6 +3747,89 @@ a,
 .bulk-result-msg {
   color: rgba(190, 208, 230, 0.8);
   font-size: 0.76rem;
+}
+
+/* Bulk Add Wishlist to Library */
+.bulk-add-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bulk-add-toggle {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(140, 170, 255, 0.22) !important;
+  background: linear-gradient(135deg, rgba(20, 35, 60, 0.7), rgba(18, 32, 55, 0.65)) !important;
+  color: rgba(200, 220, 255, 0.9) !important;
+  border-radius: 10px !important;
+  padding: 9px 14px !important;
+  font-size: 0.85rem !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: background 180ms ease, border-color 180ms ease !important;
+}
+
+.bulk-add-toggle:hover {
+  border-color: rgba(160, 190, 255, 0.38) !important;
+  background: linear-gradient(135deg, rgba(28, 48, 78, 0.82), rgba(24, 44, 72, 0.78)) !important;
+}
+
+.bulk-add-body {
+  overflow: hidden;
+  max-height: 700px;
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.bulk-add-description {
+  font-size: 0.82rem;
+  color: rgba(200, 215, 235, 0.8);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.bulk-add-button {
+  border: 1px solid rgba(120, 190, 255, 0.3) !important;
+  background: linear-gradient(135deg, rgba(30, 60, 110, 0.8), rgba(28, 55, 100, 0.75)) !important;
+  color: rgba(220, 235, 255, 0.95) !important;
+  border-radius: 10px !important;
+  padding: 10px 16px !important;
+  font-size: 0.9rem !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 180ms ease !important;
+}
+
+.bulk-add-button:hover:not(:disabled) {
+  border-color: rgba(140, 210, 255, 0.5) !important;
+  background: linear-gradient(135deg, rgba(40, 75, 130, 0.9), rgba(36, 65, 115, 0.85)) !important;
+  box-shadow: 0 0 12px rgba(120, 190, 255, 0.3) !important;
+}
+
+.bulk-add-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bulk-add-status {
+  display: grid;
+  gap: 8px;
+}
+
+.bulk-add-status-text {
+  font-size: 0.78rem;
+  color: rgba(194, 214, 242, 0.9);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Sold Range Price Conditions */
+.details-price-conditions--sold-range {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .systems-actions {
