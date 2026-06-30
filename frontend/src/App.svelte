@@ -311,8 +311,10 @@
   let brokenCoverIds = new Set<number>();
   let brokenSpineIds = new Set<number>();
   let brokenDiscIds = new Set<number>();
-  let hoveredConsoleFadeVisible = false;
-  let hoveredConsoleFadeTimeout: ReturnType<typeof setTimeout> | null = null;
+  let consoleHeaderIdleVisible = true;
+  let consoleHeaderHoverVisible = false;
+  let consoleHeaderSwapTimeout: ReturnType<typeof setTimeout> | null = null;
+  const CONSOLE_HEADER_FADE_MS = 220;
 
   let page = 0;
   let itemsPerPage = 15;
@@ -497,23 +499,12 @@
   $: detailPriceSummary = detailPriceSummaryEntries(detailItem, detailPriceData);
   $: consoleHeaderSelection = hoveredConsole ?? (stage === 'console' ? selectedConsole : null);
   $: consoleHeaderOption = availableConsoles.find((item) => item.name === consoleHeaderSelection) ?? null;
-  $: if (stage === 'console' && hoveredConsole) {
-    hoveredConsoleFadeVisible = true;
-    if (hoveredConsoleFadeTimeout) clearTimeout(hoveredConsoleFadeTimeout);
-    hoveredConsoleFadeTimeout = setTimeout(() => {
-      hoveredConsoleFadeVisible = false;
-      hoveredConsoleFadeTimeout = setTimeout(() => {
-        hoveredConsole = null;
-      }, 220);
-    }, 4000);
-  }
   $: if (stage !== 'console') {
     hoveredConsole = null;
-    hoveredConsoleFadeVisible = false;
-    if (hoveredConsoleFadeTimeout) {
-      clearTimeout(hoveredConsoleFadeTimeout);
-      hoveredConsoleFadeTimeout = null;
-    }
+    consoleHeaderIdleVisible = true;
+    consoleHeaderHoverVisible = false;
+    if (consoleHeaderSwapTimeout) clearTimeout(consoleHeaderSwapTimeout);
+    consoleHeaderSwapTimeout = null;
   }
   $: totalGameLibraryCount = allMedia.filter((item) => item.category === 'Games').length;
   $: totalConsoleWishlistCount = consoleWishlist.length;
@@ -1806,19 +1797,53 @@
     return true;
   }
 
+  function clearConsoleHeaderSwapTimeout() {
+    if (consoleHeaderSwapTimeout) {
+      clearTimeout(consoleHeaderSwapTimeout);
+      consoleHeaderSwapTimeout = null;
+    }
+  }
+
+  function showConsoleHeaderHover(consoleName: string) {
+    hoveredConsole = consoleName;
+    clearConsoleHeaderSwapTimeout();
+
+    if (consoleHeaderHoverVisible) return;
+
+    consoleHeaderIdleVisible = false;
+    consoleHeaderHoverVisible = false;
+    consoleHeaderSwapTimeout = setTimeout(() => {
+      consoleHeaderHoverVisible = true;
+      consoleHeaderSwapTimeout = null;
+    }, CONSOLE_HEADER_FADE_MS);
+  }
+
+  function showConsoleHeaderIdle() {
+    clearConsoleHeaderSwapTimeout();
+
+    if (!consoleHeaderHoverVisible) {
+      hoveredConsole = null;
+      consoleHeaderIdleVisible = true;
+      return;
+    }
+
+    consoleHeaderHoverVisible = false;
+    consoleHeaderIdleVisible = false;
+    consoleHeaderSwapTimeout = setTimeout(() => {
+      hoveredConsole = null;
+      consoleHeaderIdleVisible = true;
+      consoleHeaderSwapTimeout = null;
+    }, CONSOLE_HEADER_FADE_MS);
+  }
+
   function handleConsolePointerEnter(event: PointerEvent, consoleName: string) {
     if (!supportsConsoleHover(event)) return;
-    hoveredConsole = consoleName;
+    showConsoleHeaderHover(consoleName);
   }
 
   function handleConsolePointerLeave(event: PointerEvent) {
     if (!supportsConsoleHover(event)) return;
-    if (hoveredConsoleFadeTimeout) clearTimeout(hoveredConsoleFadeTimeout);
-    hoveredConsoleFadeVisible = false;
-    hoveredConsoleFadeTimeout = setTimeout(() => {
-      hoveredConsole = null;
-      hoveredConsoleFadeTimeout = null;
-    }, 220);
+    showConsoleHeaderIdle();
     clearIconFollow(event as unknown as MouseEvent);
   }
 
@@ -4024,7 +4049,10 @@
   }
 
   function onConsoleSelect(consoleName: string) {
-    hoveredConsole = null;
+    hoveredConsole = consoleName;
+    consoleHeaderIdleVisible = false;
+    consoleHeaderHoverVisible = true;
+    clearConsoleHeaderSwapTimeout();
     selectedConsole = consoleName;
     if (libraryView === 'wishlist') {
       void loadMedia('Games', consoleName);
@@ -5284,18 +5312,21 @@
             </button>
           </div>
           <div class="library-hud-right console-header-count console-header-right">
-            <div class="console-hover-meta">
-              {#if consoleHeaderOption?.logoImage}
-                <img
-                  src={consoleHeaderOption.logoImage}
-                  alt={consoleHeaderOption.name}
-                  class="console-header-logo"
-                  draggable="false"
-                />
-              {/if}
-              <span class="console-header-copy console-header-count-copy library-header-subcopy">
-                {hoveredConsoleCountLabel}
-              </span>
+            <div class="console-header-swap">
+              <div class="console-header-state console-header-state--idle" class:console-header-state--visible={consoleHeaderIdleVisible}>
+                <span class="console-header-copy console-header-count-copy library-header-subcopy">{consoleCountCopy}</span>
+              </div>
+              <div class="console-header-state console-header-state--hover" class:console-header-state--visible={consoleHeaderHoverVisible}>
+                {#if consoleHeaderOption?.logoImage}
+                  <img
+                    src={consoleHeaderOption.logoImage}
+                    alt={consoleHeaderOption.name}
+                    class="console-header-logo"
+                    draggable="false"
+                  />
+                {/if}
+                <span class="console-header-copy console-header-count-copy library-header-subcopy">{hoveredConsoleCountLabel}</span>
+              </div>
             </div>
           </div>
         </div>
