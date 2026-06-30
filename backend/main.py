@@ -11,7 +11,7 @@ import re
 import threading
 import time
 import unicodedata
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 import zipfile
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
@@ -85,9 +85,9 @@ PRICE_REFRESH_BATCH_SIZE = max(1, int(env_float("PRICE_REFRESH_BATCH_SIZE", defa
 PRICE_REFRESH_DUE_DAYS = max(28, int(env_float("PRICE_REFRESH_DUE_DAYS", default=30.0)))
 DISCOGS_USER_TOKEN = (os.getenv("DISCOGS_USER_TOKEN") or "").strip()
 
-IGDB_CLIENT_ID = os.getenv("IGDB_CLIENT_ID", "1fpsllwam3y8regju75hqe3wivo8fo")
-IGDB_CLIENT_SECRET = os.getenv("IGDB_CLIENT_SECRET", "gn7v9ydpgnaghkac4t78hk9d3srf7e")
-IGDB_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
+IGDB_CLIENT_ID = (os.getenv("IGDB_CLIENT_ID") or "").strip()
+IGDB_CLIENT_SECRET = (os.getenv("IGDB_CLIENT_SECRET") or "").strip()
+IGDB_OAUTH_URL = "https://id.twitch.tv/oauth2/token"
 IGDB_API_BASE_URL = "https://api.igdb.com/v4"
 
 DEFAULT_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -180,7 +180,7 @@ def ensure_igdb_access_token(force_refresh: bool = False) -> Optional[str]:
         return _igdb_access_token
 
     token_response = requests.post(
-        IGDB_TOKEN_URL,
+        IGDB_OAUTH_URL,
         params={
             "client_id": IGDB_CLIENT_ID,
             "client_secret": IGDB_CLIENT_SECRET,

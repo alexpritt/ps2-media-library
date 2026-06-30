@@ -1,7 +1,8 @@
 fastapi
 uvicorn[standard]
 sqlmodel==0.0.8
-python-multipart==0.0.6
-requests==2.31.0
+python-multipart==0.0.31
+requests==2.33.0
 beautifulsoup4
 cloudscraper==1.2.71
+defusedxml==0.7.1

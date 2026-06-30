@@ -627,7 +627,7 @@
     : sumCollectionCibOrStandard(allMedia.filter((item) => item.category === 'Games'), false);
   $: consoleOwnedGamesCostLabel = `CIB TOTAL ${formatCurrencyCompact(consoleOwnedGamesCostTotal)}`;
   $: libraryGridKey = `${libraryView}-${category ?? ''}-${selectedConsole ?? ''}-${librarySearch.trim().toLowerCase()}-${libraryPlayersFilter ?? 'all'}-${libraryStarFilter ?? 'all'}-${page}`;
-  $: showEmptyGamesState = category === 'Games' && !libraryLoading && media.length === 0;
+  $: showEmptyGamesState = category === 'Games' && !libraryLoading && filteredMedia.length === 0;
   $: selectedCategory = { category: category ?? 'Games', platform: selectedConsole ?? activeConsole.name };
   $: filteredMedia = (() => {
     const q = librarySearch.trim().toLowerCase();
@@ -6589,7 +6589,7 @@
             <!-- Library Editor (Right) -->
             <div class="admin-form-pane">
               {#if libraryAdminTab === 'wishlists' && wishlistAdminSection === 'console' && wishlistEditingId !== null}
-                <form class="admin-form" on:submit|preventDefault={saveWishlistItem}>
+                <form class="admin-form" on:submit|preventDefault={saveWishlistItem} novalidate>
                   <h3>{wishlistSystemForm.name || 'Edit Console Wish List Item'}</h3>
                   <div class="form-field">
                     <label for="wishlist-console-name">System Name</label>
@@ -6620,9 +6620,15 @@
                     <button type="submit">Save Wish List Item</button>
                     <button type="button" on:click={resetWishlistSystemForm}>Clear</button>
                   </div>
+                  {#if adminError}
+                    <p class="admin-error">{adminError}</p>
+                  {/if}
+                  {#if adminMessage}
+                    <p class="admin-status">{adminMessage}</p>
+                  {/if}
                 </form>
               {:else if libraryAdminTab === 'wishlists' && wishlistAdminSection !== 'console' && wishlistEditingId !== null}
-                <form class="admin-form" on:submit|preventDefault={saveWishlistItem}>
+                <form class="admin-form" on:submit|preventDefault={saveWishlistItem} novalidate>
                   <h3>{adminForm.title || 'Edit Wish List Item'}</h3>
                   <div class="form-field">
                     <label for="admin-item-title">Title</label>
@@ -6747,9 +6753,15 @@
                     <button type="submit">Save Wish List Item</button>
                     <button type="button" on:click={() => { wishlistEditingId = null; adminContextItem = null; }}>Clear</button>
                   </div>
+                  {#if adminError}
+                    <p class="admin-error">{adminError}</p>
+                  {/if}
+                  {#if adminMessage}
+                    <p class="admin-status">{adminMessage}</p>
+                  {/if}
                 </form>
               {:else if adminEditingId !== null}
-                <form class="admin-form" on:submit|preventDefault={saveAdminItem}>
+                <form class="admin-form" on:submit|preventDefault={saveAdminItem} novalidate>
                   <h3>{adminContextItem?.title ?? 'Edit Item'}</h3>
                   {#if libraryAdminTab === 'games'}
                     <section class="admin-loaded-art" aria-label="Loaded Art">
@@ -7073,6 +7085,13 @@
                     <button type="submit" disabled={adminBusy}>{adminEditingId ? 'Save Changes' : 'Create Item'}</button>
                     <button type="button" on:click={() => { adminEditingId = null; adminContextItem = null; }}>Clear</button>
                   </div>
+
+                  {#if adminError}
+                    <p class="admin-error">{adminError}</p>
+                  {/if}
+                  {#if adminMessage}
+                    <p class="admin-status">{adminMessage}</p>
+                  {/if}
                 </form>
               {:else}
                 <div class="admin-form-empty">
@@ -7102,10 +7121,10 @@
           </div>
         {/if}
 
-        {#if isAdmin && adminError}
+        {#if isAdmin && adminMode !== 'library' && adminError}
           <p class="admin-error">{adminError}</p>
         {/if}
-        {#if isAdmin && adminMessage}
+        {#if isAdmin && adminMode !== 'library' && adminMessage}
           <p class="admin-status">{adminMessage}</p>
         {/if}
       {/if}
