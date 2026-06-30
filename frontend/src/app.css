@@ -4480,6 +4480,23 @@ a,
   color: rgba(245, 246, 251, 0.9);
 }
 
+.launchbox-art-picker-source-section {
+  display: grid;
+  gap: 8px;
+}
+
+.launchbox-art-picker-source-section + .launchbox-art-picker-source-section {
+  margin-top: 12px;
+}
+
+.launchbox-art-picker-source-title {
+  margin: 0;
+  color: rgba(220, 235, 255, 0.92);
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .launchbox-art-picker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

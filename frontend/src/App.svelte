@@ -357,6 +357,10 @@
   let launchboxArtPickerField: GameArtField | null = null;
   let launchboxArtPickerSource: ArtPickerSource = 'launchbox';
   let launchboxArtOptions: string[] = [];
+  let launchboxArtOptionsBySource: { discogs: string[]; deezer: string[] } = {
+    discogs: [],
+    deezer: [],
+  };
   let bulkOpen = false;
   let bulkText = '';
   let bulkBusy = false;
@@ -2807,6 +2811,7 @@
     launchboxArtPickerError = '';
     launchboxArtPickerStatus = '';
     launchboxArtOptions = [];
+    launchboxArtOptionsBySource = { discogs: [], deezer: [] };
     launchboxArtPickerField = null;
     launchboxArtPickerSource = 'launchbox';
   }
@@ -2855,6 +2860,7 @@
     launchboxArtPickerField = field;
     launchboxArtPickerSource = pickerSource;
     launchboxArtOptions = [];
+    launchboxArtOptionsBySource = { discogs: [], deezer: [] };
 
     try {
       const isMusicPicker = launchboxArtPickerSource === 'music';
@@ -2891,6 +2897,28 @@
       launchboxArtOptions = Array.isArray(data?.options)
         ? data.options.filter((entry: unknown) => typeof entry === 'string' && entry.trim())
         : [];
+
+      if (isMusicPicker) {
+        const sourceGroups = (data && typeof data === 'object' ? data.options_by_source : null) as
+          | { discogs?: unknown; deezer?: unknown }
+          | null;
+
+        const discogsOptions = Array.isArray(sourceGroups?.discogs)
+          ? sourceGroups.discogs.filter((entry: unknown) => typeof entry === 'string' && entry.trim()) as string[]
+          : [];
+        const deezerOptions = Array.isArray(sourceGroups?.deezer)
+          ? sourceGroups.deezer.filter((entry: unknown) => typeof entry === 'string' && entry.trim()) as string[]
+          : [];
+
+        launchboxArtOptionsBySource = {
+          discogs: discogsOptions,
+          deezer: deezerOptions,
+        };
+
+        if (!launchboxArtOptions.length) {
+          launchboxArtOptions = [...discogsOptions, ...deezerOptions];
+        }
+      }
 
       if (!launchboxArtOptions.length) {
         launchboxArtPickerError = statusMessage || 'No art options were returned for this item.';
@@ -5981,6 +6009,46 @@
             <p class="launchbox-art-picker-state">Loading art options from available sources...</p>
           {:else if launchboxArtPickerError}
             <p class="admin-error launchbox-art-picker-state">{launchboxArtPickerError}</p>
+          {:else if launchboxArtPickerSource === 'music' && (launchboxArtOptionsBySource.discogs.length || launchboxArtOptionsBySource.deezer.length)}
+            {#if launchboxArtPickerStatus}
+              <p class="launchbox-art-picker-state">{launchboxArtPickerStatus}</p>
+            {/if}
+
+            {#if launchboxArtOptionsBySource.discogs.length}
+              <section class="launchbox-art-picker-source-section" aria-label="Discogs results">
+                <h4 class="launchbox-art-picker-source-title">Discogs</h4>
+                <div class="launchbox-art-picker-grid">
+                  {#each launchboxArtOptionsBySource.discogs as artOption, index}
+                    <button
+                      type="button"
+                      class="launchbox-art-picker-option"
+                      on:click={() => chooseLaunchboxArtOption(artOption)}
+                      aria-label={`Select Discogs ${adminArtPickerLabel(launchboxArtPickerField ?? 'cover_image')} option ${index + 1}`}
+                    >
+                      <img src={artOption} alt={`Discogs art option ${index + 1}`} loading="lazy" />
+                    </button>
+                  {/each}
+                </div>
+              </section>
+            {/if}
+
+            {#if launchboxArtOptionsBySource.deezer.length}
+              <section class="launchbox-art-picker-source-section" aria-label="Deezer results">
+                <h4 class="launchbox-art-picker-source-title">Deezer</h4>
+                <div class="launchbox-art-picker-grid">
+                  {#each launchboxArtOptionsBySource.deezer as artOption, index}
+                    <button
+                      type="button"
+                      class="launchbox-art-picker-option"
+                      on:click={() => chooseLaunchboxArtOption(artOption)}
+                      aria-label={`Select Deezer ${adminArtPickerLabel(launchboxArtPickerField ?? 'cover_image')} option ${index + 1}`}
+                    >
+                      <img src={artOption} alt={`Deezer art option ${index + 1}`} loading="lazy" />
+                    </button>
+                  {/each}
+                </div>
+              </section>
+            {/if}
           {:else if launchboxArtOptions.length}
             {#if launchboxArtPickerStatus}
               <p class="launchbox-art-picker-state">{launchboxArtPickerStatus}</p>

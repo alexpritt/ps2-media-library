@@ -3847,6 +3847,10 @@ def fetch_music_art_options(payload: DiscogsMusicArtOptionsRequest, authorizatio
         "kind": "music",
         "source": "discogs+deezer",
         "status_message": f"Found {len(merged)} art options from {source_summary}.",
+        "options_by_source": {
+            "discogs": discogs_options,
+            "deezer": deezer_options,
+        },
         "options": merged,
     }
 
