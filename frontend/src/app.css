@@ -1745,6 +1745,14 @@ a,
   .console-hud .console-header-right--console .console-header-swap {
     min-width: 0;
     width: auto;
+    min-height: 0;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .console-hud .console-header-right--console .console-header-state {
+    position: static;
+    inset: auto;
   }
 
   .console-hud .console-hover-meta,
