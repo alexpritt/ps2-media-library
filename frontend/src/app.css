@@ -4257,14 +4257,17 @@ a,
 }
 
 .admin-loaded-art-item-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  column-gap: 8px;
+  row-gap: 6px;
   min-width: 0;
 }
 
 .admin-art-item-actions {
+  flex: 0 0 auto;
   justify-self: end;
   display: grid;
   gap: 6px;
@@ -4280,6 +4283,7 @@ a,
 }
 
 .admin-loaded-art-item-header > span {
+  flex: 1 1 118px;
   min-width: 0;
   font-size: 0.76rem;
   font-weight: 600;
