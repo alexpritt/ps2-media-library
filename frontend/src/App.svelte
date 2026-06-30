@@ -6668,6 +6668,119 @@
               {:else if libraryAdminTab === 'wishlists' && wishlistAdminSection !== 'console' && wishlistEditingId !== null}
                 <form class="admin-form" on:submit|preventDefault={saveWishlistItem} novalidate>
                   <h3>{adminForm.title || 'Edit Wish List Item'}</h3>
+                  {#if wishlistAdminSection === 'games'}
+                    <section class="admin-loaded-art" aria-label="Loaded Art">
+                      <p class="admin-loaded-art-title">Loaded Art</p>
+                      <div class="admin-loaded-art-grid">
+                        <div class="admin-loaded-art-item">
+                          <div class="admin-loaded-art-item-header">
+                            <span>Box Art</span>
+                            <div class="admin-art-item-actions">
+                              <label for="admin-upload-cover-art" class="admin-art-upload-button">Upload</label>
+                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('cover_image')} disabled={!adminForm.cover_image}>Delete</button>
+                            </div>
+                            <input
+                              id="admin-upload-cover-art"
+                              class="admin-art-upload-input"
+                              type="file"
+                              accept="image/*"
+                              on:change={(e) => handleGameArtUpload(e, 'cover_image')}
+                            />
+                          </div>
+                          <div class="admin-loaded-art-media">
+                            <button type="button" class="admin-loaded-art-preview" class:admin-loaded-art-preview--empty={!adminForm.cover_image} on:click={() => openLaunchboxArtPicker('cover_image')} aria-label="Choose box art from available sources">
+                              {#if adminForm.cover_image}
+                                <img src={adminForm.cover_image} alt="Fetched box art" />
+                              {:else}
+                                <div class="admin-loaded-art-empty">No box art loaded</div>
+                              {/if}
+                            </button>
+                          </div>
+                        </div>
+                        <div class="admin-loaded-art-item">
+                          <div class="admin-loaded-art-item-header">
+                            <span>Disc/Cart Art</span>
+                            <div class="admin-art-item-actions">
+                              <label for="admin-upload-disc-art" class="admin-art-upload-button">Upload</label>
+                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('disc_image')} disabled={!adminForm.disc_image}>Delete</button>
+                            </div>
+                            <input
+                              id="admin-upload-disc-art"
+                              class="admin-art-upload-input"
+                              type="file"
+                              accept="image/*"
+                              on:change={(e) => handleGameArtUpload(e, 'disc_image')}
+                            />
+                          </div>
+                          <div class="admin-loaded-art-media">
+                            <button type="button" class="admin-loaded-art-preview" class:admin-loaded-art-preview--empty={!adminForm.disc_image} on:click={() => openLaunchboxArtPicker('disc_image')} aria-label="Choose disc or cart art from available sources">
+                              {#if adminForm.disc_image}
+                                <img src={adminForm.disc_image} alt="Fetched disc/cart art" />
+                              {:else}
+                                <div class="admin-loaded-art-empty">No disc/cart art loaded</div>
+                              {/if}
+                            </button>
+                          </div>
+                        </div>
+                        <div class="admin-loaded-art-item">
+                          <div class="admin-loaded-art-item-header">
+                            <span>Spine Art</span>
+                            <div class="admin-art-item-actions">
+                              <label for="admin-upload-spine-art" class="admin-art-upload-button">Upload</label>
+                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('spine_image')} disabled={!adminForm.spine_image}>Delete</button>
+                            </div>
+                            <input
+                              id="admin-upload-spine-art"
+                              class="admin-art-upload-input"
+                              type="file"
+                              accept="image/*"
+                              on:change={(e) => handleGameArtUpload(e, 'spine_image')}
+                            />
+                          </div>
+                          <div class="admin-loaded-art-media">
+                            <button type="button" class="admin-loaded-art-preview" class:admin-loaded-art-preview--empty={!adminForm.spine_image} on:click={() => openLaunchboxArtPicker('spine_image')} aria-label="Choose spine art from available sources">
+                              {#if adminForm.spine_image}
+                                <img src={adminForm.spine_image} alt="Fetched spine art" />
+                              {:else}
+                                <div class="admin-loaded-art-empty">No spine art loaded</div>
+                              {/if}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  {:else}
+                    <section class="admin-loaded-art" aria-label="Loaded Album Art">
+                      <p class="admin-loaded-art-title">Loaded Art</p>
+                      <div class="admin-loaded-art-grid">
+                        <div class="admin-loaded-art-item">
+                          <div class="admin-loaded-art-item-header">
+                            <span>Album Art</span>
+                            <div class="admin-art-item-actions">
+                              <label for="admin-upload-album-art" class="admin-art-upload-button">Upload</label>
+                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('cover_image')} disabled={!adminForm.cover_image}>Delete</button>
+                            </div>
+                            <input
+                              id="admin-upload-album-art"
+                              class="admin-art-upload-input"
+                              type="file"
+                              accept="image/*"
+                              on:change={(e) => handleGameArtUpload(e, 'cover_image')}
+                            />
+                          </div>
+                          <div class="admin-loaded-art-media">
+                            <button type="button" class="admin-loaded-art-preview" class:admin-loaded-art-preview--empty={!adminForm.cover_image} on:click={() => openLaunchboxArtPicker('cover_image')} aria-label="Choose album art from Discogs and Deezer">
+                              {#if adminForm.cover_image}
+                                <img src={adminForm.cover_image} alt="Fetched album art" />
+                              {:else}
+                                <div class="admin-loaded-art-empty">No album art loaded</div>
+                              {/if}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  {/if}
                   <div class="form-field">
                     <label for="admin-item-title">Title</label>
                     <input id="admin-item-title" type="text" bind:value={adminForm.title} placeholder="Title" required />
@@ -6683,6 +6796,37 @@
                         {/each}
                       </select>
                     </div>
+                    <button
+                      type="button"
+                      class="launchbox-fetch-button"
+                      class:pulse={canFetchLaunchBoxGameData() && !launchboxFetchBusy}
+                      disabled={launchboxFetchBusy}
+                      on:click={fetchLaunchBoxGameData}
+                    >
+                      {launchboxFetchBusy ? 'Fetching Game Data...' : 'Fetch Game Data'}
+                    </button>
+                    <div class="form-field">
+                      <label for="admin-launchbox-url">Manual Fetch - LaunchBox Link (Optional)</label>
+                      <div class="launchbox-url-fetch-row">
+                        <input
+                          id="admin-launchbox-url"
+                          type="url"
+                          bind:value={launchboxManualUrl}
+                          placeholder="https://gamesdb.launchbox-app.com/games/details/..."
+                        />
+                        <button
+                          type="button"
+                          class="launchbox-fetch-button"
+                          disabled={launchboxFetchBusy}
+                          on:click={fetchLaunchBoxGameDataFromUrl}
+                        >
+                          {launchboxFetchBusy ? 'Fetching...' : 'Fetch'}
+                        </button>
+                      </div>
+                    </div>
+                    {#if launchboxFetchError}
+                      <p class="admin-error launchbox-fetch-error">{launchboxFetchError}</p>
+                    {/if}
                     <div class="admin-field-group">
                       <label class="admin-field-label" for="admin-publishers">Publisher(s)</label>
                       <div class="admin-chip-row">
@@ -6764,11 +6908,43 @@
                         {/each}
                       </select>
                     </div>
+                    <div class="form-field">
+                      <span class="star-field-label">Star Rating</span>
+                      <div class="star-picker" role="group" aria-label="Star rating out of 5">
+                        {#each [1, 2, 3, 4, 5] as n}
+                          <button
+                            type="button"
+                            class="star-btn"
+                            class:filled={adminForm.starRating !== null && n <= adminForm.starRating}
+                            aria-label="{n} star{n !== 1 ? 's' : ''}"
+                            on:click={() => { adminForm = { ...adminForm, starRating: adminForm.starRating === n ? null : n }; }}
+                          >★</button>
+                        {/each}
+                        {#if adminForm.starRating !== null}
+                          <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, starRating: null }; }} aria-label="Clear star rating">×</button>
+                        {/if}
+                      </div>
+                      <p class="star-picker-preview" aria-live="polite">
+                        {starDisplay(adminForm.starRating)}{adminForm.starRating !== null ? ` (${adminForm.starRating}/5)` : ''}
+                      </p>
+                    </div>
                   {:else}
                     <div class="form-field">
                       <label for="admin-artist">Artist</label>
                       <input id="admin-artist" type="text" bind:value={adminForm.artist} placeholder="Artist" />
                     </div>
+                    <button
+                      type="button"
+                      class="launchbox-fetch-button"
+                      class:pulse={canFetchMusicAlbumData() && !musicFetchBusy}
+                      disabled={musicFetchBusy}
+                      on:click={fetchMusicAlbumData}
+                    >
+                      {musicFetchBusy ? 'Fetching Music Data...' : 'Fetch Music Data'}
+                    </button>
+                    {#if musicFetchError}
+                      <p class="admin-error launchbox-fetch-error">{musicFetchError}</p>
+                    {/if}
                     <div class="form-field">
                       <label for="admin-music-genre">Genre</label>
                       <select id="admin-music-genre" bind:value={adminMusicGenreChoice} required on:change={() => { adminForm = { ...adminForm, musicGenre: adminMusicGenreChoice }; }}>
@@ -6782,13 +6958,33 @@
                       <label for="admin-music-release-date">Release Date</label>
                       <input id="admin-music-release-date" type="date" bind:value={adminForm.release_date} placeholder="Release date" />
                     </div>
+                    <div class="form-field">
+                      <span class="star-field-label">Star Rating</span>
+                      <div class="star-picker" role="group" aria-label="Album star rating out of 5">
+                        {#each [1, 2, 3, 4, 5] as n}
+                          <button
+                            type="button"
+                            class="star-btn"
+                            class:filled={adminForm.starRating !== null && n <= adminForm.starRating}
+                            aria-label="{n} star{n !== 1 ? 's' : ''}"
+                            on:click={() => { adminForm = { ...adminForm, starRating: adminForm.starRating === n ? null : n }; }}
+                          >★</button>
+                        {/each}
+                        {#if adminForm.starRating !== null}
+                          <button type="button" class="star-clear" on:click={() => { adminForm = { ...adminForm, starRating: null }; }} aria-label="Clear star rating">×</button>
+                        {/if}
+                      </div>
+                      <p class="star-picker-preview" aria-live="polite">
+                        {starDisplay(adminForm.starRating)}{adminForm.starRating !== null ? ` (${adminForm.starRating}/5)` : ''}
+                      </p>
+                    </div>
                   {/if}
                   <div class="form-field">
                     <label for="admin-notes">Overview</label>
                     <textarea id="admin-notes" bind:value={adminForm.notes} rows="3" placeholder="Overview"></textarea>
                   </div>
                   <div class="form-actions">
-                    <button type="submit">Save Wish List Item</button>
+                    <button type="submit" disabled={adminBusy}>{wishlistEditingId === 'new' ? 'Create Wish List Item' : 'Save Changes'}</button>
                     <button type="button" on:click={() => { wishlistEditingId = null; adminContextItem = null; }}>Clear</button>
                   </div>
                   {#if adminError}
