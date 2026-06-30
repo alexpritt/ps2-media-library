@@ -20,6 +20,8 @@ export interface MediaItem {
   tags: string | null;
   notes: string | null;
   star_rating: number | null;
+  price_data_json?: string | null;
+  price_last_fetched_at?: string | null;
 }
 
 export interface EditableSystem {

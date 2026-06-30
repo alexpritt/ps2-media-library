@@ -76,6 +76,30 @@
     tone: DetailTagTone;
   };
 
+  type PriceValue = {
+    value: number | null;
+    url: string | null;
+  };
+
+  type DetailPriceData = {
+    kind: 'game' | 'music' | 'unknown';
+    averageLoose: PriceValue;
+    averageCib: PriceValue;
+    averageNew: PriceValue;
+    averageStandard: PriceValue;
+    averageLimited: PriceValue;
+    averageChangePercent: number | null;
+    soldRangeMin: number | null;
+    soldRangeMax: number | null;
+  };
+
+  type DetailPriceSummaryEntry = {
+    label: string;
+    value: number | null;
+    url: string | null;
+    colorClass: string;
+  };
+
   type ConsoleOption = {
     name: string;
     shortName: string;
@@ -83,6 +107,18 @@
     logoImage?: string;
     caseType?: 'disc' | 'cartridge' | 'hybrid';
     appearancePreset?: string | null;
+  };
+
+  type FetchToolKey = 'gameArt' | 'gameDetails' | 'musicArt' | 'musicDetails';
+
+  type FetchToolState = {
+    running: boolean;
+    processed: number;
+    total: number;
+    progress: number;
+    statusText: string;
+    errorText: string;
+    updatedCount: number;
   };
 
   const ZOOM_TRANSITION_MS = 900;
@@ -199,6 +235,12 @@
   const MUSIC_WISHLIST_KEY = 'ps2-music-wishlist';
   const DARK_MODE_KEY = 'ps2-dark-mode-enabled';
   const LOCAL_STAR_RATING_OVERRIDES_KEY = 'ps2-local-star-rating-overrides';
+  const fetchToolEntries: Array<{ key: FetchToolKey; title: string; description: string }> = [
+    { key: 'gameArt', title: 'Game Art', description: 'Fetch cover, spine, and disc art for games in libraries and wish lists.' },
+    { key: 'gameDetails', title: 'Game Details', description: 'Fetch notes, genre, publisher, release, ESRB, players, and co-op data.' },
+    { key: 'musicArt', title: 'Album Art', description: 'Fetch album covers for music entries in libraries and wish lists.' },
+    { key: 'musicDetails', title: 'Album Details', description: 'Fetch music genre and release details for libraries and wish lists.' },
+  ];
 
   function apiPath(path: string) {
     if (!API_BASE_URL) return path;
@@ -361,9 +403,34 @@
   let detailRatingStateKey = '';
   let detailRatingSaving = false;
   let detailRatingMessage = '';
+  let detailPriceFetchBusy = false;
+  let detailPriceFetchError = '';
+  let detailPriceFetchStatus = '';
+  let detailPriceFetchProgress = 0;
+  let detailPriceExpanded = false;
   let localStarRatingOverrides: Record<string, number | null> = {};
   let detailRatingKey = '';
   let detailRatingDirty = false;
+  let fetchToolsOpen = false;
+  let fetchToolsBusy = false;
+  let fetchToolStates: Record<FetchToolKey, FetchToolState> = {
+    gameArt: { running: false, processed: 0, total: 0, progress: 0, statusText: '', errorText: '', updatedCount: 0 },
+    gameDetails: { running: false, processed: 0, total: 0, progress: 0, statusText: '', errorText: '', updatedCount: 0 },
+    musicArt: { running: false, processed: 0, total: 0, progress: 0, statusText: '', errorText: '', updatedCount: 0 },
+    musicDetails: { running: false, processed: 0, total: 0, progress: 0, statusText: '', errorText: '', updatedCount: 0 },
+  };
+  let detailPriceSummary: DetailPriceSummaryEntry[] = [];
+  let detailPriceData: DetailPriceData = {
+    kind: 'unknown',
+    averageLoose: { value: null, url: null },
+    averageCib: { value: null, url: null },
+    averageNew: { value: null, url: null },
+    averageStandard: { value: null, url: null },
+    averageLimited: { value: null, url: null },
+    averageChangePercent: null,
+    soldRangeMin: null,
+    soldRangeMax: null,
+  };
 
   function combinedStarRating(item: MediaItem): number | null {
     return item.star_rating ?? null;
@@ -388,8 +455,14 @@
     detailInitialStarRating = detailCombinedStarRating;
     detailRatingSaving = false;
     detailRatingMessage = '';
+    detailPriceFetchBusy = false;
+    detailPriceFetchError = '';
+    detailPriceFetchStatus = '';
+    detailPriceFetchProgress = 0;
   }
   $: detailRatingDirty = detailEditedStarRating !== detailInitialStarRating;
+  $: detailPriceData = parseDetailPriceData(detailItem);
+  $: detailPriceSummary = detailPriceSummaryEntries(detailItem, detailPriceData);
   $: consoleHeaderSelection = hoveredConsole ?? (stage === 'console' ? selectedConsole : null);
   $: consoleHeaderOption = availableConsoles.find((item) => item.name === consoleHeaderSelection) ?? null;
   $: if (stage === 'console' && hoveredConsole) {
@@ -502,6 +575,12 @@
     ? `Music ${libraryView === 'wishlist' ? 'Wish List' : 'Library'}`
     : selectedConsole ?? activeConsole.name;
   $: libraryHeaderRight = libraryCountLabel;
+  $: libraryCostTotal = sumCollectionCibOrStandard(media, category === 'Music');
+  $: libraryCostLabel = category === 'Music'
+    ? `STANDARD TOTAL ${formatCurrencyCompact(libraryCostTotal)}`
+    : `CIB TOTAL ${formatCurrencyCompact(libraryCostTotal)}`;
+  $: consoleOwnedGamesCostTotal = sumCollectionCibOrStandard(allMedia.filter((item) => item.category === 'Games'), false);
+  $: consoleOwnedGamesCostLabel = `CIB TOTAL ${formatCurrencyCompact(consoleOwnedGamesCostTotal)}`;
   $: libraryGridKey = `${libraryView}-${category ?? ''}-${selectedConsole ?? ''}-${librarySearch.trim().toLowerCase()}-${libraryPlayersFilter ?? 'all'}-${libraryStarFilter ?? 'all'}-${page}`;
   $: showEmptyGamesState = category === 'Games' && !libraryLoading && media.length === 0;
   $: selectedCategory = { category: category ?? 'Games', platform: selectedConsole ?? activeConsole.name };
@@ -1626,6 +1705,567 @@
     const rating = `Rated ${normalizeGameRating(item.rating)}`;
 
     return `${genres} | ${publisher} | ${players} | ${cooperative} | ${rating}`;
+  }
+
+  function readPriceValue(rawValue: unknown, rawUrl: unknown): PriceValue {
+    const value = typeof rawValue === 'number' && Number.isFinite(rawValue) ? rawValue : null;
+    const url = typeof rawUrl === 'string' && rawUrl.trim() ? rawUrl.trim() : null;
+    return { value, url };
+  }
+
+  function parseDetailPriceData(item: MediaItem | null): DetailPriceData {
+    const empty: DetailPriceData = {
+      kind: 'unknown',
+      averageLoose: { value: null, url: null },
+      averageCib: { value: null, url: null },
+      averageNew: { value: null, url: null },
+      averageStandard: { value: null, url: null },
+      averageLimited: { value: null, url: null },
+      averageChangePercent: null,
+      soldRangeMin: null,
+      soldRangeMax: null,
+    };
+
+    if (!item?.price_data_json) {
+      return {
+        ...empty,
+        kind: item?.category === 'Games' ? 'game' : item?.category === 'Music' ? 'music' : 'unknown',
+      };
+    }
+
+    try {
+      const parsed = JSON.parse(item.price_data_json) as Record<string, unknown>;
+      const average = (parsed?.average ?? {}) as Record<string, unknown>;
+      const soldRange = (parsed?.sold_range ?? {}) as Record<string, unknown>;
+
+      const loose = (average.loose ?? {}) as Record<string, unknown>;
+      const cib = (average.cib ?? {}) as Record<string, unknown>;
+      const newValue = (average.new ?? {}) as Record<string, unknown>;
+      const standard = (average.standard ?? {}) as Record<string, unknown>;
+      const limited = (average.limited ?? {}) as Record<string, unknown>;
+
+      const kindRaw = typeof parsed?.kind === 'string' ? parsed.kind.toLowerCase() : '';
+      const kind: DetailPriceData['kind'] = kindRaw === 'game' || kindRaw === 'music'
+        ? kindRaw
+        : item.category === 'Games'
+          ? 'game'
+          : item.category === 'Music'
+            ? 'music'
+            : 'unknown';
+
+      const averageChangePercent = typeof parsed?.average_change_percent === 'number' && Number.isFinite(parsed.average_change_percent)
+        ? parsed.average_change_percent
+        : null;
+      const soldRangeMin = typeof soldRange?.min === 'number' && Number.isFinite(soldRange.min) ? soldRange.min : null;
+      const soldRangeMax = typeof soldRange?.max === 'number' && Number.isFinite(soldRange.max) ? soldRange.max : null;
+
+      return {
+        kind,
+        averageLoose: readPriceValue(loose.value, loose.url),
+        averageCib: readPriceValue(cib.value, cib.url),
+        averageNew: readPriceValue(newValue.value, newValue.url),
+        averageStandard: readPriceValue(standard.value, standard.url),
+        averageLimited: readPriceValue(limited.value, limited.url),
+        averageChangePercent,
+        soldRangeMin,
+        soldRangeMax,
+      };
+    } catch {
+      return {
+        ...empty,
+        kind: item.category === 'Games' ? 'game' : item.category === 'Music' ? 'music' : 'unknown',
+      };
+    }
+  }
+
+  function formatPrice(value: number | null): string {
+    if (value == null) return 'NO DATA';
+    return `$${value.toFixed(2)}`;
+  }
+
+  function formatPercentChange(value: number | null): string {
+    if (value == null) return 'NO DATA';
+    const arrow = value >= 0 ? '↑' : '↓';
+    return `${arrow} ${Math.abs(value).toFixed(2)}%`;
+  }
+
+  function soldRangeDisplay(minValue: number | null, maxValue: number | null): string {
+    if (minValue == null || maxValue == null) return 'NO DATA';
+    return `${formatPrice(minValue)} - ${formatPrice(maxValue)}`;
+  }
+
+  function openPriceSource(url: string | null) {
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  function detailPriceSummaryEntries(item: MediaItem | null, data: DetailPriceData): DetailPriceSummaryEntry[] {
+    if (item?.category === 'Games') {
+      return [
+        { label: 'LOOSE', value: data.averageLoose.value, url: data.averageLoose.url, colorClass: 'loose' },
+        { label: 'CIB', value: data.averageCib.value, url: data.averageCib.url, colorClass: 'cib' },
+        { label: 'NEW', value: data.averageNew.value, url: data.averageNew.url, colorClass: 'new' },
+      ];
+    }
+
+    if (item?.category === 'Music') {
+      return [
+        { label: 'STANDARD', value: data.averageStandard.value, url: data.averageStandard.url, colorClass: 'standard' },
+        { label: 'LIMITED ED.', value: data.averageLimited.value, url: data.averageLimited.url, colorClass: 'limited' },
+      ];
+    }
+
+    return [];
+  }
+
+  function detailPriceChangeEntries(item: MediaItem | null, data: DetailPriceData): { label: string; percent: number | null; colorClass: string }[] {
+    if (item?.category === 'Games') {
+      const base = data.averageLoose.value;
+      const cibPct = (base != null && base > 0 && data.averageCib.value != null)
+        ? ((data.averageCib.value - base) / base) * 100 : null;
+      const newPct = (base != null && base > 0 && data.averageNew.value != null)
+        ? ((data.averageNew.value - base) / base) * 100 : null;
+      return [
+        { label: 'LOOSE', percent: null, colorClass: 'loose' },
+        { label: 'CIB', percent: cibPct, colorClass: 'cib' },
+        { label: 'NEW', percent: newPct, colorClass: 'new' },
+      ];
+    }
+    if (item?.category === 'Music') {
+      const base = data.averageStandard.value;
+      const limitedPct = (base != null && base > 0 && data.averageLimited.value != null)
+        ? ((data.averageLimited.value - base) / base) * 100 : null;
+      return [
+        { label: 'STANDARD', percent: null, colorClass: 'standard' },
+        { label: 'LIMITED ED.', percent: limitedPct, colorClass: 'limited' },
+      ];
+    }
+    return [];
+  }
+
+  function formatFetchDate(value: string | null | undefined): string {
+    if (!value) return 'NO DATA';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'NO DATA';
+    return parsed.toLocaleString([], {
+      month: 'numeric',
+      day: 'numeric',
+      year: '2-digit',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }).replace(',', ' -');
+  }
+
+  function formatCurrencyCompact(value: number): string {
+    return `$${value.toFixed(2)}`;
+  }
+
+  function parseCollectionPrice(item: MediaItem, preferMusicStandard: boolean): number {
+    if (!item?.price_data_json) return 0;
+    try {
+      const parsed = JSON.parse(item.price_data_json) as Record<string, unknown>;
+      const average = (parsed?.average ?? {}) as Record<string, unknown>;
+      const gameCib = (average.cib ?? {}) as Record<string, unknown>;
+      const musicStandard = (average.standard ?? {}) as Record<string, unknown>;
+      const value = preferMusicStandard
+        ? (typeof musicStandard.value === 'number' ? musicStandard.value : null)
+        : (typeof gameCib.value === 'number' ? gameCib.value : null);
+      return value != null && Number.isFinite(value) ? value : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function sumCollectionCibOrStandard(items: MediaItem[], preferMusicStandard: boolean): number {
+    return items.reduce((sum, item) => sum + parseCollectionPrice(item, preferMusicStandard), 0);
+  }
+
+  function isBlankTextValue(value: string | null | undefined): boolean {
+    return !value || !value.trim();
+  }
+
+  function isEmptyGameArt(item: MediaItem): boolean {
+    return isBlankTextValue(item.cover_image) || isBlankTextValue(item.disc_image) || isBlankTextValue(item.spine_image);
+  }
+
+  function isEmptyGameDetails(item: MediaItem): boolean {
+    return isBlankTextValue(item.notes)
+      || isBlankTextValue(item.publisher)
+      || isBlankTextValue(item.genres ?? item.genre)
+      || isBlankTextValue(item.release_date)
+      || item.year_released == null
+      || isBlankTextValue(item.rating)
+      || item.players == null
+      || isBlankTextValue(item.cooperative);
+  }
+
+  function isEmptyMusicArt(item: MediaItem): boolean {
+    return isBlankTextValue(item.cover_image);
+  }
+
+  function isEmptyMusicDetails(item: MediaItem): boolean {
+    return isBlankTextValue(item.genre) || isBlankTextValue(item.release_date) || item.year_released == null;
+  }
+
+  function resetFetchToolState(key: FetchToolKey) {
+    fetchToolStates = {
+      ...fetchToolStates,
+      [key]: {
+        running: false,
+        processed: 0,
+        total: 0,
+        progress: 0,
+        statusText: '',
+        errorText: '',
+        updatedCount: 0,
+      },
+    };
+  }
+
+  function updateFetchToolState(key: FetchToolKey, patch: Partial<FetchToolState>) {
+    fetchToolStates = {
+      ...fetchToolStates,
+      [key]: {
+        ...fetchToolStates[key],
+        ...patch,
+      },
+    };
+  }
+
+  function closeFetchToolsPopup() {
+    fetchToolsOpen = false;
+    fetchToolsBusy = false;
+  }
+
+  function openFetchToolsPopup() {
+    fetchToolsOpen = true;
+    adminError = '';
+    adminMessage = '';
+  }
+
+  function applyGameFetchToWishlistItem(item: WishlistMediaItem, fetched: any, mode: 'art' | 'details' | 'all', force: boolean): WishlistMediaItem {
+    const next = { ...item };
+    if (mode === 'art' || mode === 'all') {
+      const cover = typeof fetched?.coverImage === 'string' ? fetched.coverImage : '';
+      const disc = typeof fetched?.discImage === 'string' ? fetched.discImage : '';
+      const spine = typeof fetched?.spineImage === 'string' ? fetched.spineImage : '';
+      if (cover && (force || isBlankTextValue(next.cover_image))) next.cover_image = cover;
+      if (disc && (force || isBlankTextValue(next.disc_image))) next.disc_image = disc;
+      if (spine && (force || isBlankTextValue(next.spine_image))) next.spine_image = spine;
+    }
+    if (mode === 'details' || mode === 'all') {
+      const publishers = Array.isArray(fetched?.publishers)
+        ? fetched.publishers.filter((entry: unknown) => typeof entry === 'string' && entry.trim())
+        : [];
+      const genres = Array.isArray(fetched?.gameGenres)
+        ? fetched.gameGenres.filter((entry: unknown) => typeof entry === 'string' && entry.trim())
+        : [];
+      const notes = typeof fetched?.notes === 'string' ? fetched.notes : '';
+      const cooperative = typeof fetched?.cooperative === 'string' ? fetched.cooperative : '';
+      const rating = typeof fetched?.rating === 'string' ? fetched.rating : '';
+      const releaseDate = typeof fetched?.release_date === 'string' ? fetched.release_date : '';
+      const players = typeof fetched?.players === 'number' && Number.isFinite(fetched.players) ? fetched.players : null;
+      const yearReleased = typeof fetched?.year_released === 'number' && Number.isFinite(fetched.year_released) ? fetched.year_released : null;
+
+      if (notes && (force || isBlankTextValue(next.notes))) next.notes = notes;
+      if (publishers.length && (force || isBlankTextValue(next.publisher))) next.publisher = publishers.join(', ');
+      if (genres.length && (force || isBlankTextValue(next.genres ?? next.genre))) {
+        next.genres = genres.join(', ');
+        next.genre = genres[0];
+      }
+      if (releaseDate && (force || isBlankTextValue(next.release_date))) next.release_date = releaseDate;
+      if (yearReleased != null && (force || next.year_released == null)) next.year_released = yearReleased;
+      if (rating && (force || isBlankTextValue(next.rating))) next.rating = rating;
+      if (cooperative && (force || isBlankTextValue(next.cooperative))) next.cooperative = cooperative;
+      if (players != null && (force || next.players == null)) next.players = players;
+    }
+    return next;
+  }
+
+  function applyMusicFetchToWishlistItem(item: WishlistMediaItem, fetched: any, mode: 'art' | 'details' | 'all', force: boolean): WishlistMediaItem {
+    const next = { ...item };
+    if (mode === 'art' || mode === 'all') {
+      const cover = typeof fetched?.coverImage === 'string' ? fetched.coverImage : '';
+      if (cover && (force || isBlankTextValue(next.cover_image))) next.cover_image = cover;
+    }
+    if (mode === 'details' || mode === 'all') {
+      const genre = typeof fetched?.genre === 'string' ? fetched.genre : '';
+      const releaseDate = typeof fetched?.release_date === 'string' ? fetched.release_date : '';
+      const yearReleased = typeof fetched?.year_released === 'number' && Number.isFinite(fetched.year_released) ? fetched.year_released : null;
+      if (genre && (force || isBlankTextValue(next.genre))) next.genre = genre;
+      if (releaseDate && (force || isBlankTextValue(next.release_date))) next.release_date = releaseDate;
+      if (yearReleased != null && (force || next.year_released == null)) next.year_released = yearReleased;
+    }
+    return next;
+  }
+
+  async function runFetchTool(key: FetchToolKey, includePopulated: boolean) {
+    if (!isAdmin || fetchToolsBusy) return;
+
+    type ToolSpec = {
+      key: FetchToolKey;
+      category: 'Games' | 'Music';
+      mode: 'art' | 'details';
+      label: string;
+      endpointPrefix: '/api/fetch-tools/game/' | '/api/fetch-tools/music/';
+      isEmpty: (item: MediaItem) => boolean;
+      isEmptyWishlist: (item: WishlistMediaItem) => boolean;
+    };
+
+    const specs: Record<FetchToolKey, ToolSpec> = {
+      gameArt: {
+        key: 'gameArt',
+        category: 'Games',
+        mode: 'art',
+        label: 'game art',
+        endpointPrefix: '/api/fetch-tools/game/',
+        isEmpty: isEmptyGameArt,
+        isEmptyWishlist: isEmptyGameArt,
+      },
+      gameDetails: {
+        key: 'gameDetails',
+        category: 'Games',
+        mode: 'details',
+        label: 'game details',
+        endpointPrefix: '/api/fetch-tools/game/',
+        isEmpty: isEmptyGameDetails,
+        isEmptyWishlist: isEmptyGameDetails,
+      },
+      musicArt: {
+        key: 'musicArt',
+        category: 'Music',
+        mode: 'art',
+        label: 'album art',
+        endpointPrefix: '/api/fetch-tools/music/',
+        isEmpty: isEmptyMusicArt,
+        isEmptyWishlist: isEmptyMusicArt,
+      },
+      musicDetails: {
+        key: 'musicDetails',
+        category: 'Music',
+        mode: 'details',
+        label: 'album details',
+        endpointPrefix: '/api/fetch-tools/music/',
+        isEmpty: isEmptyMusicDetails,
+        isEmptyWishlist: isEmptyMusicDetails,
+      },
+    };
+
+    const spec = specs[key];
+    if (!spec) return;
+
+    fetchToolsBusy = true;
+    resetFetchToolState(key);
+
+    const libraryTargets = allMedia.filter((item) => item.category === spec.category)
+      .filter((item) => includePopulated || spec.isEmpty(item));
+    const wishlistPool = spec.category === 'Games' ? gameWishlist : musicWishlist;
+    const wishlistTargets = wishlistPool.filter((item) => includePopulated || spec.isEmptyWishlist(item));
+    const total = libraryTargets.length + wishlistTargets.length;
+
+    if (total === 0) {
+      updateFetchToolState(key, {
+        running: false,
+        total: 0,
+        processed: 0,
+        progress: 100,
+        statusText: `No ${includePopulated ? '' : 'empty '}${spec.label} targets found.`,
+        errorText: '',
+      });
+      fetchToolsBusy = false;
+      return;
+    }
+
+    updateFetchToolState(key, {
+      running: true,
+      total,
+      processed: 0,
+      progress: 0,
+      statusText: `Preparing ${total} ${spec.label} item${total === 1 ? '' : 's'}...`,
+      errorText: '',
+      updatedCount: 0,
+    });
+
+    let processed = 0;
+    let updatedCount = 0;
+    let errors = 0;
+
+    for (const item of libraryTargets) {
+      try {
+        const response = await fetch(apiPath(`${spec.endpointPrefix}${item.id}`), {
+          method: 'POST',
+          headers: mediaHeaders(),
+          body: JSON.stringify({ mode: spec.mode, force: includePopulated }),
+        });
+        if (response.status === 401) {
+          adminToken = '';
+          localStorage.removeItem('ps2-admin-token');
+          updateFetchToolState(key, { errorText: 'Session expired. Log in again.' });
+          break;
+        }
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          errors += 1;
+          updateFetchToolState(key, { errorText: payload?.detail || `Could not fetch ${spec.label} for ${item.title}.` });
+        } else if (payload?.changed) {
+          updatedCount += 1;
+        }
+      } catch {
+        errors += 1;
+        updateFetchToolState(key, { errorText: `Could not fetch ${spec.label} for ${item.title}.` });
+      }
+      processed += 1;
+      updateFetchToolState(key, {
+        processed,
+        progress: Math.round((processed / total) * 100),
+        updatedCount,
+        statusText: `Processing ${processed}/${total}... Updated ${updatedCount}.`,
+      });
+      await sleep(1100);
+    }
+
+    if (processed < total) {
+      updateFetchToolState(key, {
+        running: false,
+        statusText: `Stopped at ${processed}/${total}.`,
+      });
+      fetchToolsBusy = false;
+      await Promise.all([loadAllMedia(), loadMedia()]);
+      return;
+    }
+
+    if (wishlistTargets.length) {
+      const wishlistKind = spec.category === 'Games' ? 'games' : 'music';
+      for (const item of wishlistTargets) {
+        try {
+          if (wishlistKind === 'games') {
+            const response = await fetch(apiPath('/api/launchbox/game-data'), {
+              method: 'POST',
+              headers: mediaHeaders(),
+              body: JSON.stringify({ title: item.title, platform: item.platform ?? selectedConsole ?? '', item_id: null }),
+            });
+            if (response.status === 401) {
+              adminToken = '';
+              localStorage.removeItem('ps2-admin-token');
+              updateFetchToolState(key, { errorText: 'Session expired. Log in again.' });
+              break;
+            }
+            const payload = await response.json().catch(() => null);
+            if (response.ok) {
+              const nextItem = applyGameFetchToWishlistItem(item, payload, spec.mode, includePopulated);
+              if (JSON.stringify(nextItem) !== JSON.stringify(item)) {
+                updatedCount += 1;
+                gameWishlist = gameWishlist.map((entry) => entry.wishlistId === item.wishlistId ? nextItem : entry);
+                if (selectedWishlistItem?.wishlistId === item.wishlistId) selectedWishlistItem = nextItem;
+                persistGameWishlist();
+              }
+            } else {
+              errors += 1;
+              updateFetchToolState(key, { errorText: payload?.detail || `Could not fetch ${spec.label} for ${item.title} wish list entry.` });
+            }
+          } else {
+            const response = await fetch(apiPath('/api/deezer/music-data'), {
+              method: 'POST',
+              headers: mediaHeaders(),
+              body: JSON.stringify({ title: item.title, artist: item.artist ?? '' }),
+            });
+            if (response.status === 401) {
+              adminToken = '';
+              localStorage.removeItem('ps2-admin-token');
+              updateFetchToolState(key, { errorText: 'Session expired. Log in again.' });
+              break;
+            }
+            const payload = await response.json().catch(() => null);
+            if (response.ok) {
+              const nextItem = applyMusicFetchToWishlistItem(item, payload, spec.mode, includePopulated);
+              if (JSON.stringify(nextItem) !== JSON.stringify(item)) {
+                updatedCount += 1;
+                musicWishlist = musicWishlist.map((entry) => entry.wishlistId === item.wishlistId ? nextItem : entry);
+                if (selectedWishlistItem?.wishlistId === item.wishlistId) selectedWishlistItem = nextItem;
+                persistMusicWishlist();
+              }
+            } else {
+              errors += 1;
+              updateFetchToolState(key, { errorText: payload?.detail || `Could not fetch ${spec.label} for ${item.title} wish list entry.` });
+            }
+          }
+        } catch {
+          errors += 1;
+          updateFetchToolState(key, { errorText: `Could not fetch ${spec.label} for ${item.title} wish list entry.` });
+        }
+        processed += 1;
+        updateFetchToolState(key, {
+          processed,
+          progress: Math.round((processed / total) * 100),
+          updatedCount,
+          statusText: `Processing ${processed}/${total}... Updated ${updatedCount}.`,
+        });
+        await sleep(1100);
+      }
+    }
+
+    updateFetchToolState(key, {
+      running: false,
+      progress: 100,
+      updatedCount,
+      statusText: `Done. Updated ${updatedCount}/${total}.`,
+      errorText: errors > 0 ? `${errors} item${errors === 1 ? '' : 's'} failed. See latest error above.` : fetchToolStates[key].errorText,
+    });
+    fetchToolsBusy = false;
+    await Promise.all([loadAllMedia(), loadMedia()]);
+  }
+
+  function upsertMediaItem(updated: MediaItem) {
+    allMedia = allMedia.map((entry) => entry.id === updated.id ? updated : entry);
+    media = media.map((entry) => entry.id === updated.id ? updated : entry);
+    if (selectedItem?.id === updated.id) {
+      selectedItem = updated;
+    }
+  }
+
+  async function fetchDetailPriceData() {
+    if (!detailItem || detailIsWishlist || !detailItem.id || detailPriceFetchBusy) return;
+
+    detailPriceFetchError = '';
+    detailPriceFetchStatus = 'Fetching latest pricing data...';
+    detailPriceFetchProgress = 12;
+    detailPriceFetchBusy = true;
+    try {
+      const response = await fetch(apiPath(`/api/pricing/fetch/${detailItem.id}`), {
+        method: 'POST',
+        headers: mediaHeaders(),
+      });
+      detailPriceFetchProgress = 62;
+
+      if (response.status === 401) {
+        adminToken = '';
+        localStorage.removeItem('ps2-admin-token');
+        detailPriceFetchError = 'Session expired. Log in again.';
+        detailPriceFetchStatus = 'Fetch failed.';
+        detailPriceFetchProgress = 100;
+        return;
+      }
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        detailPriceFetchError = payload?.detail || 'Could not fetch price data.';
+        detailPriceFetchStatus = 'Fetch failed.';
+        detailPriceFetchProgress = 100;
+        return;
+      }
+
+      upsertMediaItem(payload as MediaItem);
+      detailPriceFetchStatus = 'Price data updated.';
+      detailPriceFetchProgress = 100;
+    } catch {
+      detailPriceFetchError = 'Could not fetch price data.';
+      detailPriceFetchStatus = 'Fetch failed.';
+      detailPriceFetchProgress = 100;
+    } finally {
+      detailPriceFetchBusy = false;
+    }
   }
 
   function librarySearchTokens(item: MediaItem) {
@@ -3029,6 +3669,7 @@
     detailsManualRotateY = 0;
     detailsSpinPaused = false;
     detailsDragActive = false;
+    detailPriceExpanded = false;
     selectedWishlistItem = isWishlistMediaItem(item) ? item : null;
     selectedItem = item;
     launchItemId = item.id;
@@ -3041,6 +3682,7 @@
   function closeDetails() {
     closeConfirm();
     selectedWishlistItem = null;
+    detailPriceExpanded = false;
     if (detailsInertiaFrame !== null) {
       cancelAnimationFrame(detailsInertiaFrame);
       detailsInertiaFrame = null;
@@ -4223,6 +4865,19 @@
             <span class="toolbar-divider" aria-hidden="true">|</span>
             <button
               type="button"
+              class="collection-total-icon filter-icon-label-host"
+              data-hover-label={consoleOwnedGamesCostLabel}
+              aria-label={consoleOwnedGamesCostLabel}
+            >
+              <span class="collection-total-icon-inner" aria-hidden="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12.04 3.2c2.57 0 4.48 1.1 5.6 2.88l-2.05 1.23c-.65-1.08-1.84-1.76-3.55-1.76-1.8 0-2.94.73-2.94 1.9 0 1.04.93 1.62 2.85 1.97l1.51.27c3.11.56 4.9 1.9 4.9 4.49 0 2.97-2.46 4.88-6.2 5.07v1.65h-2.17v-1.7c-2.76-.28-4.87-1.51-6.01-3.43l2.1-1.31c.7 1.29 2.16 2.29 4.17 2.29 2.1 0 3.44-.83 3.44-2.16 0-1.09-.88-1.75-2.82-2.11l-1.5-.27c-3.02-.55-4.93-1.9-4.93-4.39 0-2.72 2.15-4.58 5.55-4.87V3.2h2.17v1.43Z" fill="currentColor"></path>
+                </svg>
+              </span>
+            </button>
+            <span class="toolbar-divider" aria-hidden="true">|</span>
+            <button
+              type="button"
               class="dark-mode-toggle filter-icon-label-host"
               data-hover-label="DARK MODE"
               class:is-active={darkModeEnabled}
@@ -4473,6 +5128,19 @@
               <span class="toolbar-divider" aria-hidden="true">|</span>
               <button
                 type="button"
+                class="collection-total-icon filter-icon-label-host"
+                data-hover-label={libraryCostLabel}
+                aria-label={libraryCostLabel}
+              >
+                <span class="collection-total-icon-inner" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12.04 3.2c2.57 0 4.48 1.1 5.6 2.88l-2.05 1.23c-.65-1.08-1.84-1.76-3.55-1.76-1.8 0-2.94.73-2.94 1.9 0 1.04.93 1.62 2.85 1.97l1.51.27c3.11.56 4.9 1.9 4.9 4.49 0 2.97-2.46 4.88-6.2 5.07v1.65h-2.17v-1.7c-2.76-.28-4.87-1.51-6.01-3.43l2.1-1.31c.7 1.29 2.16 2.29 4.17 2.29 2.1 0 3.44-.83 3.44-2.16 0-1.09-.88-1.75-2.82-2.11l-1.5-.27c-3.02-.55-4.93-1.9-4.93-4.39 0-2.72 2.15-4.58 5.55-4.87V3.2h2.17v1.43Z" fill="currentColor"></path>
+                  </svg>
+                </span>
+              </button>
+              <span class="toolbar-divider" aria-hidden="true">|</span>
+              <button
+                type="button"
                 class="dark-mode-toggle filter-icon-label-host"
                 data-hover-label="DARK MODE"
                 class:is-active={darkModeEnabled}
@@ -4601,7 +5269,6 @@
         on:click={closeDetails}
         transition:popupOverlayTransition
       ></button>
-
       <section class="details-screen" class:dark-mode={darkModeEnabled} transition:popupPanelTransition>
         <button type="button" class="popup-close details-close" aria-label="Close details" on:click={closeDetails}>×</button>
         {#if detailsConsoleLogo}
@@ -4711,22 +5378,23 @@
             <div class="details-star-ratings" aria-label="Star rating">
               <div class="details-star-row">
                 <span class="details-star-label">MY RATING</span>
-                <div class="details-star-picker" role="group" aria-label="Set star rating">
-                  {#each [1, 2, 3, 4, 5] as n}
-                    <button
-                      type="button"
-                      class="star-btn details-star-btn"
-                      class:filled={detailEditedStarRating !== null && n <= detailEditedStarRating}
-                      aria-label="{n} star{n !== 1 ? 's' : ''}"
-                      on:click={() => setDetailStarRating(n)}
-                    >★</button>
-                  {/each}
-                </div>
-              </div>
-              <div class="details-star-row details-star-row--meta">
-                <span class="details-stars" aria-label={detailEditedStarRating != null ? `${detailEditedStarRating} out of 5 stars` : 'No star rating assigned'}>
-                  {starDisplay(detailEditedStarRating)}{detailEditedStarRating != null ? ` (${detailEditedStarRating}/5)` : ''}
-                </span>
+                {#if isAdmin}
+                  <div class="details-star-picker" role="group" aria-label="Set star rating">
+                    {#each [1, 2, 3, 4, 5] as n}
+                      <button
+                        type="button"
+                        class="star-btn details-star-btn"
+                        class:filled={detailEditedStarRating !== null && n <= detailEditedStarRating}
+                        aria-label="{n} star{n !== 1 ? 's' : ''}"
+                        on:click={() => setDetailStarRating(n)}
+                      >★</button>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="details-stars details-stars--readonly" aria-label={detailEditedStarRating != null ? `${detailEditedStarRating} out of 5 stars` : 'No star rating assigned'}>
+                    {starDisplay(detailEditedStarRating)}
+                  </span>
+                {/if}
                 {#if detailRatingMessage}
                   <span class="details-rating-message">{detailRatingMessage}</span>
                 {/if}
@@ -4734,6 +5402,118 @@
             </div>
           {/if}
           <p class="details-line-5">{detailItem.notes?.trim() || 'No description available.'}</p>
+
+          <section class="details-price" aria-label="Price details" class:details-price--expanded={detailPriceExpanded}>
+            <div class="details-price-header">
+              <div class="details-price-header-main">
+                <h3 class="details-price-title">PRICE</h3>
+                <div class="details-price-summary" aria-label="Price summary">
+                  {#each detailPriceSummary as entry, index}
+                    {#if index > 0}
+                      <span class="details-price-summary-divider" aria-hidden="true"></span>
+                    {/if}
+                    <button type="button" class="details-price-summary-chip" on:click={() => openPriceSource(entry.url)} disabled={!entry.url}>
+                      <span class="details-price-summary-label">{entry.label}</span>
+                      <span class="details-price-summary-value price-color--{entry.colorClass}">{formatPrice(entry.value)}</span>
+                    </button>
+                  {/each}
+                </div>
+              </div>
+              <button
+                type="button"
+                class="details-price-toggle"
+                aria-expanded={detailPriceExpanded}
+                aria-label={detailPriceExpanded ? 'Collapse price details' : 'Expand price details'}
+                on:click={() => (detailPriceExpanded = !detailPriceExpanded)}
+              ><span class="details-price-toggle-icon" class:is-expanded={detailPriceExpanded}>▼</span></button>
+            </div>
+
+            {#if detailPriceExpanded}
+              <div class="details-price-body">
+                <div class="details-price-row">
+                  <div class="details-price-metric">
+                    <p class="details-price-metric-label">AVERAGE</p>
+                    {#if detailItem.category === 'Games'}
+                      <div class="details-price-conditions details-price-conditions--game">
+                        <button type="button" class="price-chip price-chip--loose" on:click={() => openPriceSource(detailPriceData.averageLoose.url)}>
+                          <span class="price-chip-value">{formatPrice(detailPriceData.averageLoose.value)}</span>
+                          <span class="price-chip-label">LOOSE</span>
+                        </button>
+                        <button type="button" class="price-chip price-chip--cib" on:click={() => openPriceSource(detailPriceData.averageCib.url)}>
+                          <span class="price-chip-value">{formatPrice(detailPriceData.averageCib.value)}</span>
+                          <span class="price-chip-label">CIB</span>
+                        </button>
+                        <button type="button" class="price-chip price-chip--new" on:click={() => openPriceSource(detailPriceData.averageNew.url)}>
+                          <span class="price-chip-value">{formatPrice(detailPriceData.averageNew.value)}</span>
+                          <span class="price-chip-label">NEW</span>
+                        </button>
+                      </div>
+                    {:else}
+                      <div class="details-price-conditions details-price-conditions--music">
+                        <button type="button" class="price-chip price-chip--standard" on:click={() => openPriceSource(detailPriceData.averageStandard.url)}>
+                          <span class="price-chip-value">{formatPrice(detailPriceData.averageStandard.value)}</span>
+                          <span class="price-chip-label">STANDARD</span>
+                        </button>
+                        <button type="button" class="price-chip price-chip--limited" on:click={() => openPriceSource(detailPriceData.averageLimited.url)}>
+                          <span class="price-chip-value">{formatPrice(detailPriceData.averageLimited.value)}</span>
+                          <span class="price-chip-label">LIMITED ED.</span>
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
+
+                  <div class="details-price-divider" aria-hidden="true"></div>
+
+                  <div class="details-price-metric">
+                    <p class="details-price-metric-label">AVERAGE CHANGE</p>
+                    <div class="details-price-change-list">
+                      {#each detailPriceChangeEntries(detailItem, detailPriceData) as cEntry, ci}
+                        {#if ci > 0}
+                          <span class="details-price-change-divider" aria-hidden="true"></span>
+                        {/if}
+                        <div class="details-price-change-row">
+                          <span class="details-price-change-row-label price-color--{cEntry.colorClass}">{cEntry.label}</span>
+                          <span
+                            class="details-price-change-row-value"
+                            class:is-up={cEntry.percent !== null && cEntry.percent >= 0}
+                            class:is-down={cEntry.percent !== null && cEntry.percent < 0}
+                          >{cEntry.percent === null ? '—' : formatPercentChange(cEntry.percent)}</span>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+
+                  <div class="details-price-divider" aria-hidden="true"></div>
+
+                  <div class="details-price-metric">
+                    <p class="details-price-metric-label">SOLD RANGE</p>
+                    <p class="details-price-range">{soldRangeDisplay(detailPriceData.soldRangeMin, detailPriceData.soldRangeMax)}</p>
+                  </div>
+                </div>
+
+                {#if isAdmin && !detailIsWishlist}
+                  <div class="details-price-admin">
+                    <button
+                      type="button"
+                      class="details-price-fetch details-price-action"
+                      on:click={fetchDetailPriceData}
+                      disabled={detailPriceFetchBusy}
+                    >{detailPriceFetchBusy ? 'Fetching...' : 'Fetch Price Data'}</button>
+                    <p class="details-price-last-fetch">LAST PRICE DATA FETCH: {formatFetchDate(detailItem.price_last_fetched_at)}</p>
+                  </div>
+                {/if}
+
+                {#if detailPriceFetchStatus || detailPriceFetchError || detailPriceFetchBusy}
+                  <div class="details-price-fetch-state" class:has-error={Boolean(detailPriceFetchError)} aria-live="polite">
+                    <p class="details-price-fetch-state-text">{detailPriceFetchError || detailPriceFetchStatus}</p>
+                    <div class="details-progress-track" aria-hidden="true">
+                      <span class="details-progress-fill" style={`width: ${Math.max(0, Math.min(100, detailPriceFetchProgress))}%;`}></span>
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          </section>
         </div>
 
         <div class="details-actions">
@@ -4920,6 +5700,10 @@
             >
               <h3>Wish List Manager</h3>
               <p>Manage console, game, and music wish lists</p>
+            </button>
+            <button type="button" class="admin-hub-card" on:click={openFetchToolsPopup}>
+              <h3>Fetch Tools</h3>
+              <p>Run art/details fetch jobs for libraries and wish lists with progress and error tracking.</p>
             </button>
           </div>
 
@@ -5792,6 +6576,50 @@
           <p class="admin-status">{adminMessage}</p>
         {/if}
       {/if}
+    </div>
+  </div>
+{/if}
+
+{#if fetchToolsOpen}
+  <div class="fetch-tools-overlay" role="dialog" aria-modal="true" aria-label="Fetch tools">
+    <button type="button" class="fetch-tools-backdrop" aria-label="Close fetch tools" on:click={closeFetchToolsPopup}></button>
+    <div class="fetch-tools-panel">
+      <div class="admin-header">
+        <h2>Fetch Tools</h2>
+        <button type="button" class="popup-close" aria-label="Close fetch tools" on:click={closeFetchToolsPopup}>×</button>
+      </div>
+      <div class="fetch-tools-list">
+        {#each fetchToolEntries as tool}
+          <section class="fetch-tool-row" aria-label={tool.title}>
+            <div class="fetch-tool-copy">
+              <h3>{tool.title}</h3>
+              <p>{tool.description}</p>
+            </div>
+            <div class="fetch-tool-actions">
+              <button
+                type="button"
+                on:click={() => runFetchTool(tool.key, false)}
+                disabled={fetchToolsBusy || fetchToolStates[tool.key].running}
+              >{fetchToolStates[tool.key].running ? 'Running...' : 'Fetch Empty Only'}</button>
+              <button
+                type="button"
+                class="ghost"
+                on:click={() => runFetchTool(tool.key, true)}
+                disabled={fetchToolsBusy || fetchToolStates[tool.key].running}
+              >{fetchToolStates[tool.key].running ? 'Running...' : 'Re-fetch All'}</button>
+            </div>
+            <div class="fetch-tool-state" aria-live="polite">
+              <p class="fetch-tool-status">{fetchToolStates[tool.key].statusText || 'Idle.'}</p>
+              <div class="fetch-tool-progress-track" aria-hidden="true">
+                <span class="fetch-tool-progress-fill" style={`width: ${fetchToolStates[tool.key].progress}%;`}></span>
+              </div>
+              {#if fetchToolStates[tool.key].errorText}
+                <p class="fetch-tool-error">{fetchToolStates[tool.key].errorText}</p>
+              {/if}
+            </div>
+          </section>
+        {/each}
+      </div>
     </div>
   </div>
 {/if}

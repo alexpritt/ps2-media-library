@@ -13,6 +13,10 @@ Small freeware-style app for managing a physical game/music collection today, wi
 
 ## Recent Updates
 
+- 💰 **Pricing system** — per-item price data fetched from PriceCharting (games: Loose / CIB / New) and Discogs (music: Standard / Limited Ed.); prices stored in `price_data_json` on each MediaItem with `price_last_fetched_at` timestamp. Background auto-refresh every 6 hours (configurable).
+- 🛠️ **Fetch Tools** — new Admin Hub section with four bulk-fetch tools (Game Art, Game Details, Album Art, Album Details). Each tool supports "Fetch Empty Only" or "Re-fetch All" modes and covers both library items (via backend endpoints) and wish-list items (via frontend iteration). Live per-tool progress bar, status text, and error display.
+- 💲 **Collection cost icons** — dollar icon in console-select toolbar shows total CIB value of all owned games (all platforms, no wish lists); library toolbar icon shows CIB or Standard-edition total for the current view. Hover to reveal the label.
+- 📋 **Details popup overhaul** — compact, readable tags; larger scrollable description section; price container pushed to the bottom with balanced spacing; expanded price section shows AVERAGE / AVERAGE CHANGE / SOLD RANGE as matching label-value stacked rows; Fetch Price Data controls and progress/status bar moved below metrics.
 - ⭐ Simplified game ratings into a single star value, improved fallback behavior, and made the selected rating always visible in detail popups.
 - 🌙 Added dark mode toggle polish with smooth background/fog transitions and fixed persistence in popup/detail views.
 - 🧰 Expanded admin game workflow with manual LaunchBox URL fetch support and clearer fetch labeling.
@@ -22,6 +26,7 @@ Small freeware-style app for managing a physical game/music collection today, wi
 ## Agent Reference Docs
 
 - Game fetch behavior contract and known edge cases for future agents: `docs/game-fetch-logic-reference.md`
+- Fetch Tools, pricing endpoints, state variables, env vars, and schema changes: `/memories/repo/fetch-tools-reference.md`
 
 ## Stack
 

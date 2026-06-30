@@ -4,13 +4,16 @@ from difflib import SequenceMatcher
 import secrets
 import base64
 import io
+import json
 import logging
 import os
 import re
+import threading
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 import requests
@@ -68,9 +71,15 @@ ENABLE_SCREENSCRAPER_FALLBACK = env_flag("ENABLE_SCREENSCRAPER_FALLBACK", defaul
 ENABLE_MOBYGAMES_SCRAPE_FALLBACK = env_flag("ENABLE_MOBYGAMES_SCRAPE_FALLBACK", default=False)
 ENABLE_IGDB_FALLBACK = env_flag("ENABLE_IGDB_FALLBACK", default=True)
 ENABLE_LIBRETRO_BOXART = env_flag("ENABLE_LIBRETRO_BOXART", default=True)
+ENABLE_PRICE_AUTO_REFRESH = env_flag("ENABLE_PRICE_AUTO_REFRESH", default=True)
 MOBYGAMES_MIN_REQUEST_INTERVAL = env_float("MOBYGAMES_MIN_REQUEST_INTERVAL", default=1.5)
 LAUNCHBOX_METADATA_REFRESH_SECONDS = max(300.0, env_float("LAUNCHBOX_METADATA_REFRESH_SECONDS", default=86400.0))
 LAUNCHBOX_METADATA_ZIP_URL = (os.getenv("LAUNCHBOX_METADATA_ZIP_URL") or "").strip()
+PRICE_MIN_REQUEST_INTERVAL = max(1.0, env_float("PRICE_MIN_REQUEST_INTERVAL", default=3.0))
+PRICE_REFRESH_INTERVAL_SECONDS = max(3600.0, env_float("PRICE_REFRESH_INTERVAL_SECONDS", default=21600.0))
+PRICE_REFRESH_BATCH_SIZE = max(1, int(env_float("PRICE_REFRESH_BATCH_SIZE", default=5.0)))
+PRICE_REFRESH_DUE_DAYS = max(28, int(env_float("PRICE_REFRESH_DUE_DAYS", default=30.0)))
+DISCOGS_USER_TOKEN = (os.getenv("DISCOGS_USER_TOKEN") or "").strip()
 
 IGDB_CLIENT_ID = os.getenv("IGDB_CLIENT_ID", "1fpsllwam3y8regju75hqe3wivo8fo")
 IGDB_CLIENT_SECRET = os.getenv("IGDB_CLIENT_SECRET", "gn7v9ydpgnaghkac4t78hk9d3srf7e")
@@ -97,7 +106,12 @@ _launchbox_metadata_cache: List[dict] = []
 _launchbox_metadata_last_refresh_at = 0.0
 _launchbox_metadata_source_url: Optional[str] = None
 _launchbox_metadata_last_error: Optional[str] = None
+_pricing_last_request_at = 0.0
+_pricing_request_lock = threading.Lock()
+_pricing_scheduler_started = False
 logger = logging.getLogger("ps2-media-library")
+
+PRICE_USER_AGENT = "PS2MediaLibrary/1.0 (+https://theavenoircollection.com)"
 
 LIBRETRO_PLATFORM_REPO_ALIASES: Dict[str, List[str]] = {
     "playstation 2": ["Sony - PlayStation 2"],
@@ -808,6 +822,8 @@ class MediaItem(SQLModel, table=True):
     star_rating: Optional[int] = None
     gameplay_rating: Optional[int] = None
     plot_rating: Optional[int] = None
+    price_data_json: Optional[str] = None
+    price_last_fetched_at: Optional[str] = None
 
 
 class GameSystem(SQLModel, table=True):
@@ -843,6 +859,11 @@ class LaunchboxGameArtOptionsRequest(SQLModel):
 class DeezerMusicDataRequest(SQLModel):
     title: str
     artist: str
+
+
+class FetchToolItemRequest(SQLModel):
+    mode: str = "all"  # art | details | all
+    force: bool = False
 
 
 class BulkGamesRequest(SQLModel):
@@ -927,6 +948,16 @@ def ensure_star_rating_columns() -> None:
             connection.execute(text("ALTER TABLE mediaitem ADD COLUMN gameplay_rating INTEGER"))
         if "plot_rating" not in column_names:
             connection.execute(text("ALTER TABLE mediaitem ADD COLUMN plot_rating INTEGER"))
+
+
+def ensure_price_columns() -> None:
+    with engine.begin() as connection:
+        columns = connection.execute(text("PRAGMA table_info(mediaitem)")).fetchall()
+        column_names = {column[1] for column in columns}
+        if "price_data_json" not in column_names:
+            connection.execute(text("ALTER TABLE mediaitem ADD COLUMN price_data_json VARCHAR"))
+        if "price_last_fetched_at" not in column_names:
+            connection.execute(text("ALTER TABLE mediaitem ADD COLUMN price_last_fetched_at VARCHAR"))
 
 
 def ensure_system_case_type_column() -> None:
@@ -1589,6 +1620,134 @@ def apply_fetched_game_data_to_item(item: MediaItem, fetched: dict) -> None:
         item.players = players_int
 
 
+def is_blank_text(value: Optional[str]) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def set_optional_text(current_value: Optional[str], incoming_value: Optional[str], force: bool) -> Tuple[Optional[str], bool]:
+    if not isinstance(incoming_value, str) or not incoming_value.strip():
+        return current_value, False
+    if force or is_blank_text(current_value):
+        next_value = incoming_value.strip()
+        return next_value, next_value != (current_value or "").strip()
+    return current_value, False
+
+
+def set_optional_int(current_value: Optional[int], incoming_value: Optional[int], force: bool) -> Tuple[Optional[int], bool]:
+    if incoming_value is None:
+        return current_value, False
+    if force or current_value is None:
+        return incoming_value, incoming_value != current_value
+    return current_value, False
+
+
+def process_fetch_tool_game_item(item: MediaItem, mode: str, force: bool) -> dict:
+    if item.category != "Games":
+        raise HTTPException(status_code=400, detail="Item is not a game")
+    if not item.platform:
+        raise HTTPException(status_code=400, detail="Game item must have a platform")
+
+    fetched = fetch_game_data_with_fallback(item.title, item.platform)
+    changed = False
+
+    if mode in {"art", "all"}:
+        for field_name, payload_key in (("cover_image", "coverImage"), ("disc_image", "discImage"), ("spine_image", "spineImage")):
+            incoming = fetched.get(payload_key)
+            if isinstance(incoming, str) and incoming.strip() and (force or is_blank_text(getattr(item, field_name))):
+                if getattr(item, field_name) != incoming:
+                    setattr(item, field_name, incoming)
+                    changed = True
+
+    if mode in {"details", "all"}:
+        publishers = [entry.strip() for entry in fetched.get("publishers", []) if isinstance(entry, str) and entry.strip()]
+        game_genres = [entry.strip() for entry in fetched.get("gameGenres", []) if isinstance(entry, str) and entry.strip()]
+
+        item.notes, did_change = set_optional_text(item.notes, fetched.get("notes"), force)
+        changed = changed or did_change
+
+        item.publisher, did_change = set_optional_text(item.publisher, ", ".join(publishers) if publishers else None, force)
+        changed = changed or did_change
+
+        if game_genres:
+            next_genres = ", ".join(game_genres)
+            if force or is_blank_text(item.genres):
+                if item.genres != next_genres:
+                    item.genres = next_genres
+                    changed = True
+            if force or is_blank_text(item.genre):
+                if item.genre != game_genres[0]:
+                    item.genre = game_genres[0]
+                    changed = True
+
+        incoming_release_date = normalize_release_date(fetched.get("release_date"))
+        item.release_date, did_change = set_optional_text(item.release_date, incoming_release_date, force)
+        changed = changed or did_change
+
+        incoming_year = parse_optional_int(fetched.get("year_released"))
+        item.year_released, did_change = set_optional_int(item.year_released, incoming_year, force)
+        changed = changed or did_change
+
+        incoming_rating = normalize_esrb_rating(fetched.get("rating"))
+        item.rating, did_change = set_optional_text(item.rating, incoming_rating, force)
+        changed = changed or did_change
+
+        item.cooperative, did_change = set_optional_text(item.cooperative, fetched.get("cooperative"), force)
+        changed = changed or did_change
+
+        incoming_players = parse_optional_int(fetched.get("players"))
+        item.players, did_change = set_optional_int(item.players, incoming_players, force)
+        changed = changed or did_change
+
+    return {
+        "id": item.id,
+        "title": item.title,
+        "category": item.category,
+        "mode": mode,
+        "changed": changed,
+        "data_source": fetched.get("data_source", "launchbox"),
+        "status_note": fetched.get("launchbox_status", ""),
+    }
+
+
+def process_fetch_tool_music_item(item: MediaItem, mode: str, force: bool) -> dict:
+    if item.category != "Music":
+        raise HTTPException(status_code=400, detail="Item is not music")
+    if not item.artist or not item.artist.strip():
+        raise HTTPException(status_code=400, detail="Music item must have an artist")
+
+    fetched = fetch_music_album_data(item.title, item.artist)
+    changed = False
+
+    if mode in {"art", "all"}:
+        incoming_cover = fetched.get("coverImage")
+        if isinstance(incoming_cover, str) and incoming_cover.strip() and (force or is_blank_text(item.cover_image)):
+            if item.cover_image != incoming_cover:
+                item.cover_image = incoming_cover
+                changed = True
+
+    if mode in {"details", "all"}:
+        item.genre, did_change = set_optional_text(item.genre, fetched.get("genre"), force)
+        changed = changed or did_change
+
+        incoming_release_date = normalize_release_date(fetched.get("release_date"))
+        item.release_date, did_change = set_optional_text(item.release_date, incoming_release_date, force)
+        changed = changed or did_change
+
+        incoming_year = parse_optional_int(fetched.get("year_released"))
+        item.year_released, did_change = set_optional_int(item.year_released, incoming_year, force)
+        changed = changed or did_change
+
+    return {
+        "id": item.id,
+        "title": item.title,
+        "category": item.category,
+        "mode": mode,
+        "changed": changed,
+        "data_source": "deezer",
+        "status_note": "",
+    }
+
+
 def score_music_match(item: dict, artist: str, album: str) -> int:
     def norm(s: str) -> str:
         return re.sub(r"[^a-z0-9\s]", "", s.lower()).strip()
@@ -1684,6 +1843,407 @@ def fetch_music_album_data(album: str, artist: str) -> dict:
         "year_released": year_released,
         "coverImage": cover_image,
     }
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def is_price_refresh_due(last_fetched_at: Optional[str]) -> bool:
+    last_fetch = parse_iso_datetime(last_fetched_at)
+    if not last_fetch:
+        return True
+    return (utc_now() - last_fetch) >= timedelta(days=PRICE_REFRESH_DUE_DAYS)
+
+
+def pricing_throttle() -> None:
+    global _pricing_last_request_at
+    with _pricing_request_lock:
+        elapsed = time.monotonic() - _pricing_last_request_at
+        if elapsed < PRICE_MIN_REQUEST_INTERVAL:
+            time.sleep(PRICE_MIN_REQUEST_INTERVAL - elapsed)
+        _pricing_last_request_at = time.monotonic()
+
+
+def pricing_headers(extra: Optional[dict] = None) -> dict:
+    headers = {
+        "User-Agent": PRICE_USER_AGENT,
+        "Accept": "text/html,application/json,*/*",
+    }
+    if DISCOGS_USER_TOKEN:
+        headers["Authorization"] = f"Discogs token={DISCOGS_USER_TOKEN}"
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def pricing_get(url: str, params: Optional[dict] = None, timeout: int = 25) -> requests.Response:
+    pricing_throttle()
+    response = requests.get(url, params=params, headers=pricing_headers(), timeout=timeout)
+    response.raise_for_status()
+    return response
+
+
+def parse_money(value: str) -> Optional[float]:
+    if not value:
+        return None
+    match = re.search(r"\$\s*([0-9]+(?:\.[0-9]+)?)", value)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def parse_first_money_after_label(text: str, label: str) -> Optional[float]:
+    pattern = rf"{re.escape(label)}\s*\$\s*([0-9]+(?:\.[0-9]+)?)"
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def average(values: List[float]) -> Optional[float]:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def compute_sales_window_metrics(sales_rows: List[Tuple[datetime, float]]) -> dict:
+    today = utc_now()
+    last_window_start = today - timedelta(days=365)
+    prev_window_start = today - timedelta(days=730)
+
+    last_values = [price for sold_at, price in sales_rows if last_window_start <= sold_at <= today]
+    prev_values = [price for sold_at, price in sales_rows if prev_window_start <= sold_at < last_window_start]
+
+    avg_last = average(last_values)
+    avg_prev = average(prev_values)
+
+    change_percent = None
+    if avg_last is not None and avg_prev and avg_prev > 0:
+        change_percent = ((avg_last - avg_prev) / avg_prev) * 100.0
+
+    sold_range = None
+    if last_values:
+        sold_range = {"min": min(last_values), "max": max(last_values)}
+
+    return {
+        "avg_last": avg_last,
+        "avg_prev": avg_prev,
+        "change_percent": change_percent,
+        "sold_range": sold_range,
+    }
+
+
+def score_pricecharting_candidate(candidate_title: str, candidate_platform: str, title: str, platform: str) -> int:
+    score = 0
+    score += score_mobygames_candidate(candidate_title, candidate_platform, title, platform)
+    if "pal" in normalize_title_for_match(candidate_platform):
+        score -= 18
+    if "jp" in normalize_title_for_match(candidate_platform):
+        score -= 12
+    return score
+
+
+def pricecharting_slugify(value: str) -> str:
+    normalized = normalize_title_for_match(value)
+    normalized = normalized.replace("&", " and ")
+    normalized = re.sub(r"[^a-z0-9]+", "-", normalized.lower()).strip("-")
+    return re.sub(r"-{2,}", "-", normalized)
+
+
+def find_pricecharting_product_match(title: str, platform: str) -> Optional[dict]:
+    search_url = "https://www.pricecharting.com/search-products"
+    try:
+        response = pricing_get(search_url, params={"type": "prices", "q": f"{title} {platform}"})
+    except Exception:
+        return None
+
+    candidates: List[Tuple[int, dict]] = []
+
+    try:
+        payload = response.json()
+    except Exception:
+        payload = None
+
+    if isinstance(payload, dict):
+        products = payload.get("products")
+        if isinstance(products, list):
+            for product in products:
+                if not isinstance(product, dict):
+                    continue
+                product_name = product.get("productName")
+                console_name = product.get("consoleName")
+                if not isinstance(product_name, str) or not isinstance(console_name, str):
+                    continue
+
+                score = score_pricecharting_candidate(product_name, console_name, title, platform)
+                if score < 50:
+                    continue
+
+                console_slug = pricecharting_slugify(console_name)
+                product_slug = pricecharting_slugify(product_name)
+                if not console_slug or not product_slug:
+                    continue
+
+                candidates.append((score, {
+                    "url": f"https://www.pricecharting.com/game/{console_slug}/{product_slug}",
+                    "loose": parse_money(product.get("price1") or ""),
+                    "complete": parse_money(product.get("price3") or ""),
+                    "new": parse_money(product.get("price2") or ""),
+                }))
+
+    if not candidates:
+        return None
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda entry: entry[0], reverse=True)
+    return candidates[0][1]
+
+
+def find_pricecharting_product_url(title: str, platform: str) -> Optional[str]:
+    match = find_pricecharting_product_match(title, platform)
+    return match.get("url") if match else None
+
+
+def fetch_pricecharting_price_data(title: str, platform: str) -> Optional[dict]:
+    match = find_pricecharting_product_match(title, platform)
+    if not match:
+        return None
+
+    loose_price = match.get("loose") if isinstance(match.get("loose"), (float, int)) else None
+    cib_price = match.get("complete") if isinstance(match.get("complete"), (float, int)) else None
+    new_price = match.get("new") if isinstance(match.get("new"), (float, int)) else None
+
+    sold_prices = [price for price in [loose_price, cib_price, new_price] if isinstance(price, (float, int))]
+    sold_range = None
+    if sold_prices:
+        sold_range = {"min": min(float(price) for price in sold_prices), "max": max(float(price) for price in sold_prices)}
+
+    average_change_percent = None
+    if len(sold_prices) >= 2:
+        lowest_price = min(float(price) for price in sold_prices)
+        highest_price = max(float(price) for price in sold_prices)
+        if lowest_price > 0:
+            average_change_percent = ((highest_price - lowest_price) / lowest_price) * 100.0
+
+    return {
+        "kind": "game",
+        "source": "pricecharting",
+        "source_url": match.get("url"),
+        "average": {
+            "loose": {"value": loose_price, "url": f"{match.get('url')}?condition=Loose" if match.get("url") else None},
+            "cib": {"value": cib_price, "url": f"{match.get('url')}?condition=Complete" if match.get("url") else None},
+            "new": {"value": new_price, "url": f"{match.get('url')}?condition=New" if match.get("url") else None},
+        },
+        "average_change_percent": average_change_percent,
+        "sold_range": sold_range,
+    }
+
+
+def score_discogs_release(result: dict, artist: str, album: str) -> int:
+    score = score_music_match(result, artist, album)
+    community = result.get("community") if isinstance(result, dict) else {}
+    if isinstance(community, dict):
+        score += int(min(40, (community.get("have") or 0) / 800))
+    year = parse_optional_int(result.get("year"))
+    if year:
+        score += 4
+    return score
+
+
+def discogs_release_is_limited(result: dict) -> bool:
+    formats = result.get("formats") if isinstance(result, dict) else None
+    haystack_parts: List[str] = []
+
+    if isinstance(formats, list):
+        for fmt in formats:
+            if not isinstance(fmt, dict):
+                continue
+            name = fmt.get("name")
+            text = fmt.get("text")
+            descriptions = fmt.get("descriptions") if isinstance(fmt.get("descriptions"), list) else []
+            if isinstance(name, str):
+                haystack_parts.append(name)
+            if isinstance(text, str):
+                haystack_parts.append(text)
+            for desc in descriptions:
+                if isinstance(desc, str):
+                    haystack_parts.append(desc)
+
+    for candidate in result.get("format", []) if isinstance(result.get("format"), list) else []:
+        if isinstance(candidate, str):
+            haystack_parts.append(candidate)
+
+    haystack = normalize_title_for_match(" ".join(haystack_parts))
+    limited_terms = [
+        "limited edition",
+        "numbered",
+        "record store day",
+        "color",
+        "coloured",
+        "splatter",
+        "picture disc",
+        "box set",
+    ]
+    return any(term in haystack for term in limited_terms)
+
+
+def discogs_release_url(result: dict) -> Optional[str]:
+    uri = result.get("uri") if isinstance(result, dict) else None
+    if isinstance(uri, str) and uri.strip():
+        if uri.startswith("http"):
+            return uri
+        return urljoin("https://www.discogs.com", uri)
+
+    release_id = result.get("id") if isinstance(result, dict) else None
+    if isinstance(release_id, int):
+        return f"https://www.discogs.com/release/{release_id}"
+    return None
+
+
+def fetch_discogs_price_data(album: str, artist: str) -> Optional[dict]:
+    search_url = "https://api.discogs.com/database/search"
+    try:
+        response = pricing_get(
+            search_url,
+            params={
+                "q": f"{album} {artist}",
+                "type": "release",
+                "format": "Vinyl",
+                "per_page": 25,
+                "page": 1,
+            },
+        )
+        payload = response.json() if response.content else {}
+    except Exception:
+        return None
+
+    results = payload.get("results") if isinstance(payload, dict) else []
+    if not isinstance(results, list) or not results:
+        return None
+
+    ranked = sorted(
+        [entry for entry in results if isinstance(entry, dict)],
+        key=lambda entry: score_discogs_release(entry, artist, album),
+        reverse=True,
+    )
+
+    standard_prices: List[float] = []
+    limited_prices: List[float] = []
+    all_prices: List[float] = []
+    standard_url = None
+    limited_url = None
+
+    for release in ranked[:12]:
+        release_id = release.get("id")
+        if not isinstance(release_id, int):
+            continue
+        try:
+            stats_response = pricing_get(f"https://api.discogs.com/marketplace/stats/{release_id}")
+            stats_payload = stats_response.json() if stats_response.content else {}
+        except Exception:
+            continue
+
+        lowest_price = ((stats_payload or {}).get("lowest_price") or {}).get("value")
+        if not isinstance(lowest_price, (float, int)):
+            continue
+
+        price_value = float(lowest_price)
+        if price_value <= 0:
+            continue
+
+        is_limited = discogs_release_is_limited(release)
+        link = discogs_release_url(release)
+
+        if is_limited:
+            limited_prices.append(price_value)
+            if not limited_url and link:
+                limited_url = f"{link}#marketplace"
+        else:
+            standard_prices.append(price_value)
+            if not standard_url and link:
+                standard_url = f"{link}#marketplace"
+
+        all_prices.append(price_value)
+
+    standard_average = average(standard_prices)
+    limited_average = average(limited_prices)
+
+    sold_range = None
+    if all_prices:
+        sold_range = {"min": min(all_prices), "max": max(all_prices)}
+
+    average_change_percent = None
+    if standard_average is not None and limited_average is not None and standard_average > 0:
+        average_change_percent = ((limited_average - standard_average) / standard_average) * 100.0
+
+    return {
+        "kind": "music",
+        "source": "discogs",
+        "source_url": standard_url or limited_url,
+        "average": {
+            "standard": {"value": standard_average, "url": standard_url},
+            "limited": {"value": limited_average, "url": limited_url},
+        },
+        "average_change_percent": average_change_percent,
+        "sold_range": sold_range,
+    }
+
+
+def fetch_price_data_for_item(item: MediaItem) -> Optional[dict]:
+    if item.category == "Games":
+        platform = (item.platform or "").strip()
+        if not platform:
+            return None
+        return fetch_pricecharting_price_data(item.title, platform)
+    if item.category == "Music":
+        artist = (item.artist or "").strip()
+        if not artist:
+            return None
+        return fetch_discogs_price_data(item.title, artist)
+    return None
+
+
+def apply_price_data_to_item(item: MediaItem, price_data: Optional[dict]) -> None:
+    if not price_data:
+        return
+    item.price_data_json = json.dumps(price_data, separators=(",", ":"))
+    item.price_last_fetched_at = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def fetch_and_store_price_data_for_item(item: MediaItem, force: bool = False) -> bool:
+    if item.category not in {"Games", "Music"}:
+        return False
+    if not force and not is_price_refresh_due(item.price_last_fetched_at):
+        return False
+
+    fetched = fetch_price_data_for_item(item)
+    if not fetched:
+        return False
+
+    apply_price_data_to_item(item, fetched)
+    return True
 
 
 def fetch_image_data_uri(image_url: str) -> Optional[str]:
@@ -2375,10 +2935,6 @@ SYSTEM_LOGO_SOURCE_URLS: Dict[str, str] = {
     "nds": "https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg",
     "nintendo3ds": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg",
     "3ds": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg",
-    "gameboy": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg",
-    "gb": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg",
-    "gamecube": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg",
-    "gc": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg",
     "wii": "https://upload.wikimedia.org/wikipedia/commons/b/bc/Wii.svg",
     "xbox": "https://upload.wikimedia.org/wikipedia/commons/0/06/Xbox_wordmark.svg",
     "xbox360": "https://upload.wikimedia.org/wikipedia/commons/1/1b/Xbox_360_logo.svg",
@@ -2469,10 +3025,6 @@ def ensure_systems() -> None:
     default_systems = [
         {"system_id": "3ds", "name": "Nintendo 3DS", "short_name": "3DS", "logo": "3DS",
          "logo_url": "https://upload.wikimedia.org/wikipedia/commons/8/89/Nintendo_3DS_logo.svg", "case_type": "cartridge", "appearance_preset": "3ds"},
-        {"system_id": "gb", "name": "GameBoy", "short_name": "GB", "logo": "GB",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Nintendo_Game_Boy_Logo.svg", "case_type": "cartridge", "appearance_preset": "gb"},
-        {"system_id": "gc", "name": "GameCube", "short_name": "GC", "logo": "GC",
-         "logo_url": "https://upload.wikimedia.org/wikipedia/commons/2/29/Nintendo_GameCube_Official_Logo.svg", "case_type": "disc", "appearance_preset": "gamecube"},
         {"system_id": "nds", "name": "Nintendo DS", "short_name": "NDS", "logo": "NDS",
          "logo_url": "https://upload.wikimedia.org/wikipedia/commons/a/af/Nintendo_DS_Logo.svg", "case_type": "cartridge", "appearance_preset": "nds"},
         {"system_id": "ps2", "name": "PlayStation 2", "short_name": "PS2", "logo": "PS2",
@@ -2601,8 +3153,6 @@ def ensure_console_test_games() -> None:
                 {"platform": "PlayStation 4", "short": "PS4", "accent": "#0f55aa", "accent_dark": "#0b1e3f", "cartridge": False},
                 {"platform": "Nintendo DS", "short": "NDS", "accent": "#535a69", "accent_dark": "#1f2330", "cartridge": True},
                 {"platform": "Nintendo 3DS", "short": "3DS", "accent": "#b3262d", "accent_dark": "#4f1215", "cartridge": True},
-                {"platform": "GameBoy", "short": "GB", "accent": "#5d6b8f", "accent_dark": "#23314e", "cartridge": True},
-                {"platform": "GameCube", "short": "GC", "accent": "#5a40a5", "accent_dark": "#291b53", "cartridge": False},
                 {"platform": "Wii", "short": "WII", "accent": "#9ca7b8", "accent_dark": "#4b5665", "cartridge": False},
                 {"platform": "Xbox", "short": "XBOX", "accent": "#2f9d44", "accent_dark": "#144920", "cartridge": False},
                 {"platform": "Xbox 360", "short": "360", "accent": "#4ea95f", "accent_dark": "#244d2c", "cartridge": False},
@@ -2651,6 +3201,56 @@ def ensure_console_test_games() -> None:
                         session.commit()
 
 
+def refresh_due_price_data(limit: int = PRICE_REFRESH_BATCH_SIZE, force: bool = False) -> int:
+    updated_count = 0
+    with Session(engine) as session:
+        items = session.exec(
+            select(MediaItem)
+            .where((MediaItem.category == "Games") | (MediaItem.category == "Music"))
+            .order_by(MediaItem.price_last_fetched_at)
+        ).all()
+
+        for item in items:
+            if updated_count >= limit:
+                break
+            if item.category == "Games" and not (item.platform or "").strip():
+                continue
+            if item.category == "Music" and not (item.artist or "").strip():
+                continue
+
+            if not force and not is_price_refresh_due(item.price_last_fetched_at):
+                continue
+
+            try:
+                if fetch_and_store_price_data_for_item(item, force=True):
+                    session.add(item)
+                    session.commit()
+                    updated_count += 1
+            except Exception as exc:
+                logger.warning("Price refresh failed for item %s: %s", item.id, exc)
+                session.rollback()
+
+    return updated_count
+
+
+def pricing_refresh_scheduler_loop() -> None:
+    while True:
+        try:
+            refresh_due_price_data()
+        except Exception as exc:
+            logger.warning("Scheduled monthly price refresh cycle failed: %s", exc)
+        time.sleep(PRICE_REFRESH_INTERVAL_SECONDS)
+
+
+def start_pricing_refresh_scheduler() -> None:
+    global _pricing_scheduler_started
+    if _pricing_scheduler_started or not ENABLE_PRICE_AUTO_REFRESH:
+        return
+    _pricing_scheduler_started = True
+    thread = threading.Thread(target=pricing_refresh_scheduler_loop, daemon=True, name="pricing-refresh-scheduler")
+    thread.start()
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     create_db_and_tables()
@@ -2661,12 +3261,14 @@ def on_startup() -> None:
     ensure_disc_image_column()
     ensure_spine_image_column()
     ensure_star_rating_columns()
+    ensure_price_columns()
     ensure_system_case_type_column()
     ensure_system_appearance_preset_column()
     ensure_system_is_cartridge_inferred_column()
     ensure_system_display_order_column()
     ensure_systems()
     ensure_console_test_games()
+    start_pricing_refresh_scheduler()
 
 @app.get("/api/media", response_model=List[MediaItem])
 def read_media(
@@ -2736,6 +3338,10 @@ def admin_logout(authorization: Optional[str] = Header(default=None)) -> dict:
 def create_media_item(item: MediaItem, authorization: Optional[str] = Header(default=None)) -> MediaItem:
     require_admin(authorization)
     with Session(engine) as session:
+        try:
+            fetch_and_store_price_data_for_item(item, force=True)
+        except Exception as exc:
+            logger.warning("Initial price fetch failed for new item '%s': %s", item.title, exc)
         session.add(item)
         session.commit()
         session.refresh(item)
@@ -2882,6 +3488,95 @@ def refresh_game_data(item_id: int, authorization: Optional[str] = Header(defaul
         data["launchbox_unavailable_resources"] = fetched.get("launchbox_unavailable_resources", [])
         data["launchbox_status"] = fetched.get("launchbox_status", "")
         return data
+
+
+@app.post("/api/pricing/fetch/{item_id}", response_model=MediaItem)
+def fetch_item_price_data(item_id: int, authorization: Optional[str] = Header(default=None)) -> MediaItem:
+    require_admin(authorization)
+    with Session(engine) as session:
+        item = session.get(MediaItem, item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Media item not found")
+        if item.category not in {"Games", "Music"}:
+            raise HTTPException(status_code=400, detail="Price data is only available for game and music items")
+
+        try:
+            fetched = fetch_and_store_price_data_for_item(item, force=True)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Could not fetch price data: {exc}") from exc
+
+        if not fetched:
+            raise HTTPException(status_code=404, detail="No pricing data match was found for this item")
+
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return item
+
+
+@app.post("/api/pricing/refresh-monthly")
+def refresh_monthly_price_data(authorization: Optional[str] = Header(default=None)) -> dict:
+    require_admin(authorization)
+    refreshed = refresh_due_price_data(limit=max(PRICE_REFRESH_BATCH_SIZE, 20), force=False)
+    return {"refreshed": refreshed}
+
+
+@app.post("/api/fetch-tools/game/{item_id}")
+def fetch_tools_game_item(item_id: int, payload: FetchToolItemRequest, authorization: Optional[str] = Header(default=None)) -> dict:
+    require_admin(authorization)
+    mode = (payload.mode or "all").strip().lower()
+    if mode not in {"art", "details", "all"}:
+        raise HTTPException(status_code=400, detail="Invalid mode. Use art, details, or all")
+
+    with Session(engine) as session:
+        item = session.get(MediaItem, item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Media item not found")
+        if item.category != "Games":
+            raise HTTPException(status_code=400, detail="Fetch tool endpoint expects a game item")
+
+        try:
+            result = process_fetch_tool_game_item(item, mode, bool(payload.force))
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Could not fetch game data: {exc}") from exc
+
+        if result.get("changed"):
+            session.add(item)
+            session.commit()
+            session.refresh(item)
+
+        return result
+
+
+@app.post("/api/fetch-tools/music/{item_id}")
+def fetch_tools_music_item(item_id: int, payload: FetchToolItemRequest, authorization: Optional[str] = Header(default=None)) -> dict:
+    require_admin(authorization)
+    mode = (payload.mode or "all").strip().lower()
+    if mode not in {"art", "details", "all"}:
+        raise HTTPException(status_code=400, detail="Invalid mode. Use art, details, or all")
+
+    with Session(engine) as session:
+        item = session.get(MediaItem, item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Media item not found")
+        if item.category != "Music":
+            raise HTTPException(status_code=400, detail="Fetch tool endpoint expects a music item")
+
+        try:
+            result = process_fetch_tool_music_item(item, mode, bool(payload.force))
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Could not fetch music data: {exc}") from exc
+
+        if result.get("changed"):
+            session.add(item)
+            session.commit()
+            session.refresh(item)
+
+        return result
 
 
 @app.post("/api/launchbox/game-art-options")
