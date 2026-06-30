@@ -311,8 +311,6 @@
   let brokenCoverIds = new Set<number>();
   let brokenSpineIds = new Set<number>();
   let brokenDiscIds = new Set<number>();
-  let hoveredConsoleFadeVisible = false;
-  let hoveredConsoleFadeTimeout: ReturnType<typeof setTimeout> | null = null;
 
   let page = 0;
   let itemsPerPage = 15;
@@ -495,26 +493,9 @@
   $: detailRatingDirty = detailEditedStarRating !== detailInitialStarRating;
   $: detailPriceData = parseDetailPriceData(detailItem);
   $: detailPriceSummary = detailPriceSummaryEntries(detailItem, detailPriceData);
-  $: consoleHeaderSelection = hoveredConsole ?? (stage === 'console' ? selectedConsole : null);
+  $: consoleHeaderSelection = hoveredConsole;
   $: consoleHeaderOption = availableConsoles.find((item) => item.name === consoleHeaderSelection) ?? null;
-  $: if (stage === 'console' && hoveredConsole) {
-    hoveredConsoleFadeVisible = true;
-    if (hoveredConsoleFadeTimeout) clearTimeout(hoveredConsoleFadeTimeout);
-    hoveredConsoleFadeTimeout = setTimeout(() => {
-      hoveredConsoleFadeVisible = false;
-      hoveredConsoleFadeTimeout = setTimeout(() => {
-        hoveredConsole = null;
-      }, 220);
-    }, 4000);
-  }
-  $: if (stage !== 'console') {
-    hoveredConsole = null;
-    hoveredConsoleFadeVisible = false;
-    if (hoveredConsoleFadeTimeout) {
-      clearTimeout(hoveredConsoleFadeTimeout);
-      hoveredConsoleFadeTimeout = null;
-    }
-  }
+  $: if (stage !== 'console') hoveredConsole = null;
   $: totalGameLibraryCount = allMedia.filter((item) => item.category === 'Games').length;
   $: totalConsoleWishlistCount = consoleWishlist.length;
   $: consoleLibraryCountLabel = libraryView === 'wishlist'
@@ -524,16 +505,12 @@
     ? (libraryView === 'wishlist'
       ? gameWishlist.filter((item) => item.platform === hoveredConsole).length
       : allMedia.filter((item) => item.category === 'Games' && item.platform === hoveredConsole).length)
-    : stage === 'console' && selectedConsole
-      ? (libraryView === 'wishlist'
-        ? gameWishlist.filter((item) => item.platform === selectedConsole).length
-        : allMedia.filter((item) => item.category === 'Games' && item.platform === selectedConsole).length)
-      : null;
+    : null;
   $: hoveredConsoleCountLabel = hoveredConsoleGameCount !== null
     ? libraryView === 'wishlist'
       ? `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Item' : 'Items'} ON WISH LIST`
       : `${hoveredConsoleGameCount} ${hoveredConsoleGameCount === 1 ? 'Game' : 'Games'} IN LIBRARY`
-    : consoleLibraryCountLabel;
+    : '';
   $: itemsPerPage = viewportWidth <= 420 ? 4 : viewportWidth <= 640 ? 6 : 15;
   $: consolePageItems = activeConsoleSource.slice(page * itemsPerPage, page * itemsPerPage + itemsPerPage);
   $: consoleTotalPages = Math.ceil(Math.max(1, activeConsoleSource.length) / itemsPerPage);
@@ -1813,12 +1790,7 @@
 
   function handleConsolePointerLeave(event: PointerEvent) {
     if (!supportsConsoleHover(event)) return;
-    if (hoveredConsoleFadeTimeout) clearTimeout(hoveredConsoleFadeTimeout);
-    hoveredConsoleFadeVisible = false;
-    hoveredConsoleFadeTimeout = setTimeout(() => {
-      hoveredConsole = null;
-      hoveredConsoleFadeTimeout = null;
-    }, 220);
+    hoveredConsole = null;
     clearIconFollow(event as unknown as MouseEvent);
   }
 
@@ -5207,10 +5179,11 @@
 
     {#if stage === 'console'}
       <section class="console-screen">
-        <div class="console-hud">
+        <div class="console-hud" class:console-hud--hover-active={hoveredConsole !== null}>
           <div class="library-hud-left console-header-shell">
             <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
             <span class="wishlist-context-copy" transition:fade={{ duration: 320, easing: cubicOut }}>{wishlistToggleContextLabel}</span>
+            <span class="console-inline-count console-header-copy console-header-count-copy library-header-subcopy">{consoleLibraryCountLabel}</span>
             <button
               type="button"
               class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-header"
@@ -5231,71 +5204,73 @@
               </span>
             </button>
           </div>
-          <div class="console-toolbar" transition:fade={{ duration: 320, easing: cubicOut }}>
-            <button
-              type="button"
-              class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar filter-icon-label-host"
-              data-hover-label="WISH LIST"
-              class:is-active={libraryView === 'wishlist'}
-              on:click={toggleWishlistView}
-              aria-label={wishlistIconLabel()}
-              transition:fade={{ duration: 320, easing: cubicOut }}
-            >
-              <span class="wishlist-toggle-toprow">
-                <span class="wishlist-toggle-icon" aria-hidden="true">
+          <div class="hud-right-group hud-right-group--console">
+            <div class="console-toolbar" transition:fade={{ duration: 320, easing: cubicOut }}>
+              <button
+                type="button"
+                class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar filter-icon-label-host"
+                data-hover-label="WISH LIST"
+                class:is-active={libraryView === 'wishlist'}
+                on:click={toggleWishlistView}
+                aria-label={wishlistIconLabel()}
+                transition:fade={{ duration: 320, easing: cubicOut }}
+              >
+                <span class="wishlist-toggle-toprow">
+                  <span class="wishlist-toggle-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
+                      <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
+                    </svg>
+                  </span>
+                  <span class="wishlist-toggle-label">{wishlistToggleContextLabel}</span>
+                </span>
+                <span class="wishlist-toggle-footer">WISH LIST</span>
+              </button>
+              <span class="toolbar-divider" aria-hidden="true">|</span>
+              <button
+                type="button"
+                class="collection-total-icon filter-icon-label-host"
+                data-hover-label={consoleOwnedGamesCostLabel}
+                aria-label={consoleOwnedGamesCostLabel}
+              >
+                <span class="collection-total-icon-inner" aria-hidden="true">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 6.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Zm0 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5Z M9.75 7.25h6.5v1.5h-6.5Zm0 5h6.5v1.5h-6.5Zm0 5h5v1.5h-5Z" fill="currentColor"></path>
-                    <path d="M18.15 4.7c-1.04 0-1.82.64-2.16 1.28-.34-.64-1.12-1.28-2.16-1.28-1.32 0-2.38 1.02-2.38 2.31 0 2.35 4.54 4.88 4.54 4.88s4.54-2.53 4.54-4.88c0-1.29-1.06-2.31-2.38-2.31Z" fill="currentColor"></path>
+                    <path d="M12.04 3.2c2.57 0 4.48 1.1 5.6 2.88l-2.05 1.23c-.65-1.08-1.84-1.76-3.55-1.76-1.8 0-2.94.73-2.94 1.9 0 1.04.93 1.62 2.85 1.97l1.51.27c3.11.56 4.9 1.9 4.9 4.49 0 2.97-2.46 4.88-6.2 5.07v1.65h-2.17v-1.7c-2.76-.28-4.87-1.51-6.01-3.43l2.1-1.31c.7 1.29 2.16 2.29 4.17 2.29 2.1 0 3.44-.83 3.44-2.16 0-1.09-.88-1.75-2.82-2.11l-1.5-.27c-3.02-.55-4.93-1.9-4.93-4.39 0-2.72 2.15-4.58 5.55-4.87V3.2h2.17v1.43Z" fill="currentColor"></path>
                   </svg>
                 </span>
-                <span class="wishlist-toggle-label">{wishlistToggleContextLabel}</span>
-              </span>
-              <span class="wishlist-toggle-footer">WISH LIST</span>
-            </button>
-            <span class="toolbar-divider" aria-hidden="true">|</span>
-            <button
-              type="button"
-              class="collection-total-icon filter-icon-label-host"
-              data-hover-label={consoleOwnedGamesCostLabel}
-              aria-label={consoleOwnedGamesCostLabel}
-            >
-              <span class="collection-total-icon-inner" aria-hidden="true">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12.04 3.2c2.57 0 4.48 1.1 5.6 2.88l-2.05 1.23c-.65-1.08-1.84-1.76-3.55-1.76-1.8 0-2.94.73-2.94 1.9 0 1.04.93 1.62 2.85 1.97l1.51.27c3.11.56 4.9 1.9 4.9 4.49 0 2.97-2.46 4.88-6.2 5.07v1.65h-2.17v-1.7c-2.76-.28-4.87-1.51-6.01-3.43l2.1-1.31c.7 1.29 2.16 2.29 4.17 2.29 2.1 0 3.44-.83 3.44-2.16 0-1.09-.88-1.75-2.82-2.11l-1.5-.27c-3.02-.55-4.93-1.9-4.93-4.39 0-2.72 2.15-4.58 5.55-4.87V3.2h2.17v1.43Z" fill="currentColor"></path>
-                </svg>
-              </span>
-            </button>
-            <span class="toolbar-divider" aria-hidden="true">|</span>
-            <button
-              type="button"
-              class="dark-mode-toggle filter-icon-label-host"
-              data-hover-label="DARK MODE"
-              class:is-active={darkModeEnabled}
-              on:click={toggleDarkMode}
-              aria-label={darkModeToggleLabel()}
-              transition:fade={{ duration: 320, easing: cubicOut }}
-            >
-              <span class="dark-mode-toggle-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 3.4a.8.8 0 0 1 .8.8v1.65a.8.8 0 1 1-1.6 0V4.2a.8.8 0 0 1 .8-.8Zm0 14.75a.8.8 0 0 1 .8.8v1.65a.8.8 0 1 1-1.6 0V18.95a.8.8 0 0 1 .8-.8ZM5.82 6.95a.8.8 0 0 1 1.13 0l1.17 1.17a.8.8 0 1 1-1.13 1.13L5.82 8.08a.8.8 0 0 1 0-1.13Zm10.06 10.06a.8.8 0 0 1 1.13 0l1.17 1.17a.8.8 0 0 1-1.13 1.13l-1.17-1.17a.8.8 0 0 1 0-1.13ZM3.4 12a.8.8 0 0 1 .8-.8h1.65a.8.8 0 1 1 0 1.6H4.2a.8.8 0 0 1-.8-.8Zm14.75 0a.8.8 0 0 1 .8-.8h1.65a.8.8 0 1 1 0 1.6h-1.65a.8.8 0 0 1-.8-.8ZM6.95 18.18a.8.8 0 0 1 0-1.13l1.17-1.17a.8.8 0 0 1 1.13 1.13l-1.17 1.17a.8.8 0 0 1-1.13 0Zm10.06-10.06a.8.8 0 0 1 0-1.13l1.17-1.17a.8.8 0 1 1 1.13 1.13l-1.17 1.17a.8.8 0 0 1-1.13 0Z" fill="currentColor"></path>
-                  <path d="M12 7.05a4.95 4.95 0 1 0 0 9.9 4.95 4.95 0 0 0 0-9.9Zm0 1.6a3.35 3.35 0 0 1 0 6.7 3.35 3.35 0 0 1 0-6.7Z" fill="currentColor"></path>
-                </svg>
-              </span>
-            </button>
-          </div>
-          <div class="library-hud-right console-header-count console-header-right">
-            <div class="console-hover-meta">
-              {#if consoleHeaderOption?.logoImage}
-                <img
-                  src={consoleHeaderOption.logoImage}
-                  alt={consoleHeaderOption.name}
-                  class="console-header-logo"
-                  draggable="false"
-                />
-              {/if}
-              <span class="console-header-copy console-header-count-copy library-header-subcopy">
-                {hoveredConsoleCountLabel}
-              </span>
+              </button>
+              <span class="toolbar-divider" aria-hidden="true">|</span>
+              <button
+                type="button"
+                class="dark-mode-toggle filter-icon-label-host"
+                data-hover-label="DARK MODE"
+                class:is-active={darkModeEnabled}
+                on:click={toggleDarkMode}
+                aria-label={darkModeToggleLabel()}
+                transition:fade={{ duration: 320, easing: cubicOut }}
+              >
+                <span class="dark-mode-toggle-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3.4a.8.8 0 0 1 .8.8v1.65a.8.8 0 1 1-1.6 0V4.2a.8.8 0 0 1 .8-.8Zm0 14.75a.8.8 0 0 1 .8.8v1.65a.8.8 0 1 1-1.6 0V18.95a.8.8 0 0 1 .8-.8ZM5.82 6.95a.8.8 0 0 1 1.13 0l1.17 1.17a.8.8 0 1 1-1.13 1.13L5.82 8.08a.8.8 0 0 1 0-1.13Zm10.06 10.06a.8.8 0 0 1 1.13 0l1.17 1.17a.8.8 0 0 1-1.13 1.13l-1.17-1.17a.8.8 0 0 1 0-1.13ZM3.4 12a.8.8 0 0 1 .8-.8h1.65a.8.8 0 1 1 0 1.6H4.2a.8.8 0 0 1-.8-.8Zm14.75 0a.8.8 0 0 1 .8-.8h1.65a.8.8 0 1 1 0 1.6h-1.65a.8.8 0 0 1-.8-.8ZM6.95 18.18a.8.8 0 0 1 0-1.13l1.17-1.17a.8.8 0 0 1 1.13 1.13l-1.17 1.17a.8.8 0 0 1-1.13 0Zm10.06-10.06a.8.8 0 0 1 0-1.13l1.17-1.17a.8.8 0 1 1 1.13 1.13l-1.17 1.17a.8.8 0 0 1-1.13 0Z" fill="currentColor"></path>
+                    <path d="M12 7.05a4.95 4.95 0 1 0 0 9.9 4.95 4.95 0 0 0 0-9.9Zm0 1.6a3.35 3.35 0 0 1 0 6.7 3.35 3.35 0 0 1 0-6.7Z" fill="currentColor"></path>
+                  </svg>
+                </span>
+              </button>
+            </div>
+            <div class="library-hud-right console-header-count console-header-right">
+              <div class="console-hover-meta console-hover-meta--console">
+                {#if consoleHeaderOption?.logoImage}
+                  <img
+                    src={consoleHeaderOption.logoImage}
+                    alt={consoleHeaderOption.name}
+                    class="console-header-logo"
+                    draggable="false"
+                  />
+                {/if}
+                <span class="console-header-copy console-header-count-copy library-header-subcopy">
+                  {hoveredConsoleCountLabel}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -5372,8 +5347,9 @@
             {/if}
           </div>
 
-          {#if stage !== 'console'}
-            <div class="library-toolbar" class:library-toolbar--music={category === 'Music'} transition:fade={{ duration: 320, easing: cubicOut }}>
+          <div class="hud-right-group hud-right-group--library">
+            {#if stage !== 'console'}
+              <div class="library-toolbar" class:library-toolbar--music={category === 'Music'} transition:fade={{ duration: 320, easing: cubicOut }}>
               <button
                 type="button"
                 class="wishlist-toggle wishlist-toggle--library wishlist-toggle--library-toolbar filter-icon-label-host"
@@ -5535,23 +5511,24 @@
                   </svg>
                 </span>
               </button>
-            </div>
-          {/if}
-
-          {#if stage !== 'console' && category === 'Games' && selectedLibraryConsole?.logoImage}
-            <div class="library-hud-right console-header-right">
-              <div class="console-hover-meta">
-                <img src={selectedLibraryConsole.logoImage} alt={selectedLibraryConsole.name} class="console-header-logo" draggable="false" />
-                {#key `${selectedLibraryConsole.name}-${libraryCountCopy}`}
-                  <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryCountCopy}</span>
-                {/key}
               </div>
-            </div>
-          {:else if libraryHeaderRight}
-            <div class="library-hud-right console-header-right">
-              <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryCountCopy}</span>
-            </div>
-          {/if}
+            {/if}
+
+            {#if stage !== 'console' && category === 'Games' && selectedLibraryConsole?.logoImage}
+              <div class="library-hud-right console-header-right">
+                <div class="console-hover-meta">
+                  <img src={selectedLibraryConsole.logoImage} alt={selectedLibraryConsole.name} class="console-header-logo" draggable="false" />
+                  {#key `${selectedLibraryConsole.name}-${libraryCountCopy}`}
+                    <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryCountCopy}</span>
+                  {/key}
+                </div>
+              </div>
+            {:else if libraryHeaderRight}
+              <div class="library-hud-right console-header-right">
+                <span class="console-header-copy console-header-count-copy library-header-subcopy">{libraryCountCopy}</span>
+              </div>
+            {/if}
+          </div>
         </div>
 
         <div class="library-grid">

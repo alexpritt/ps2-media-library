@@ -530,7 +530,6 @@ a,
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-left: auto;
   margin-right: 16px;
   justify-content: flex-end;
 }
@@ -544,8 +543,15 @@ a,
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-left: auto;
   margin-right: 16px;
+}
+
+.hud-right-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .library-hud-left {
@@ -1596,6 +1602,27 @@ a,
   white-space: nowrap;
 }
 
+.console-inline-count {
+  opacity: 1;
+  transition: opacity 220ms ease 220ms;
+}
+
+.console-hover-meta--console {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.console-hud--hover-active .console-inline-count {
+  opacity: 0;
+  transition-delay: 0ms;
+}
+
+.console-hud--hover-active .console-hover-meta--console {
+  opacity: 1;
+  transition-delay: 220ms;
+}
+
 .console-header-logo {
   width: clamp(130px, 14vw, 200px);
   height: 60px;
@@ -1681,6 +1708,11 @@ a,
   .console-hud .console-toolbar,
   .library-hud .library-toolbar {
     margin-right: 24px;
+  }
+
+  .console-hud .hud-right-group,
+  .library-hud .hud-right-group {
+    margin-left: auto;
   }
 
   .console-hud .console-header-right,
@@ -5892,7 +5924,7 @@ select option {
   }
 
   .library-toolbar {
-    order: 3;
+    order: 2;
     margin-top: 0;
     margin-left: 0;
     margin-right: 0;
@@ -5934,11 +5966,20 @@ select option {
   }
 
   .console-toolbar {
-    order: 3;
+    order: 2;
     margin: 0;
     width: 100%;
     justify-content: center;
     gap: 12px;
+  }
+
+  .hud-right-group {
+    order: 2;
+    margin-left: 0;
+    width: 100%;
+    display: grid;
+    gap: 8px;
+    justify-items: center;
   }
 
   .library-search-shell {
@@ -6012,7 +6053,7 @@ select option {
   }
 
   .library-hud-right {
-    order: 2;
+    order: 1;
     margin-top: 0;
     margin-left: 0;
     width: 100%;
@@ -6026,6 +6067,10 @@ select option {
   .library-hud .console-header-right {
     justify-content: center;
     text-align: center;
+  }
+
+  .console-inline-count {
+    display: none;
   }
 
   .console-hud .console-hover-meta,
