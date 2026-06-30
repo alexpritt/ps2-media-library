@@ -6771,8 +6771,8 @@
                           <div class="admin-loaded-art-item-header">
                             <span>Box Art</span>
                             <div class="admin-art-item-actions">
-                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('cover_image')} disabled={!adminForm.cover_image}>Delete</button>
                               <label for="admin-upload-cover-art" class="admin-art-upload-button">Upload</label>
+                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('cover_image')} disabled={!adminForm.cover_image}>Delete</button>
                             </div>
                             <input
                               id="admin-upload-cover-art"
@@ -6796,8 +6796,8 @@
                           <div class="admin-loaded-art-item-header">
                             <span>Disc/Cart Art</span>
                             <div class="admin-art-item-actions">
-                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('disc_image')} disabled={!adminForm.disc_image}>Delete</button>
                               <label for="admin-upload-disc-art" class="admin-art-upload-button">Upload</label>
+                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('disc_image')} disabled={!adminForm.disc_image}>Delete</button>
                             </div>
                             <input
                               id="admin-upload-disc-art"
@@ -6821,8 +6821,8 @@
                           <div class="admin-loaded-art-item-header">
                             <span>Spine Art</span>
                             <div class="admin-art-item-actions">
-                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('spine_image')} disabled={!adminForm.spine_image}>Delete</button>
                               <label for="admin-upload-spine-art" class="admin-art-upload-button">Upload</label>
+                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('spine_image')} disabled={!adminForm.spine_image}>Delete</button>
                             </div>
                             <input
                               id="admin-upload-spine-art"
@@ -6852,8 +6852,8 @@
                           <div class="admin-loaded-art-item-header">
                             <span>Album Art</span>
                             <div class="admin-art-item-actions">
-                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('cover_image')} disabled={!adminForm.cover_image}>Delete</button>
                               <label for="admin-upload-album-art" class="admin-art-upload-button">Upload</label>
+                              <button type="button" class="admin-art-delete-button" on:click={() => clearAdminArtField('cover_image')} disabled={!adminForm.cover_image}>Delete</button>
                             </div>
                             <input
                               id="admin-upload-album-art"

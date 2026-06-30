@@ -4317,7 +4317,10 @@ a,
 }
 
 .admin-art-delete-button:disabled {
-  opacity: 0.38;
+  opacity: 1;
+  filter: none;
+  border-color: rgba(150, 180, 255, 0.26);
+  color: #eef5ff;
   cursor: not-allowed;
 }
 
@@ -5855,7 +5858,39 @@ select option {
     margin-right: 0;
     width: 100%;
     justify-content: center;
-    gap: 12px;
+    gap: 8px;
+  }
+
+  .library-toolbar:not(.library-toolbar--music) {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: center;
+    justify-items: center;
+  }
+
+  .library-toolbar:not(.library-toolbar--music) .toolbar-divider {
+    display: none;
+  }
+
+  .library-toolbar:not(.library-toolbar--music) .wishlist-toggle--library-toolbar,
+  .library-toolbar:not(.library-toolbar--music) .players-filter,
+  .library-toolbar:not(.library-toolbar--music) .star-filter,
+  .library-toolbar:not(.library-toolbar--music) .library-search-shell,
+  .library-toolbar:not(.library-toolbar--music) .collection-total-icon,
+  .library-toolbar:not(.library-toolbar--music) .dark-mode-toggle {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+
+  .library-toolbar:not(.library-toolbar--music) .library-search-shell,
+  .library-toolbar:not(.library-toolbar--music) .library-search-shell.is-open {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .library-toolbar:not(.library-toolbar--music) .library-search-toggle {
+    margin-inline: auto;
   }
 
   .console-toolbar {
