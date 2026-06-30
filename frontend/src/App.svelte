@@ -5514,31 +5514,31 @@
               </div>
             {/if}
           </section>
-        </div>
 
-        <div class="details-actions">
-          <div class="details-actions-right">
-            {#if detailRatingDirty}
-              <button
-                type="button"
-                class="details-save-rating"
-                on:click={saveDetailRatingChanges}
-                disabled={detailRatingSaving}
-                transition:fade={{ duration: 240 }}
-              >{detailRatingSaving ? 'Saving...' : 'Save Changes'}</button>
-            {/if}
-            {#if isAdmin}
-              <div class="details-admin-actions">
-                {#if detailIsWishlist && selectedWishlistItem}
-                  <button type="button" on:click={() => selectedWishlistItem && addWishlistMediaToLibrary(selectedWishlistItem)}>Add to Library</button>
-                  <button type="button" on:click={() => selectedWishlistItem && startEditWishlistMedia(selectedWishlistItem)}>Edit</button>
-                  <button type="button" class="danger" on:click={() => selectedWishlistItem && deleteWishlistSelection(selectedWishlistItem.wishlistKind, selectedWishlistItem.wishlistId)}>Delete</button>
-                {:else}
-                  <button type="button" on:click={() => openEditConfirm(detailItem, true)}>Edit</button>
-                  <button type="button" class="danger" on:click={() => openDeleteConfirm(detailItem)}>Delete</button>
-                {/if}
-              </div>
-            {/if}
+          <div class="details-actions">
+            <div class="details-actions-right">
+              {#if detailRatingDirty}
+                <button
+                  type="button"
+                  class="details-save-rating"
+                  on:click={saveDetailRatingChanges}
+                  disabled={detailRatingSaving}
+                  transition:fade={{ duration: 240 }}
+                >{detailRatingSaving ? 'Saving...' : 'Save Changes'}</button>
+              {/if}
+              {#if isAdmin}
+                <div class="details-admin-actions">
+                  {#if detailIsWishlist && selectedWishlistItem}
+                    <button type="button" on:click={() => selectedWishlistItem && addWishlistMediaToLibrary(selectedWishlistItem)}>Add to Library</button>
+                    <button type="button" on:click={() => selectedWishlistItem && startEditWishlistMedia(selectedWishlistItem)}>Edit</button>
+                    <button type="button" class="danger" on:click={() => selectedWishlistItem && deleteWishlistSelection(selectedWishlistItem.wishlistKind, selectedWishlistItem.wishlistId)}>Delete</button>
+                  {:else}
+                    <button type="button" on:click={() => openEditConfirm(detailItem, true)}>Edit</button>
+                    <button type="button" class="danger" on:click={() => openDeleteConfirm(detailItem)}>Delete</button>
+                  {/if}
+                </div>
+              {/if}
+            </div>
           </div>
         </div>
       </section>
@@ -5566,15 +5566,15 @@
         <div class="details-right">
           <p class="details-line-2">{selectedWishlistConsole.name}</p>
           <p class="details-line-5">{selectedWishlistConsole.caseType ? `${selectedWishlistConsole.caseType[0].toUpperCase()}${selectedWishlistConsole.caseType.slice(1)} system` : 'Wish list console'}</p>
-        </div>
-        <div class="details-actions">
-          {#if isAdmin}
-            <div class="details-admin-actions">
-              <button type="button" on:click={() => selectedWishlistConsole && addWishlistConsoleToLibrary(selectedWishlistConsole)}>Add to Library</button>
-              <button type="button" on:click={() => selectedWishlistConsole && startEditWishlistConsole(selectedWishlistConsole)}>Edit</button>
-              <button type="button" class="danger" on:click={() => selectedWishlistConsole && deleteWishlistSelection('console', selectedWishlistConsole.wishlistId)}>Delete</button>
-            </div>
-          {/if}
+          <div class="details-actions">
+            {#if isAdmin}
+              <div class="details-admin-actions">
+                <button type="button" on:click={() => selectedWishlistConsole && addWishlistConsoleToLibrary(selectedWishlistConsole)}>Add to Library</button>
+                <button type="button" on:click={() => selectedWishlistConsole && startEditWishlistConsole(selectedWishlistConsole)}>Edit</button>
+                <button type="button" class="danger" on:click={() => selectedWishlistConsole && deleteWishlistSelection('console', selectedWishlistConsole.wishlistId)}>Delete</button>
+              </div>
+            {/if}
+          </div>
         </div>
       </section>
     {/if}

@@ -2151,10 +2151,9 @@ a,
 
 .details-screen {
   position: absolute;
-  inset: 8% 7% 14% 7%;
+  inset: 8% 7% 10% 7%;
   display: grid;
   grid-template-columns: 40% 1fr;
-  grid-template-rows: minmax(0, 1fr) auto;
   align-items: start;
   align-content: start;
   gap: 20px;
@@ -2635,8 +2634,7 @@ a,
   color: rgba(220, 222, 230, 0.72);
   font-size: clamp(0.95rem, 1.65vw, 1.6rem);
   max-width: 100%;
-  min-height: clamp(6.2rem, 14vh, 9.5rem);
-  max-height: clamp(8rem, 22vh, 14rem);
+  max-height: clamp(5rem, 13vh, 8rem);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -3007,14 +3005,13 @@ a,
 .price-color--limited { color: #bb8bff; }
 
 .details-actions {
-  position: static;
-  grid-column: 1 / -1;
+  margin-top: auto;
+  padding-top: 14px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 18px;
   z-index: 3;
-  padding-top: 6px;
 }
 
 .details-back,
@@ -5490,21 +5487,13 @@ select option {
   }
 
   .details-actions {
-    position: static;
-    left: auto;
-    right: auto;
-    bottom: auto;
     width: 100%;
-    margin-top: 4px;
-    padding-top: 8px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     flex-wrap: wrap;
     justify-content: center;
     gap: 12px;
-  }
-
-  .details-back {
-    width: 100%;
-    text-align: left;
   }
 
   .details-admin-actions button {
