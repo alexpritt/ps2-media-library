@@ -5235,7 +5235,7 @@
 
     {#if stage === 'console'}
       <section class="console-screen">
-        <div class="console-hud">
+        <div class="console-hud" class:hovering-console-header={hoveredConsole !== null}>
           <div class="library-hud-left console-header-shell">
             <img src={SITE_LOGO_SRC} alt="The Avenoir Collection" class="site-brand-logo site-brand-logo--header" draggable="false" />
             <span class="wishlist-context-copy" transition:fade={{ duration: 320, easing: cubicOut }}>{wishlistToggleContextLabel}</span>
