@@ -950,6 +950,19 @@
     selectedItem = updated;
   }
 
+  function updateWishlistMediaItem(item: WishlistMediaItem) {
+    if (item.wishlistKind === 'games') {
+      gameWishlist = gameWishlist.map((entry) => entry.wishlistId === item.wishlistId ? item : entry);
+      persistGameWishlist();
+    } else {
+      musicWishlist = musicWishlist.map((entry) => entry.wishlistId === item.wishlistId ? item : entry);
+      persistMusicWishlist();
+    }
+    media = media.map((entry) => isWishlistMediaItem(entry) && entry.wishlistId === item.wishlistId ? item : entry);
+    selectedWishlistItem = item;
+    selectedItem = item;
+  }
+
   function setDetailStarRating(n: number) {
     detailEditedStarRating = detailEditedStarRating === n ? null : n;
     detailRatingMessage = '';
@@ -1107,7 +1120,7 @@
     const gameGenres = isGames ? normalizeSelectionValues(adminForm.gameGenres) : [];
     const publishers = isGames ? normalizeSelectionValues(adminForm.publishers) : [];
     return {
-      id: adminForm.id ?? -1,
+      id: adminForm.id ?? createWishlistMediaId(),
       wishlistId: wishlistEditingId ?? createWishlistId(kind),
       wishlistKind: kind,
       title: (isGames ? normalizeGameTitle(adminForm.title) : adminForm.title).trim(),
@@ -2547,16 +2560,27 @@
   }
 
   async function fetchDetailPriceData() {
-    if (!detailItem || detailIsWishlist || !detailItem.id || detailPriceFetchBusy) return;
+    if (!detailItem || detailPriceFetchBusy) return;
 
     detailPriceFetchError = '';
     detailPriceFetchStatus = 'Fetching latest pricing data...';
     detailPriceFetchProgress = 12;
     detailPriceFetchBusy = true;
     try {
-      const response = await fetch(apiPath(`/api/pricing/fetch/${detailItem.id}`), {
+      const endpoint = detailIsWishlist
+        ? apiPath('/api/pricing/fetch-wishlist')
+        : apiPath(`/api/pricing/fetch/${detailItem.id}`);
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: mediaHeaders(),
+        body: detailIsWishlist && selectedWishlistItem
+          ? JSON.stringify({
+            title: selectedWishlistItem.title,
+            category: selectedWishlistItem.category,
+            platform: selectedWishlistItem.platform,
+            artist: selectedWishlistItem.artist,
+          })
+          : undefined,
       });
       detailPriceFetchProgress = 62;
 
@@ -2577,7 +2601,15 @@
         return;
       }
 
-      upsertMediaItem(payload as MediaItem);
+      if (detailIsWishlist && selectedWishlistItem) {
+        updateWishlistMediaItem({
+          ...selectedWishlistItem,
+          price_data_json: (payload as MediaItem | null)?.price_data_json ?? null,
+          price_last_fetched_at: (payload as MediaItem | null)?.price_last_fetched_at ?? null,
+        });
+      } else {
+        upsertMediaItem(payload as MediaItem);
+      }
       detailPriceFetchStatus = 'Price data updated.';
       detailPriceFetchProgress = 100;
     } catch {
@@ -5949,7 +5981,7 @@
                   </div>
                 </div>
 
-                {#if isAdmin && !detailIsWishlist}
+                {#if isAdmin}
                   <div class="details-price-admin">
                     <button
                       type="button"
