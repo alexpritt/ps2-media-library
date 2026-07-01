@@ -830,6 +830,13 @@ class MediaItem(SQLModel, table=True):
     price_last_fetched_at: Optional[str] = None
 
 
+class WishlistPriceFetchRequest(SQLModel):
+    title: str
+    category: str
+    platform: Optional[str] = None
+    artist: Optional[str] = None
+
+
 class GameSystem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     system_id: str = Field(unique=True)
@@ -3711,6 +3718,40 @@ def fetch_item_price_data(item_id: int, authorization: Optional[str] = Header(de
         session.commit()
         session.refresh(item)
         return item
+
+
+@app.post("/api/pricing/fetch-wishlist", response_model=MediaItem)
+def fetch_wishlist_item_price_data(
+    request: WishlistPriceFetchRequest,
+    authorization: Optional[str] = Header(default=None),
+) -> MediaItem:
+    require_admin(authorization)
+
+    title = request.title.strip()
+    category = request.category.strip()
+    platform = (request.platform or "").strip() or None
+    artist = (request.artist or "").strip() or None
+
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    if category not in {"Games", "Music"}:
+        raise HTTPException(status_code=400, detail="Price data is only available for game and music items")
+    if category == "Games" and not platform:
+        raise HTTPException(status_code=400, detail="Platform is required to fetch game price data")
+    if category == "Music" and not artist:
+        raise HTTPException(status_code=400, detail="Artist is required to fetch music price data")
+
+    item = MediaItem(title=title, category=category, platform=platform, artist=artist, genre="")
+    try:
+        fetched = fetch_price_data_for_item(item)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not fetch price data: {exc}") from exc
+
+    if not fetched:
+        raise HTTPException(status_code=404, detail="No pricing data match was found for this item")
+
+    apply_price_data_to_item(item, fetched)
+    return item
 
 
 @app.post("/api/pricing/game-data")

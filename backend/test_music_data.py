@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from datetime import datetime, timezone
 
 import main
 from fastapi import HTTPException
@@ -82,6 +83,32 @@ class DeezerMusicDataTests(unittest.TestCase):
 
         fetch_mock.assert_called_once_with("Discovery", "Daft Punk")
         self.assertEqual(data["title"], "Discovery")
+
+    def test_fetch_wishlist_price_data_returns_price_fields_for_music_item(self):
+        main.admin_tokens["unit-test-token"] = True
+        auth_header = "Bearer " + "unit-test-token"
+        try:
+            with patch.object(
+                main,
+                "fetch_price_data_for_item",
+                return_value={"kind": "music", "averageStandard": {"value": 42.0, "url": "https://example.test"}},
+            ) as fetch_mock, patch.object(
+                main,
+                "utc_now",
+                return_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+            ):
+                data = main.fetch_wishlist_item_price_data(
+                    main.WishlistPriceFetchRequest(title="  Discovery  ", category="Music", artist="  Daft Punk  "),
+                    authorization=auth_header,
+                )
+        finally:
+            main.admin_tokens.pop("unit-test-token", None)
+
+        fetch_mock.assert_called_once()
+        self.assertEqual(data.title, "Discovery")
+        self.assertEqual(data.artist, "Daft Punk")
+        self.assertIn('"kind":"music"', data.price_data_json or "")
+        self.assertEqual(data.price_last_fetched_at, "2026-01-02T03:04:05Z")
 
 
 if __name__ == "__main__":
