@@ -872,6 +872,16 @@ class DeezerMusicDataRequest(SQLModel):
     artist: str
 
 
+class PriceChartingPriceDataRequest(SQLModel):
+    title: str
+    platform: str
+
+
+class DiscogsPriceDataRequest(SQLModel):
+    title: str
+    artist: str
+
+
 class DiscogsMusicArtOptionsRequest(SQLModel):
     title: str
     artist: str
@@ -2435,6 +2445,13 @@ def fetch_and_store_price_data_for_item(item: MediaItem, force: bool = False) ->
     return True
 
 
+def serialize_price_fetch_result(price_data: dict) -> dict:
+    return {
+        "price_data_json": json.dumps(price_data, separators=(",", ":")),
+        "price_last_fetched_at": utc_now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
 def fetch_image_data_uri(image_url: str) -> Optional[str]:
     if not image_url:
         return None
@@ -3735,6 +3752,54 @@ def fetch_wishlist_item_price_data(
 
     apply_price_data_to_item(item, fetched)
     return item
+
+
+@app.post("/api/pricing/game-data")
+def fetch_game_price_data(payload: PriceChartingPriceDataRequest, authorization: Optional[str] = Header(default=None)) -> dict:
+    require_admin(authorization)
+    title = payload.title.strip()
+    platform = payload.platform.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Game title is required.")
+    if not platform:
+        raise HTTPException(status_code=400, detail="Platform is required.")
+
+    try:
+        fetched = fetch_pricecharting_price_data(title, platform)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not fetch game price data: {exc}") from exc
+
+    if not fetched:
+        raise HTTPException(status_code=404, detail="No pricing data match was found for this game")
+
+    result = serialize_price_fetch_result(fetched)
+    result["title"] = title
+    result["platform"] = platform
+    return result
+
+
+@app.post("/api/pricing/music-data")
+def fetch_music_price_data(payload: DiscogsPriceDataRequest, authorization: Optional[str] = Header(default=None)) -> dict:
+    require_admin(authorization)
+    title = payload.title.strip()
+    artist = payload.artist.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Album title is required.")
+    if not artist:
+        raise HTTPException(status_code=400, detail="Artist is required.")
+
+    try:
+        fetched = fetch_discogs_price_data(title, artist)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not fetch music price data: {exc}") from exc
+
+    if not fetched:
+        raise HTTPException(status_code=404, detail="No pricing data match was found for this album")
+
+    result = serialize_price_fetch_result(fetched)
+    result["title"] = title
+    result["artist"] = artist
+    return result
 
 
 @app.post("/api/pricing/refresh-monthly")
