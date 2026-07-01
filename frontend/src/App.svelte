@@ -2373,6 +2373,7 @@
       .filter((item) => spec.category !== 'Games' || consoleScope === 'all' || item.platform === consoleScope)
       .filter((item) => includePopulated || spec.isEmpty(item));
     const wishlistPool = spec.category === 'Games' ? gameWishlist : musicWishlist;
+    // Console scope only narrows game library runs; wishlists stay part of the all-libraries scope only.
     const wishlistTargets = (consoleScope === 'all' ? wishlistPool : [])
       .filter((item) => includePopulated || spec.isEmptyWishlist(item));
     const total = libraryTargets.length + wishlistTargets.length;

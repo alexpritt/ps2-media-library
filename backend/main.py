@@ -3718,8 +3718,10 @@ def fetch_game_price_data(payload: PriceChartingPriceDataRequest, authorization:
     require_admin(authorization)
     title = payload.title.strip()
     platform = payload.platform.strip()
-    if not title or not platform:
-        raise HTTPException(status_code=400, detail="Game title and platform are required.")
+    if not title:
+        raise HTTPException(status_code=400, detail="Game title is required.")
+    if not platform:
+        raise HTTPException(status_code=400, detail="Platform is required.")
 
     try:
         fetched = fetch_pricecharting_price_data(title, platform)
@@ -3740,8 +3742,10 @@ def fetch_music_price_data(payload: DiscogsPriceDataRequest, authorization: Opti
     require_admin(authorization)
     title = payload.title.strip()
     artist = payload.artist.strip()
-    if not title or not artist:
-        raise HTTPException(status_code=400, detail="Album title and artist are required.")
+    if not title:
+        raise HTTPException(status_code=400, detail="Album title is required.")
+    if not artist:
+        raise HTTPException(status_code=400, detail="Artist is required.")
 
     try:
         fetched = fetch_discogs_price_data(title, artist)
