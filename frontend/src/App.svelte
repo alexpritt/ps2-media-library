@@ -7482,7 +7482,7 @@
                 <label class="fetch-tool-scope">
                   <span>Library</span>
                   <select bind:value={fetchToolConsoleScopes[tool.key]} disabled={fetchToolsBusy || fetchToolStates[tool.key].running}>
-                    <option value="all">All game libraries + wishlist</option>
+                    <option value="all">All game libraries + wish list</option>
                     <optgroup label="Single Console">
                       {#each adminConsoleOptions as consoleName}
                         <option value={consoleName}>{consoleName} library only</option>
