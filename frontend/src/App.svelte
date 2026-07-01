@@ -111,7 +111,7 @@
     appearancePreset?: string | null;
   };
 
-  type FetchToolKey = 'gameArt' | 'gameDetails' | 'musicArt' | 'musicDetails';
+  type FetchToolKey = 'gameArt' | 'gameDetails' | 'gamePrice' | 'musicArt' | 'musicDetails' | 'musicPrice';
 
   type FetchToolActivityEntry = {
     key: string;
@@ -246,8 +246,10 @@
   const fetchToolEntries: Array<{ key: FetchToolKey; title: string; description: string }> = [
     { key: 'gameArt', title: 'Game Art', description: 'Fetch cover, spine, and disc art for games in libraries and wish lists.' },
     { key: 'gameDetails', title: 'Game Details', description: 'Fetch notes, genre, publisher, release, ESRB, players, and co-op data.' },
+    { key: 'gamePrice', title: 'Game Price', description: 'Fetch PriceCharting price data for games in libraries and wish lists.' },
     { key: 'musicArt', title: 'Album Art', description: 'Fetch album covers for music entries in libraries and wish lists.' },
     { key: 'musicDetails', title: 'Album Details', description: 'Fetch music genre and release details for libraries and wish lists.' },
+    { key: 'musicPrice', title: 'Album Price', description: 'Fetch Discogs price data for music entries in libraries and wish lists.' },
   ];
 
   function apiPath(path: string) {
@@ -449,8 +451,18 @@
   let fetchToolStates: Record<FetchToolKey, FetchToolState> = {
     gameArt: createFetchToolState(),
     gameDetails: createFetchToolState(),
+    gamePrice: createFetchToolState(),
     musicArt: createFetchToolState(),
     musicDetails: createFetchToolState(),
+    musicPrice: createFetchToolState(),
+  };
+  let fetchToolConsoleScopes: Record<FetchToolKey, string> = {
+    gameArt: 'all',
+    gameDetails: 'all',
+    gamePrice: 'all',
+    musicArt: 'all',
+    musicDetails: 'all',
+    musicPrice: 'all',
   };
   let detailPriceSummary: DetailPriceSummaryEntry[] = [];
   let detailPriceData: DetailPriceData = {
@@ -2158,6 +2170,10 @@
     return isBlankTextValue(item.genre) || isBlankTextValue(item.release_date) || item.year_released == null;
   }
 
+  function isEmptyPriceData(item: MediaItem): boolean {
+    return isBlankTextValue(item.price_data_json);
+  }
+
   function resetFetchToolState(key: FetchToolKey) {
     fetchToolStates = {
       ...fetchToolStates,
@@ -2197,8 +2213,10 @@
     fetchToolStates = {
       gameArt: createFetchToolState(),
       gameDetails: createFetchToolState(),
+      gamePrice: createFetchToolState(),
       musicArt: createFetchToolState(),
       musicDetails: createFetchToolState(),
+      musicPrice: createFetchToolState(),
     };
   }
 
@@ -2270,15 +2288,23 @@
     return next;
   }
 
+  function applyPriceFetchToWishlistItem(item: WishlistMediaItem, fetched: any): WishlistMediaItem {
+    const next = { ...item };
+    const priceDataJson = typeof fetched?.price_data_json === 'string' ? fetched.price_data_json : '';
+    const priceLastFetchedAt = typeof fetched?.price_last_fetched_at === 'string' ? fetched.price_last_fetched_at : '';
+    if (priceDataJson) next.price_data_json = priceDataJson;
+    if (priceLastFetchedAt) next.price_last_fetched_at = priceLastFetchedAt;
+    return next;
+  }
+
   async function runFetchTool(key: FetchToolKey, includePopulated: boolean) {
     if (!isAdmin || fetchToolsBusy) return;
 
     type ToolSpec = {
       key: FetchToolKey;
       category: 'Games' | 'Music';
-      mode: 'art' | 'details';
+      mode: 'art' | 'details' | 'price';
       label: string;
-      endpointPrefix: '/api/fetch-tools/game/' | '/api/fetch-tools/music/';
       isEmpty: (item: MediaItem) => boolean;
       isEmptyWishlist: (item: WishlistMediaItem) => boolean;
     };
@@ -2298,16 +2324,22 @@
         category: 'Games',
         mode: 'details',
         label: 'game details',
-        endpointPrefix: '/api/fetch-tools/game/',
         isEmpty: isEmptyGameDetails,
         isEmptyWishlist: isEmptyGameDetails,
+      },
+      gamePrice: {
+        key: 'gamePrice',
+        category: 'Games',
+        mode: 'price',
+        label: 'game prices',
+        isEmpty: isEmptyPriceData,
+        isEmptyWishlist: isEmptyPriceData,
       },
       musicArt: {
         key: 'musicArt',
         category: 'Music',
         mode: 'art',
         label: 'album art',
-        endpointPrefix: '/api/fetch-tools/music/',
         isEmpty: isEmptyMusicArt,
         isEmptyWishlist: isEmptyMusicArt,
       },
@@ -2316,23 +2348,33 @@
         category: 'Music',
         mode: 'details',
         label: 'album details',
-        endpointPrefix: '/api/fetch-tools/music/',
         isEmpty: isEmptyMusicDetails,
         isEmptyWishlist: isEmptyMusicDetails,
+      },
+      musicPrice: {
+        key: 'musicPrice',
+        category: 'Music',
+        mode: 'price',
+        label: 'album prices',
+        isEmpty: isEmptyPriceData,
+        isEmptyWishlist: isEmptyPriceData,
       },
     };
 
     const spec = specs[key];
     if (!spec) return;
+    const consoleScope = spec.category === 'Games' ? (fetchToolConsoleScopes[key] ?? 'all') : 'all';
 
     fetchToolsCancelRequested = false;
     fetchToolsBusy = true;
     resetFetchToolState(key);
 
     const libraryTargets = allMedia.filter((item) => item.category === spec.category)
+      .filter((item) => spec.category !== 'Games' || consoleScope === 'all' || item.platform === consoleScope)
       .filter((item) => includePopulated || spec.isEmpty(item));
     const wishlistPool = spec.category === 'Games' ? gameWishlist : musicWishlist;
-    const wishlistTargets = wishlistPool.filter((item) => includePopulated || spec.isEmptyWishlist(item));
+    const wishlistTargets = (consoleScope === 'all' ? wishlistPool : [])
+      .filter((item) => includePopulated || spec.isEmptyWishlist(item));
     const total = libraryTargets.length + wishlistTargets.length;
 
     if (total === 0) {
@@ -2373,10 +2415,14 @@
       let activityStatus: FetchToolActivityEntry['status'] = 'success';
       let activityMessage = `No updates needed (${processed + 1}/${total}).`;
       try {
-        const response = await fetch(apiPath(`${spec.endpointPrefix}${item.id}`), {
+        const response = await fetch(apiPath(
+          spec.mode === 'price'
+            ? `/api/pricing/fetch/${item.id}`
+            : `${spec.category === 'Games' ? '/api/fetch-tools/game/' : '/api/fetch-tools/music/'}${item.id}`,
+        ), {
           method: 'POST',
           headers: mediaHeaders(),
-          body: JSON.stringify({ mode: spec.mode, force: includePopulated }),
+          body: spec.mode === 'price' ? undefined : JSON.stringify({ mode: spec.mode, force: includePopulated }),
         });
         if (response.status === 401) {
           adminToken = '';
@@ -2391,6 +2437,10 @@
           updateFetchToolState(key, { errorText: message });
           activityStatus = 'error';
           activityMessage = message;
+        } else if (spec.mode === 'price') {
+          updatedCount += 1;
+          upsertMediaItem(payload as MediaItem);
+          activityMessage = `Updated (${processed + 1}/${total}).`;
         } else if (payload?.changed) {
           updatedCount += 1;
           activityMessage = `Updated (${processed + 1}/${total}).`;
@@ -2435,10 +2485,14 @@
         let activityMessage = `No updates needed (${processed + 1}/${total}).`;
         try {
           if (wishlistKind === 'games') {
-            const response = await fetch(apiPath('/api/launchbox/game-data'), {
+            const response = await fetch(apiPath(spec.mode === 'price' ? '/api/pricing/game-data' : '/api/launchbox/game-data'), {
               method: 'POST',
               headers: mediaHeaders(),
-              body: JSON.stringify({ title: item.title, platform: item.platform ?? selectedConsole ?? '', item_id: null }),
+              body: JSON.stringify(
+                spec.mode === 'price'
+                  ? { title: item.title, platform: item.platform ?? selectedConsole ?? '' }
+                  : { title: item.title, platform: item.platform ?? selectedConsole ?? '', item_id: null },
+              ),
             });
             if (response.status === 401) {
               adminToken = '';
@@ -2448,7 +2502,9 @@
             }
             const payload = await response.json().catch(() => null);
             if (response.ok) {
-              const nextItem = applyGameFetchToWishlistItem(item, payload, spec.mode, includePopulated);
+              const nextItem = spec.mode === 'price'
+                ? applyPriceFetchToWishlistItem(item, payload)
+                : applyGameFetchToWishlistItem(item, payload, spec.mode, includePopulated);
               if (JSON.stringify(nextItem) !== JSON.stringify(item)) {
                 updatedCount += 1;
                 gameWishlist = gameWishlist.map((entry) => entry.wishlistId === item.wishlistId ? nextItem : entry);
@@ -2464,10 +2520,10 @@
               activityMessage = message;
             }
           } else {
-            const response = await fetch(apiPath('/api/deezer/music-data'), {
+            const response = await fetch(apiPath(spec.mode === 'price' ? '/api/pricing/music-data' : '/api/deezer/music-data'), {
               method: 'POST',
               headers: mediaHeaders(),
-              body: JSON.stringify({ title: item.title, artist: item.artist ?? '' }),
+              body: JSON.stringify(spec.mode === 'price' ? { title: item.title, artist: item.artist ?? '' } : { title: item.title, artist: item.artist ?? '' }),
             });
             if (response.status === 401) {
               adminToken = '';
@@ -2477,7 +2533,9 @@
             }
             const payload = await response.json().catch(() => null);
             if (response.ok) {
-              const nextItem = applyMusicFetchToWishlistItem(item, payload, spec.mode, includePopulated);
+              const nextItem = spec.mode === 'price'
+                ? applyPriceFetchToWishlistItem(item, payload)
+                : applyMusicFetchToWishlistItem(item, payload, spec.mode, includePopulated);
               if (JSON.stringify(nextItem) !== JSON.stringify(item)) {
                 updatedCount += 1;
                 musicWishlist = musicWishlist.map((entry) => entry.wishlistId === item.wishlistId ? nextItem : entry);
@@ -7387,6 +7445,17 @@
               <p>{tool.description}</p>
             </div>
             <div class="fetch-tool-actions">
+              {#if tool.key === 'gameArt' || tool.key === 'gameDetails' || tool.key === 'gamePrice'}
+                <label class="fetch-tool-scope">
+                  <span>Library</span>
+                  <select bind:value={fetchToolConsoleScopes[tool.key]} disabled={fetchToolsBusy || fetchToolStates[tool.key].running}>
+                    <option value="all">All game libraries + wish list</option>
+                    {#each adminConsoleOptions as consoleName}
+                      <option value={consoleName}>{consoleName} library only</option>
+                    {/each}
+                  </select>
+                </label>
+              {/if}
               <button
                 type="button"
                 class="fetch-tool-button fetch-tool-button--empty"
