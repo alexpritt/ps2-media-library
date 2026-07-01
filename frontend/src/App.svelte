@@ -2523,7 +2523,7 @@
             const response = await fetch(apiPath(spec.mode === 'price' ? '/api/pricing/music-data' : '/api/deezer/music-data'), {
               method: 'POST',
               headers: mediaHeaders(),
-              body: JSON.stringify(spec.mode === 'price' ? { title: item.title, artist: item.artist ?? '' } : { title: item.title, artist: item.artist ?? '' }),
+              body: JSON.stringify({ title: item.title, artist: item.artist ?? '' }),
             });
             if (response.status === 401) {
               adminToken = '';
@@ -7449,10 +7449,12 @@
                 <label class="fetch-tool-scope">
                   <span>Library</span>
                   <select bind:value={fetchToolConsoleScopes[tool.key]} disabled={fetchToolsBusy || fetchToolStates[tool.key].running}>
-                    <option value="all">All game libraries + wish list</option>
-                    {#each adminConsoleOptions as consoleName}
-                      <option value={consoleName}>{consoleName} library only</option>
-                    {/each}
+                    <option value="all">All game libraries + wishlist</option>
+                    <optgroup label="Single Console">
+                      {#each adminConsoleOptions as consoleName}
+                        <option value={consoleName}>{consoleName} library only</option>
+                      {/each}
+                    </optgroup>
                   </select>
                 </label>
               {/if}
