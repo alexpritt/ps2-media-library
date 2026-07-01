@@ -5052,6 +5052,26 @@ select option {
   gap: 8px;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.fetch-tool-scope {
+  display: grid;
+  gap: 4px;
+  min-width: min(260px, 100%);
+  color: rgba(225, 235, 255, 0.82);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fetch-tool-scope select {
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(11, 16, 26, 0.88);
+  color: rgba(255, 255, 255, 0.92);
+  padding: 0 12px;
 }
 
 .fetch-tool-actions .fetch-tool-button {
@@ -5781,7 +5801,13 @@ select option {
 
   .fetch-tool-actions {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fetch-tool-actions .fetch-tool-button--empty,
+  .fetch-tool-actions .fetch-tool-button--all,
+  .fetch-tool-scope {
+    margin: 0;
   }
 
     /* price chip stacking already column-based on all breakpoints */
